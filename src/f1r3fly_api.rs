@@ -6,7 +6,7 @@ use f1r3fly_models::casper::v1::is_finalized_response::Message as IsFinalizedRes
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
 use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
 use f1r3fly_models::casper::{
-    BlocksQuery, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery, LightBlockInfo,
+    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery, LightBlockInfo,
     ProposeQuery,
 };
 use f1r3fly_models::rhoapi::Par;
@@ -591,6 +591,60 @@ impl<'a> F1r3flyApi<'a> {
         // Send the query and collect streaming response
         let mut stream = deploy_service_client
             .show_main_chain(query)
+            .await?
+            .into_inner();
+
+        let mut blocks = Vec::new();
+        while let Some(response) = stream.message().await? {
+            if let Some(message) = response.message {
+                match message {
+                    Message::Error(service_error) => {
+                        return Err(
+                            format!("gRPC Error: {}", service_error.messages.join("; ")).into()
+                        );
+                    }
+                    Message::BlockInfo(block_info) => {
+                        blocks.push(block_info);
+                    }
+                }
+            }
+        }
+
+        Ok(blocks)
+    }
+
+    /// Gets blocks by height range from the blockchain
+    ///
+    /// # Arguments
+    ///
+    /// * `start_block_number` - Start block number (inclusive)
+    /// * `end_block_number` - End block number (inclusive)
+    ///
+    /// # Returns
+    ///
+    /// A vector of LightBlockInfo representing blocks in the specified height range
+    pub async fn get_blocks_by_height(
+        &self,
+        start_block_number: i64,
+        end_block_number: i64,
+    ) -> Result<Vec<LightBlockInfo>, Box<dyn std::error::Error>> {
+        use f1r3fly_models::casper::v1::block_info_response::Message;
+        use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
+
+        // Connect to the F1r3fly node
+        let mut deploy_service_client =
+            DeployServiceClient::connect(format!("http://{}:{}/", self.node_host, self.grpc_port))
+                .await?;
+
+        // Create the query
+        let query = BlocksQueryByHeight {
+            start_block_number,
+            end_block_number,
+        };
+
+        // Send the query and collect streaming response
+        let mut stream = deploy_service_client
+            .get_blocks_by_heights(query)
             .await?
             .into_inner();
 

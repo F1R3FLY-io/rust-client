@@ -1211,3 +1211,68 @@ fn parse_validator_data(json_str: &str) -> Vec<String> {
     validators.dedup();
     validators
 }
+
+pub async fn get_blocks_by_height_command(
+    args: &GetBlocksByHeightArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "🔗 Getting blocks by height range from {}:{}",
+        args.host, args.port
+    );
+    println!("📊 Block range: {} to {}", args.start_block_number, args.end_block_number);
+
+    // Validate block range
+    if args.start_block_number > args.end_block_number {
+        return Err("Start block number must be less than or equal to end block number".into());
+    }
+
+    if args.start_block_number < 0 || args.end_block_number < 0 {
+        return Err("Block numbers must be non-negative".into());
+    }
+
+    // Initialize the F1r3fly API client
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+
+    let start_time = Instant::now();
+
+    match f1r3fly_api.get_blocks_by_height(args.start_block_number, args.end_block_number).await {
+        Ok(blocks) => {
+            let duration = start_time.elapsed();
+            println!("✅ Blocks retrieved successfully!");
+            println!("⏱️  Time taken: {:.2?}", duration);
+            println!("📋 Found {} blocks in height range", blocks.len());
+            println!();
+
+            if blocks.is_empty() {
+                println!("🔍 No blocks found in the specified height range");
+            } else {
+                println!("🧱 Blocks by Height:");
+                for (index, block) in blocks.iter().enumerate() {
+                    println!("📦 Block #{}:", block.block_number);
+                    println!("   🔗 Hash: {}", block.block_hash);
+                    let sender_display = if block.sender.len() >= 16 {
+                        format!("{}...", &block.sender[..16])
+                    } else if block.sender.is_empty() {
+                        "(genesis)".to_string()
+                    } else {
+                        block.sender.clone()
+                    };
+                    println!("   👤 Sender: {}", sender_display);
+                    println!("   ⏰ Timestamp: {}", block.timestamp);
+                    println!("   📦 Deploy Count: {}", block.deploy_count);
+                    println!("   ⚖️  Fault Tolerance: {:.6}", block.fault_tolerance);
+                    if index < blocks.len() - 1 {
+                        println!("   ⬇️");
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            println!("❌ Failed to get blocks by height!");
+            println!("Error: {}", e);
+            return Err(e);
+        }
+    }
+
+    Ok(())
+}

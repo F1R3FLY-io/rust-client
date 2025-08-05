@@ -88,6 +88,9 @@ pub enum Commands {
 
     /// Get network-wide consensus health overview
     NetworkConsensus(PosQueryArgs),
+
+    /// Get blocks by height range
+    GetBlocksByHeight(GetBlocksByHeightArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -358,6 +361,33 @@ pub struct ShowMainChainArgs {
     /// Number of blocks to fetch from main chain (default: 10)
     #[arg(short, long, default_value_t = 10)]
     pub depth: u32,
+
+    /// Private key in hex format (required for gRPC)
+    #[arg(
+        long,
+        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+    )]
+    pub private_key: String,
+}
+
+/// Arguments for get-blocks-by-height command
+#[derive(Parser)]
+pub struct GetBlocksByHeightArgs {
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// gRPC port number
+    #[arg(short, long, default_value_t = 40412)]
+    pub port: u16,
+
+    /// Start block number (inclusive)
+    #[arg(short, long)]
+    pub start_block_number: i64,
+
+    /// End block number (inclusive)
+    #[arg(short, long)]
+    pub end_block_number: i64,
 
     /// Private key in hex format (required for gRPC)
     #[arg(

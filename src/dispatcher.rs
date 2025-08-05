@@ -70,6 +70,9 @@ impl Dispatcher {
             Commands::NetworkConsensus(args) => network_consensus_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::GetBlocksByHeight(args) => get_blocks_by_height_command(args)
+                .await
+                .map_err(NodeCliError::from),
         };
 
         // Handle errors with better formatting
@@ -141,6 +144,7 @@ impl Dispatcher {
             Commands::ValidatorStatus(_) => "validator-status",
             Commands::EpochRewards(_) => "epoch-rewards",
             Commands::NetworkConsensus(_) => "network-consensus",
+            Commands::GetBlocksByHeight(_) => "get-blocks-by-height",
         }
     }
 }

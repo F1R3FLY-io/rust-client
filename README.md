@@ -320,6 +320,33 @@ cargo run -- show-main-chain -H node.example.com -p 40412 -d 20
 cargo run -- show-main-chain --private-key YOUR_PRIVATE_KEY
 ```
 
+### Get Blocks by Height
+
+Get blocks within a specific height range from the blockchain.
+
+```bash
+# Get blocks between height 100 and 105 (inclusive)
+cargo run -- get-blocks-by-height -s 100 -e 105
+
+# Get blocks from custom node
+cargo run -- get-blocks-by-height -s 50 -e 75 -H node.example.com -p 40412
+
+# Use custom private key for authentication
+cargo run -- get-blocks-by-height -s 1 -e 10 --private-key YOUR_PRIVATE_KEY
+
+# Get a single block by height (start and end the same)
+cargo run -- get-blocks-by-height -s 42 -e 42
+```
+
+**Parameters:**
+- `-s, --start-block-number`: Start block number (inclusive)
+- `-e, --end-block-number`: End block number (inclusive)
+- `-H, --host`: Node hostname (default: localhost)
+- `-p, --port`: gRPC port (default: 40412)
+- `--private-key`: Private key for gRPC authentication
+
+**Note:** The command validates that start block number ≤ end block number and both are non-negative.
+
 ## Dynamic Validator Addition Commands
 
 The CLI provides commands for dynamically adding validators to a running F1r3fly network, based on the procedures outlined in the `add-validator-dynamically.md` guide.
@@ -542,6 +569,14 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-H, --host <HOST>`: Host address (default: "localhost")
 - `-p, --port <PORT>`: gRPC port number (default: 40412)
 - `-d, --depth <DEPTH>`: Number of blocks to fetch from main chain (default: 10)
+- `--private-key <PRIVATE_KEY>`: Private key in hex format (required for gRPC)
+
+### Get-Blocks-By-Height Command
+
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40412)
+- `-s, --start-block-number <START>`: Start block number (inclusive)
+- `-e, --end-block-number <END>`: End block number (inclusive)
 - `--private-key <PRIVATE_KEY>`: Private key in hex format (required for gRPC)
 
 ### Bond-Validator Command
