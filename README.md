@@ -4,8 +4,7 @@ A command-line interface for interacting with F1r3fly nodes.
 
 ### Prerequisites
 
-- [Environment set up](../README.md#installation).
-- [Running Node](../README.md#running)
+- [Running Node](https://github.com/F1R3FLY-io/f1r3fly/tree/preston/rholang_rust?tab=readme-ov-file#running)
 
 ## Building
 
