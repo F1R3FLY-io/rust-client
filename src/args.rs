@@ -489,6 +489,18 @@ pub struct NetworkHealthArgs {
     pub host: String,
 }
 
+pub struct WaitArgs {
+    pub private_key: String,
+
+    pub max_attempts: u32,
+    pub check_interval: u64,
+
+    pub http_args: HttpArgs,
+
+    pub observer_host: String,
+    pub observer_grpc_port: u16,
+}
+
 /// Arguments for transfer command
 #[derive(Parser)]
 pub struct TransferArgs {
@@ -570,4 +582,47 @@ pub struct PosQueryArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+}
+
+impl WaitArgs {
+    pub fn from_transfer_args(a: &TransferArgs) -> Self {
+        Self {
+            private_key: a.private_key.clone(),
+            max_attempts: (a.max_wait / a.check_interval) as u32,
+            check_interval: a.check_interval,
+            http_args: {
+                HttpArgs {
+                    host: a.host.clone(),
+                    port: a.http_port,
+                }
+            },
+            observer_host: a.observer_host.clone().unwrap_or(a.host.clone()),
+            observer_grpc_port: a.observer_port.unwrap_or(40452),
+        }
+    }
+}
+
+impl GetDeployArgs {
+    pub fn from_wait_args(a: &WaitArgs, deploy_id: String, format: String) -> Self {
+        Self {
+            deploy_id,
+            host: a.http_args.host.clone(),
+            http_port: a.http_args.port,
+            format,
+            verbose: false,
+        }
+    }
+}
+
+impl IsFinalizedArgs {
+    pub fn from_wait_args(block_hash: String, a: &WaitArgs) -> Self {
+        Self {
+            block_hash,
+            private_key: a.private_key.clone(),
+            host: a.observer_host.clone(),
+            port: a.observer_grpc_port,
+            max_attempts: a.max_attempts,
+            retry_delay: a.check_interval,
+        }
+    }
 }

@@ -299,12 +299,14 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
 
 pub async fn wallet_balance_command(
     args: &WalletBalanceArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔍 Checking wallet balance for address: {}", args.address);
+) -> Result<(String, String), Box<dyn std::error::Error>> {
+    println!(
+        "🔍 Checking wallet balance for address: {}, host: {}, port: {}",
+        args.address, args.host, args.port
+    );
 
-    // Use F1r3fly API with gRPC (like exploratory-deploy)
     let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // Bootstrap private key
+        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
         &args.host,
         args.port,
     );
@@ -338,12 +340,14 @@ pub async fn wallet_balance_command(
         .exploratory_deploy(&rholang_query, None, false)
         .await
     {
-        Ok((result, block_info)) => {
+        Ok((balance, block_info)) => {
             let duration = start_time.elapsed();
             println!("✅ Wallet balance retrieved successfully!");
             println!("⏱️  Time taken: {:.2?}", duration);
-            println!("💰 Balance for {}: {} REV", args.address, result);
+            println!("💰 Balance for {}: {} REV", args.address, balance);
             println!("📊 {}", block_info);
+
+            return Ok((balance, block_info));
         }
         Err(e) => {
             println!("❌ Failed to get wallet balance!");
@@ -351,8 +355,6 @@ pub async fn wallet_balance_command(
             return Err(e.into());
         }
     }
-
-    Ok(())
 }
 
 pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -1219,7 +1221,10 @@ pub async fn get_blocks_by_height_command(
         "🔗 Getting blocks by height range from {}:{}",
         args.host, args.port
     );
-    println!("📊 Block range: {} to {}", args.start_block_number, args.end_block_number);
+    println!(
+        "📊 Block range: {} to {}",
+        args.start_block_number, args.end_block_number
+    );
 
     // Validate block range
     if args.start_block_number > args.end_block_number {
@@ -1235,7 +1240,10 @@ pub async fn get_blocks_by_height_command(
 
     let start_time = Instant::now();
 
-    match f1r3fly_api.get_blocks_by_height(args.start_block_number, args.end_block_number).await {
+    match f1r3fly_api
+        .get_blocks_by_height(args.start_block_number, args.end_block_number)
+        .await
+    {
         Ok(blocks) => {
             let duration = start_time.elapsed();
             println!("✅ Blocks retrieved successfully!");

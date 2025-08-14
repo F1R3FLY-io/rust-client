@@ -1,8 +1,8 @@
 use crate::error::{NodeCliError, Result};
 use f1r3fly_crypto::rust::public_key::PublicKey;
+use f1r3fly_rholang::rust::interpreter::util::rev_address::RevAddress;
 use hex;
 use rand::rngs::OsRng;
-use f1r3fly_rholang::rust::interpreter::util::rev_address::RevAddress;
 use secp256k1::{PublicKey as Secp256k1PublicKey, Secp256k1, SecretKey};
 use std::fs;
 use std::path::Path;

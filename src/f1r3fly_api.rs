@@ -6,8 +6,8 @@ use f1r3fly_models::casper::v1::is_finalized_response::Message as IsFinalizedRes
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
 use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
 use f1r3fly_models::casper::{
-    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery, LightBlockInfo,
-    ProposeQuery,
+    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery,
+    LightBlockInfo, ProposeQuery,
 };
 use f1r3fly_models::rhoapi::Par;
 use f1r3fly_models::ByteString;
@@ -33,10 +33,9 @@ pub struct DeployInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DeployStatus {
-    Pending,       // Deploy submitted but not yet in a block
-    Included,      // Deploy included in a block
-    NotFound,      // Deploy ID not found
-    Error(String), // Error occurred
+    Deploying,           // Deploy submitted but not yet in a block
+    Included,            // Deploy included in a block
+    DeployError(String), // Error occurred or Id not found
 }
 
 /// Client for interacting with the F1r3fly API
@@ -505,7 +504,7 @@ impl<'a> F1r3flyApi<'a> {
                         shard_id: None,
                         version: None,
                         timestamp: None,
-                        status: DeployStatus::NotFound,
+                        status: DeployStatus::DeployError(format!("Deploy ID not found")),
                     })
                 } else {
                     let status = response.status();
@@ -526,7 +525,7 @@ impl<'a> F1r3flyApi<'a> {
                             shard_id: None,
                             version: None,
                             timestamp: None,
-                            status: DeployStatus::Pending,
+                            status: DeployStatus::Deploying,
                         })
                     } else {
                         Ok(DeployInfo {
@@ -539,7 +538,7 @@ impl<'a> F1r3flyApi<'a> {
                             shard_id: None,
                             version: None,
                             timestamp: None,
-                            status: DeployStatus::Error(format!(
+                            status: DeployStatus::DeployError(format!(
                                 "HTTP error {}: {}",
                                 status, error_body
                             )),
@@ -557,7 +556,7 @@ impl<'a> F1r3flyApi<'a> {
                 shard_id: None,
                 version: None,
                 timestamp: None,
-                status: DeployStatus::Error(format!("Network error: {}", e)),
+                status: DeployStatus::DeployError(format!("Network error: {}", e)),
             }),
         }
     }
@@ -767,7 +766,9 @@ fn extract_par_data(par: &Par) -> Option<String> {
         if let Some(instance) = &expr.expr_instance {
             match instance {
                 // Handle different types of expressions
-                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => Some(format!("\"{}\"", s)),
+                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => {
+                    Some(format!("\"{}\"", s))
+                }
                 f1r3fly_models::rhoapi::expr::ExprInstance::GInt(i) => Some(i.to_string()),
                 f1r3fly_models::rhoapi::expr::ExprInstance::GBool(b) => Some(b.to_string()),
                 // Add other types as needed
