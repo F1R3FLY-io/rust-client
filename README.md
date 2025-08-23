@@ -393,19 +393,36 @@ cargo run -- transfer --to-address RECIPIENT_ADDRESS --amount 1000 -H node.examp
 
 Check the health and connectivity of multiple nodes in your F1r3fly shard.
 
+**Local Development (Single Host):**
 ```bash
 # Check standard F1r3fly shard ports (bootstrap, validator1, validator2, observer)
 cargo run -- network-health
+
+# Check localhost with explicit host flag (same as above)
+cargo run -- network-health -H localhost
 
 # Check network health with custom additional ports (e.g., after adding validator3)
 cargo run -- network-health --custom-ports "60503"
 
 # Check only custom ports (disable standard ports)
 cargo run -- network-health --standard-ports false --custom-ports "60503,70503"
-
-# Check network health on different host
-cargo run -- network-health -H node.example.com --custom-ports "60503"
 ```
+
+**Multi-Host / Remote Networks:**
+```bash
+# For remote hosts, you MUST specify --custom-ports (no standard port assumptions)
+cargo run -- network-health -H testnet.example.com --custom-ports "8001,8002,9443"
+
+# Single remote node
+cargo run -- network-health -H validator.net --custom-ports "7890"
+
+# Different hosts require separate commands
+cargo run -- network-health -H host1.com --custom-ports "8001"
+cargo run -- network-health -H host2.com --custom-ports "8002" 
+cargo run -- network-health -H host3.com --custom-ports "9443"
+```
+
+**Note:** Remote hosts don't use standard F1r3fly ports (40403, 40413, etc.). You must explicitly specify the actual ports in use with `--custom-ports` to avoid connection failures.
 
 ### Epoch Info
 

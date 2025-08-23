@@ -497,6 +497,12 @@ pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::
 pub async fn network_health_command(
     args: &NetworkHealthArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Validate host and ports combination early
+    if let Err(e) = validate_host_and_ports(&args.host, &args.custom_ports) {
+        println!("❌ {}", e);
+        return Err(e.into());
+    }
+
     println!("🌐 Checking F1r3fly network health");
 
     let mut ports_to_check = Vec::new();
@@ -1275,4 +1281,29 @@ pub async fn get_blocks_by_height_command(
     }
 
     Ok(())
+}
+
+/// Validates that when using -H with a remote host, --custom-ports must be specified
+fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<(), String> {
+    match (host, custom_ports) {
+        // Remote host without custom ports - ERROR
+        (h, None) if h != "localhost" && h != "127.0.0.1" => {
+            Err(format!(
+                "When using -H with remote host '{}', you must specify --custom-ports\n\
+                \n\
+                Remote hosts don't use standard F1r3fly ports. Specify the actual ports:\n\
+                \n\
+                Examples:\n\
+                  cargo run -- network-health -H {} --custom-ports \"8001,8002,9443\"\n\
+                  cargo run -- network-health -H {} --custom-ports \"7890\"\n\
+                \n\
+                For localhost, standard ports are assumed:\n\
+                  cargo run -- network-health -H localhost  (uses standard ports)\n\
+                  cargo run -- network-health              (uses localhost + standard ports)",
+                h, h, h
+            ))
+        }
+        // All other combinations are valid
+        _ => Ok(())
+    }
 }
