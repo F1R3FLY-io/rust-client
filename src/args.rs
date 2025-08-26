@@ -91,6 +91,9 @@ pub enum Commands {
 
     /// Get blocks by height range
     GetBlocksByHeight(GetBlocksByHeightArgs),
+
+    /// Extract node ID from TLS private key file
+    GetNodeId(GetNodeIdArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -570,4 +573,28 @@ pub struct PosQueryArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+}
+
+/// Arguments for get-node-id command
+#[derive(Parser, Debug)]
+pub struct GetNodeIdArgs {
+    /// Path to the TLS private key file (node.key.pem)
+    #[arg(short, long)]
+    pub key_file: String,
+
+    /// Output format (hex, rnode-url)
+    #[arg(short, long, default_value = "hex")]
+    pub format: String,
+
+    /// Node hostname for rnode-url format
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// Protocol port for rnode-url format
+    #[arg(long, default_value_t = 40400)]
+    pub protocol_port: u16,
+
+    /// Discovery port for rnode-url format
+    #[arg(long, default_value_t = 40404)]
+    pub discovery_port: u16,
 }

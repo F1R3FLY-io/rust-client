@@ -73,6 +73,7 @@ impl Dispatcher {
             Commands::GetBlocksByHeight(args) => get_blocks_by_height_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::GetNodeId(args) => get_node_id_command(args).map_err(NodeCliError::from),
         };
 
         // Handle errors with better formatting
@@ -145,6 +146,7 @@ impl Dispatcher {
             Commands::EpochRewards(_) => "epoch-rewards",
             Commands::NetworkConsensus(_) => "network-consensus",
             Commands::GetBlocksByHeight(_) => "get-blocks-by-height",
+            Commands::GetNodeId(_) => "get-node-id",
         }
     }
 }

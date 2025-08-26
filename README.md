@@ -173,6 +173,25 @@ cargo run -- generate-rev-address --private-key YOUR_PRIVATE_KEY
 cargo run -- generate-rev-address --public-key YOUR_PUBLIC_KEY
 ```
 
+### Get Node ID
+
+Extract the F1R3FLY node ID from a TLS private key file. The node ID is a 40-character hexadecimal string derived from the Keccak-256 hash of the TLS public key (removing the '04' prefix).
+
+```bash
+# Extract node ID from TLS key file (hex format)
+cargo run -- get-node-id --key-file /path/to/node.key.pem
+
+# Extract node ID and generate RNode URL format
+cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url
+
+# Generate RNode URL with custom host and ports
+cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url --host mynode.com --protocol-port 40400 --discovery-port 40404
+```
+
+**Output formats:**
+- `hex` (default): Returns just the 40-character node ID
+- `rnode-url`: Returns both the node ID and a complete RNode URL for network connections
+
 ### Transfer REV
 
 Transfer REV tokens between addresses. The command automatically derives the sender address from the private key and deploys a transfer contract.
@@ -535,6 +554,14 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-c, --compressed`: Output public key in compressed format (shorter)
 - `-s, --save`: Save keys to files instead of displaying them
 - `-o, --output-dir <DIR>`: Output directory for saved keys (default: current directory)
+
+### Get-Node-ID Command
+
+- `-k, --key-file <KEY_FILE>`: Path to the TLS private key file (node.key.pem) (required)
+- `-f, --format <FORMAT>`: Output format: "hex" (default) or "rnode-url"
+- `-H, --host <HOST>`: Node hostname for rnode-url format (default: "localhost")
+- `--protocol-port <PROTOCOL_PORT>`: Protocol port for rnode-url format (default: 40400)
+- `--discovery-port <DISCOVERY_PORT>`: Discovery port for rnode-url format (default: 40404)
 
 ### Status Command
 
