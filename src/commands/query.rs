@@ -785,12 +785,17 @@ pub async fn validator_status_command(
     let client = reqwest::Client::new();
     let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
 
-    // Execute all queries and get current block
-    let (bonds_result, active_result, quarantine_result, current_block) = tokio::try_join!(
+    // Get main chain tip first to ensure consistent state reference
+    let main_chain = f1r3fly_api.show_main_chain(1).await?;
+    let tip_block = main_chain.first().ok_or("No blocks found in main chain")?;
+    let current_block = tip_block.block_number;
+    let tip_block_hash = &tip_block.block_hash;
+
+    // Execute all queries using explicit tip block hash for consistency
+    let (bonds_result, active_result, quarantine_result) = tokio::try_join!(
         query_pos_http(&client, &http_url, bonds_query),
         query_pos_http(&client, &http_url, active_query),
-        f1r3fly_api.exploratory_deploy(quarantine_query, None, false),
-        f1r3fly_api.get_current_block_number()
+        f1r3fly_api.exploratory_deploy(quarantine_query, Some(tip_block_hash), false),
     )?;
 
     let duration = start_time.elapsed();
@@ -906,11 +911,16 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
         }
     }"#;
 
-    // Get all data in parallel for efficiency
-    let (epoch_result, quarantine_result, current_block, recent_blocks) = tokio::try_join!(
-        f1r3fly_api.exploratory_deploy(epoch_length_query, None, false),
-        f1r3fly_api.exploratory_deploy(quarantine_length_query, None, false),
-        f1r3fly_api.get_current_block_number(),
+    // Get main chain tip first to ensure consistent state reference
+    let main_chain = f1r3fly_api.show_main_chain(1).await?;
+    let tip_block = main_chain.first().ok_or("No blocks found in main chain")?;
+    let current_block = tip_block.block_number;
+    let tip_block_hash = &tip_block.block_hash;
+
+    // Get epoch and quarantine data using explicit tip block hash for consistency
+    let (epoch_result, quarantine_result, recent_blocks) = tokio::try_join!(
+        f1r3fly_api.exploratory_deploy(epoch_length_query, Some(tip_block_hash), false),
+        f1r3fly_api.exploratory_deploy(quarantine_length_query, Some(tip_block_hash), false),
         f1r3fly_api.show_main_chain(5)
     )?;
 
@@ -1119,11 +1129,16 @@ pub async fn network_consensus_command(
         }
     }"#;
 
-    let (bonds_result, active_result, quarantine_result, current_block) = tokio::try_join!(
+    // Get main chain tip first to ensure consistent state reference
+    let main_chain = f1r3fly_api.show_main_chain(1).await?;
+    let tip_block = main_chain.first().ok_or("No blocks found in main chain")?;
+    let current_block = tip_block.block_number;
+    let tip_block_hash = &tip_block.block_hash;
+
+    let (bonds_result, active_result, quarantine_result) = tokio::try_join!(
         query_pos_http(&client, &http_url, bonds_query),
         query_pos_http(&client, &http_url, active_query),
-        f1r3fly_api.exploratory_deploy(quarantine_query, None, false),
-        f1r3fly_api.get_current_block_number()
+        f1r3fly_api.exploratory_deploy(quarantine_query, Some(tip_block_hash), false),
     )?;
 
     let duration = start_time.elapsed();
