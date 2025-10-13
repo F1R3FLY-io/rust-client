@@ -6,6 +6,8 @@ A command-line interface for interacting with F1r3fly nodes.
 
 - [Running Node](https://github.com/F1R3FLY-io/f1r3fly/tree/rust/dev?tab=readme-ov-file#running)
 
+> **Note:** The commands in this CLI work out of the box with the Docker setup found in the [f1r3node Docker README](https://github.com/F1R3FLY-io/f1r3node/blob/main/docker/README.md). The default ports and configuration align with the standard F1r3fly Docker deployment.
+
 ## Building
 
 ```bash
@@ -191,6 +193,49 @@ cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url --h
 **Output formats:**
 - `hex` (default): Returns just the 40-character node ID
 - `rnode-url`: Returns both the node ID and a complete RNode URL for network connections
+
+### Watch Blocks
+
+Monitor real-time block events from a F1r3fly node via WebSocket. This command connects to the node's `/ws/events` endpoint and streams block creation, validation, and finalization events with detailed information including deploy IDs. Automatically reconnects on disconnect (10 retries every 10 seconds by default).
+
+```bash
+# Watch all block events (created, added, and finalized)
+cargo run -- watch-blocks
+
+# Watch from remote node
+cargo run -- watch-blocks -H node.example.com --http-port 40403
+
+# Filter to show only created blocks
+cargo run -- watch-blocks --filter created
+
+# Filter to show only added blocks (validated and added to DAG)
+cargo run -- watch-blocks --filter added
+
+# Filter to show only finalized blocks
+cargo run -- watch-blocks --filter finalized
+
+# Retry reconnection forever until manually killed (Ctrl+C)
+cargo run -- watch-blocks --retry-forever
+```
+
+**Features:**
+- Human-readable formatted output with emojis
+- Shows block hash, creator, sequence number, parents count, and deploy IDs for created/added blocks
+- Shows block hash for finalized blocks
+- Automatic reconnection on disconnect (10 attempts by default, or infinite with `--retry-forever`)
+- 10 second intervals between reconnection attempts
+- Real-time event statistics on exit (counts created, added, and finalized events)
+
+**Event Types:**
+- `created` - New block proposed by a validator (includes all block details and deploy IDs)
+- `added` - Block validated and added to the DAG (includes all block details and deploy IDs)
+- `finalized` - Block reached finalized status (shows block hash)
+
+**Options:**
+- `-H, --host <HOST>` - Node hostname (default: localhost)
+- `--http-port <PORT>` - HTTP port for WebSocket (default: 40403)
+- `-f, --filter <TYPE>` - Show only specific event type (created/added/finalized)
+- `--retry-forever` - Keep trying to reconnect indefinitely until manually killed (Ctrl+C)
 
 ### Transfer REV
 
