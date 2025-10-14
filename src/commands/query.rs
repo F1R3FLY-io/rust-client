@@ -310,10 +310,10 @@ pub async fn wallet_balance_command(
     );
 
     let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), revVaultCh, vaultCh, balanceCh in {{
-            rl!(`rho:rchain:revVault`, *revVaultCh) |
-            for (@(_, RevVault) <- revVaultCh) {{
-                @RevVault!("findOrCreate", "{}", *vaultCh) |
+        r#"new return, rl(`rho:registry:lookup`), asiVaultCh, vaultCh, balanceCh in {{
+            rl!(`rho:rchain:asiVault`, *asiVaultCh) |
+            for (@(_, ASIVault) <- asiVaultCh) {{
+                @ASIVault!("findOrCreate", "{}", *vaultCh) |
                 for (@either <- vaultCh) {{
                     match either {{
                         (true, vault) => {{

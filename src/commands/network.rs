@@ -854,18 +854,18 @@ fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust:
     deployerId(`rho:rchain:deployerId`),
     stdout(`rho:io:stdout`),
     rl(`rho:registry:lookup`),
-    revVaultCh,
+    asiVaultCh,
     vaultCh,
     toVaultCh,
-    revVaultKeyCh,
+    asiVaultKeyCh,
     resultCh
 in {{
-  rl!(`rho:rchain:revVault`, *revVaultCh) |
-  for (@(_, RevVault) <- revVaultCh) {{
-    @RevVault!("findOrCreate", "{}", *vaultCh) |
-    @RevVault!("findOrCreate", "{}", *toVaultCh) |
-    @RevVault!("deployerAuthKey", *deployerId, *revVaultKeyCh) |
-    for (@(true, vault) <- vaultCh; key <- revVaultKeyCh; @(true, toVault) <- toVaultCh) {{
+  rl!(`rho:rchain:asiVault`, *asiVaultCh) |
+  for (@(_, ASIVault) <- asiVaultCh) {{
+    @ASIVault!("findOrCreate", "{}", *vaultCh) |
+    @ASIVault!("findOrCreate", "{}", *toVaultCh) |
+    @ASIVault!("deployerAuthKey", *deployerId, *asiVaultKeyCh) |
+    for (@(true, vault) <- vaultCh; key <- asiVaultKeyCh; @(true, toVault) <- toVaultCh) {{
       @vault!("transfer", "{}", {}, *key, *resultCh) |
       for (@result <- resultCh) {{
         match result {{
