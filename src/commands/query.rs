@@ -312,9 +312,9 @@ pub async fn wallet_balance_command(
     );
 
     let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), ASIVaultCh, vaultCh, balanceCh in {{
-            rl!(`rho:rchain:asiVault`, *ASIVaultCh) |
-            for (@(_, ASIVault) <- ASIVaultCh) {{
+        r#"new return, rl(`rho:registry:lookup`), asiVaultCh, vaultCh, balanceCh in {{
+            rl!(`rho:rchain:asiVault`, *asiVaultCh) |
+            for (@(_, ASIVault) <- asiVaultCh) {{
                 @ASIVault!("findOrCreate", "{}", *vaultCh) |
                 for (@either <- vaultCh) {{
                     match either {{
@@ -499,6 +499,12 @@ pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::
 pub async fn network_health_command(
     args: &NetworkHealthArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Validate host and ports combination early
+    if let Err(e) = validate_host_and_ports(&args.host, &args.custom_ports) {
+        println!("❌ {}", e);
+        return Err(e.into());
+    }
+
     println!("🌐 Checking F1r3fly network health");
 
     let mut ports_to_check = Vec::new();
@@ -781,12 +787,17 @@ pub async fn validator_status_command(
     let client = reqwest::Client::new();
     let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
 
-    // Execute all queries and get current block
-    let (bonds_result, active_result, quarantine_result, current_block) = tokio::try_join!(
+    // Get main chain tip first to ensure consistent state reference
+    let main_chain = f1r3fly_api.show_main_chain(1).await?;
+    let tip_block = main_chain.first().ok_or("No blocks found in main chain")?;
+    let current_block = tip_block.block_number;
+    let tip_block_hash = &tip_block.block_hash;
+
+    // Execute all queries using explicit tip block hash for consistency
+    let (bonds_result, active_result, quarantine_result) = tokio::try_join!(
         query_pos_http(&client, &http_url, bonds_query),
         query_pos_http(&client, &http_url, active_query),
-        f1r3fly_api.exploratory_deploy(quarantine_query, None, false),
-        f1r3fly_api.get_current_block_number()
+        f1r3fly_api.exploratory_deploy(quarantine_query, Some(tip_block_hash), false),
     )?;
 
     let duration = start_time.elapsed();
@@ -902,11 +913,16 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
         }
     }"#;
 
-    // Get all data in parallel for efficiency
-    let (epoch_result, quarantine_result, current_block, recent_blocks) = tokio::try_join!(
-        f1r3fly_api.exploratory_deploy(epoch_length_query, None, false),
-        f1r3fly_api.exploratory_deploy(quarantine_length_query, None, false),
-        f1r3fly_api.get_current_block_number(),
+    // Get main chain tip first to ensure consistent state reference
+    let main_chain = f1r3fly_api.show_main_chain(1).await?;
+    let tip_block = main_chain.first().ok_or("No blocks found in main chain")?;
+    let current_block = tip_block.block_number;
+    let tip_block_hash = &tip_block.block_hash;
+
+    // Get epoch and quarantine data using explicit tip block hash for consistency
+    let (epoch_result, quarantine_result, recent_blocks) = tokio::try_join!(
+        f1r3fly_api.exploratory_deploy(epoch_length_query, Some(tip_block_hash), false),
+        f1r3fly_api.exploratory_deploy(quarantine_length_query, Some(tip_block_hash), false),
         f1r3fly_api.show_main_chain(5)
     )?;
 
@@ -1115,11 +1131,16 @@ pub async fn network_consensus_command(
         }
     }"#;
 
-    let (bonds_result, active_result, quarantine_result, current_block) = tokio::try_join!(
+    // Get main chain tip first to ensure consistent state reference
+    let main_chain = f1r3fly_api.show_main_chain(1).await?;
+    let tip_block = main_chain.first().ok_or("No blocks found in main chain")?;
+    let current_block = tip_block.block_number;
+    let tip_block_hash = &tip_block.block_hash;
+
+    let (bonds_result, active_result, quarantine_result) = tokio::try_join!(
         query_pos_http(&client, &http_url, bonds_query),
         query_pos_http(&client, &http_url, active_query),
-        f1r3fly_api.exploratory_deploy(quarantine_query, None, false),
-        f1r3fly_api.get_current_block_number()
+        f1r3fly_api.exploratory_deploy(quarantine_query, Some(tip_block_hash), false),
     )?;
 
     let duration = start_time.elapsed();
@@ -1283,4 +1304,29 @@ pub async fn get_blocks_by_height_command(
     }
 
     Ok(())
+}
+
+/// Validates that when using -H with a remote host, --custom-ports must be specified
+fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<(), String> {
+    match (host, custom_ports) {
+        // Remote host without custom ports - ERROR
+        (h, None) if h != "localhost" && h != "127.0.0.1" => {
+            Err(format!(
+                "When using -H with remote host '{}', you must specify --custom-ports\n\
+                \n\
+                Remote hosts don't use standard F1r3fly ports. Specify the actual ports:\n\
+                \n\
+                Examples:\n\
+                  cargo run -- network-health -H {} --custom-ports \"8001,8002,9443\"\n\
+                  cargo run -- network-health -H {} --custom-ports \"7890\"\n\
+                \n\
+                For localhost, standard ports are assumed:\n\
+                  cargo run -- network-health -H localhost  (uses standard ports)\n\
+                  cargo run -- network-health              (uses localhost + standard ports)",
+                h, h, h
+            ))
+        }
+        // All other combinations are valid
+        _ => Ok(())
+    }
 }

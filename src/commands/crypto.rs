@@ -113,3 +113,115 @@ pub fn generate_rev_address_command(args: &GenerateRevAddressArgs) -> Result<()>
 
     Ok(())
 }
+
+pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
+    use sha3::{Digest};
+    use std::process::Command;
+
+    println!("🔑 Extracting node ID from TLS key file: {}", args.key_file);
+
+    // Use OpenSSL command following F1R3FLY's documented approach
+    let output = Command::new("openssl")
+        .args(&[
+            "ec", "-text", "-in", &args.key_file, "-noout"
+        ])
+        .output()
+        .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {}", e)))?;
+
+    if !output.status.success() {
+        let error_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(NodeCliError::crypto_invalid_private_key(&format!("OpenSSL error: {}", error_msg)));
+    }
+
+    let openssl_output = String::from_utf8_lossy(&output.stdout);
+    
+    // Debug: Uncomment to see OpenSSL output
+    // println!("🔍 Debug: OpenSSL output:");
+    // println!("{}", openssl_output);
+    
+    // Extract public key from OpenSSL output
+    let public_key_hex = extract_public_key_from_openssl_output(&openssl_output)?;
+    
+    // Remove the '04' prefix as per F1R3FLY specification
+    let cleaned_hex = if public_key_hex.starts_with("04") {
+        &public_key_hex[2..]
+    } else {
+        &public_key_hex
+    };
+    
+    // Convert hex to bytes
+    let public_key_bytes = hex::decode(cleaned_hex)
+        .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Invalid hex: {}", e)))?;
+    
+    // Calculate Keccac-256 hash
+    let mut hasher = sha3::Keccak256::new();
+    hasher.update(&public_key_bytes);
+    let hash = hasher.finalize();
+    
+    // Take last 20 bytes (40 hex characters) for node ID
+    let node_id = hex::encode(&hash[hash.len() - 20..]);
+    
+    // Output based on format
+    match args.format.as_str() {
+        "hex" => {
+            print_success("Node ID extracted successfully!");
+            print_key("Node ID", &node_id);
+        }
+        "rnode-url" => {
+            let rnode_url = format!(
+                "rnode://{}@{}?protocol={}&discovery={}",
+                node_id, args.host, args.protocol_port, args.discovery_port
+            );
+            print_success("Node ID extracted successfully!");
+            print_key("Node ID", &node_id);
+            print_key("RNode URL", &rnode_url);
+        }
+        _ => {
+            return Err(NodeCliError::General(
+                "Invalid format. Use 'hex' or 'rnode-url'".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn extract_public_key_from_openssl_output(output: &str) -> Result<String> {
+    let mut in_pub_section = false;
+    let mut public_key_hex = String::new();
+    
+    for line in output.lines() {
+        let trimmed = line.trim();
+        
+        if trimmed == "pub:" {
+            in_pub_section = true;
+            continue;
+        }
+        
+        // Stop when we hit the next section (lines like "ASN1 OID:" or other non-hex lines)
+        if in_pub_section && (trimmed.contains("ASN1") || trimmed.contains("NIST") || trimmed.contains("OID")) {
+            break;
+        }
+        
+        if in_pub_section {
+            // Extract hex bytes from lines like "    04:00:81:19:bf:90:eb:01:09:a0:ea:67:9f:df:5e:"
+            // Split by colon and process each part
+            let parts: Vec<&str> = trimmed.split(':').collect();
+            for part in parts {
+                let hex_part = part.trim();
+                // Check if it's a 2-character hex string
+                if hex_part.len() == 2 && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                    public_key_hex.push_str(hex_part);
+                }
+            }
+        }
+    }
+    
+    if public_key_hex.is_empty() {
+        return Err(NodeCliError::crypto_invalid_private_key("Could not extract public key from OpenSSL output"));
+    }
+    
+    // Debug: Uncomment to see extracted hex
+    // println!("🔍 Debug: Final extracted public key hex: {}", public_key_hex);
+    Ok(public_key_hex)
+}

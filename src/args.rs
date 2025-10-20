@@ -91,6 +91,12 @@ pub enum Commands {
 
     /// Get blocks by height range
     GetBlocksByHeight(GetBlocksByHeightArgs),
+
+    /// Extract node ID from TLS private key file
+    GetNodeId(GetNodeIdArgs),
+
+    /// Watch real-time block events via WebSocket
+    WatchBlocks(WatchBlocksArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -625,4 +631,48 @@ impl IsFinalizedArgs {
             retry_delay: a.check_interval,
         }
     }
+}
+
+/// Arguments for get-node-id command
+#[derive(Parser, Debug)]
+pub struct GetNodeIdArgs {
+    /// Path to the TLS private key file (node.key.pem)
+    #[arg(short, long)]
+    pub key_file: String,
+
+    /// Output format (hex, rnode-url)
+    #[arg(short, long, default_value = "hex")]
+    pub format: String,
+
+    /// Node hostname for rnode-url format
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// Protocol port for rnode-url format
+    #[arg(long, default_value_t = 40400)]
+    pub protocol_port: u16,
+
+    /// Discovery port for rnode-url format
+    #[arg(long, default_value_t = 40404)]
+    pub discovery_port: u16,
+}
+
+/// Arguments for watch-blocks command
+#[derive(Parser, Debug)]
+pub struct WatchBlocksArgs {
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port number for WebSocket connection
+    #[arg(long, default_value_t = 40403)]
+    pub http_port: u16,
+
+    /// Filter events by type: "created", "added", or "finalized"
+    #[arg(short, long)]
+    pub filter: Option<String>,
+
+    /// Retry reconnection indefinitely until manually killed (Ctrl+C)
+    #[arg(long, default_value_t = false)]
+    pub retry_forever: bool,
 }

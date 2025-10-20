@@ -4,7 +4,9 @@ A command-line interface for interacting with F1r3fly nodes.
 
 ### Prerequisites
 
-- [Running Node](https://github.com/F1R3FLY-io/f1r3fly/tree/preston/rholang_rust?tab=readme-ov-file#running)
+- [Running Node](https://github.com/F1R3FLY-io/f1r3fly/tree/rust/dev?tab=readme-ov-file#running)
+
+> **Note:** The commands in this CLI work out of the box with the Docker setup found in the [f1r3node Docker README](https://github.com/F1R3FLY-io/f1r3node/blob/main/docker/README.md). The default ports and configuration align with the standard F1r3fly Docker deployment.
 
 ## Building
 
@@ -172,6 +174,68 @@ cargo run -- generate-rev-address --private-key YOUR_PRIVATE_KEY
 # Provide a public key directly
 cargo run -- generate-rev-address --public-key YOUR_PUBLIC_KEY
 ```
+
+### Get Node ID
+
+Extract the F1R3FLY node ID from a TLS private key file. The node ID is a 40-character hexadecimal string derived from the Keccak-256 hash of the TLS public key (removing the '04' prefix).
+
+```bash
+# Extract node ID from TLS key file (hex format)
+cargo run -- get-node-id --key-file /path/to/node.key.pem
+
+# Extract node ID and generate RNode URL format
+cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url
+
+# Generate RNode URL with custom host and ports
+cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url --host mynode.com --protocol-port 40400 --discovery-port 40404
+```
+
+**Output formats:**
+- `hex` (default): Returns just the 40-character node ID
+- `rnode-url`: Returns both the node ID and a complete RNode URL for network connections
+
+### Watch Blocks
+
+Monitor real-time block events from a F1r3fly node via WebSocket. This command connects to the node's `/ws/events` endpoint and streams block creation, validation, and finalization events with detailed information including deploy IDs. Automatically reconnects on disconnect (10 retries every 10 seconds by default).
+
+```bash
+# Watch all block events (created, added, and finalized)
+cargo run -- watch-blocks
+
+# Watch from remote node
+cargo run -- watch-blocks -H node.example.com --http-port 40403
+
+# Filter to show only created blocks
+cargo run -- watch-blocks --filter created
+
+# Filter to show only added blocks (validated and added to DAG)
+cargo run -- watch-blocks --filter added
+
+# Filter to show only finalized blocks
+cargo run -- watch-blocks --filter finalized
+
+# Retry reconnection forever until manually killed (Ctrl+C)
+cargo run -- watch-blocks --retry-forever
+```
+
+**Features:**
+- Human-readable formatted output with emojis
+- Shows block hash, creator, sequence number, parents count, and deploy IDs for created/added blocks
+- Shows block hash for finalized blocks
+- Automatic reconnection on disconnect (10 attempts by default, or infinite with `--retry-forever`)
+- 10 second intervals between reconnection attempts
+- Real-time event statistics on exit (counts created, added, and finalized events)
+
+**Event Types:**
+- `created` - New block proposed by a validator (includes all block details and deploy IDs)
+- `added` - Block validated and added to the DAG (includes all block details and deploy IDs)
+- `finalized` - Block reached finalized status (shows block hash)
+
+**Options:**
+- `-H, --host <HOST>` - Node hostname (default: localhost)
+- `--http-port <PORT>` - HTTP port for WebSocket (default: 40403)
+- `-f, --filter <TYPE>` - Show only specific event type (created/added/finalized)
+- `--retry-forever` - Keep trying to reconnect indefinitely until manually killed (Ctrl+C)
 
 ### Transfer REV
 
@@ -393,19 +457,36 @@ cargo run -- transfer --to-address RECIPIENT_ADDRESS --amount 1000 -H node.examp
 
 Check the health and connectivity of multiple nodes in your F1r3fly shard.
 
+**Local Development (Single Host):**
 ```bash
 # Check standard F1r3fly shard ports (bootstrap, validator1, validator2, observer)
 cargo run -- network-health
+
+# Check localhost with explicit host flag (same as above)
+cargo run -- network-health -H localhost
 
 # Check network health with custom additional ports (e.g., after adding validator3)
 cargo run -- network-health --custom-ports "60503"
 
 # Check only custom ports (disable standard ports)
 cargo run -- network-health --standard-ports false --custom-ports "60503,70503"
-
-# Check network health on different host
-cargo run -- network-health -H node.example.com --custom-ports "60503"
 ```
+
+**Multi-Host / Remote Networks:**
+```bash
+# For remote hosts, you MUST specify --custom-ports (no standard port assumptions)
+cargo run -- network-health -H testnet.example.com --custom-ports "8001,8002,9443"
+
+# Single remote node
+cargo run -- network-health -H validator.net --custom-ports "7890"
+
+# Different hosts require separate commands
+cargo run -- network-health -H host1.com --custom-ports "8001"
+cargo run -- network-health -H host2.com --custom-ports "8002" 
+cargo run -- network-health -H host3.com --custom-ports "9443"
+```
+
+**Note:** Remote hosts don't use standard F1r3fly ports (40403, 40413, etc.). You must explicitly specify the actual ports in use with `--custom-ports` to avoid connection failures.
 
 ### Epoch Info
 
@@ -518,6 +599,14 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-c, --compressed`: Output public key in compressed format (shorter)
 - `-s, --save`: Save keys to files instead of displaying them
 - `-o, --output-dir <DIR>`: Output directory for saved keys (default: current directory)
+
+### Get-Node-ID Command
+
+- `-k, --key-file <KEY_FILE>`: Path to the TLS private key file (node.key.pem) (required)
+- `-f, --format <FORMAT>`: Output format: "hex" (default) or "rnode-url"
+- `-H, --host <HOST>`: Node hostname for rnode-url format (default: "localhost")
+- `--protocol-port <PROTOCOL_PORT>`: Protocol port for rnode-url format (default: 40400)
+- `--discovery-port <DISCOVERY_PORT>`: Discovery port for rnode-url format (default: 40404)
 
 ### Status Command
 
