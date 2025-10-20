@@ -59,6 +59,7 @@ impl Dispatcher {
                 .await
                 .map_err(NodeCliError::from),
             Commands::Transfer(args) => transfer_command(args).await.map_err(NodeCliError::from),
+            Commands::LoadTest(args) => load_test_command(args).await.map_err(NodeCliError::from),
             Commands::GetDeploy(args) => get_deploy_command(args).await.map_err(NodeCliError::from),
             Commands::EpochInfo(args) => epoch_info_command(args).await.map_err(NodeCliError::from),
             Commands::ValidatorStatus(args) => validator_status_command(args)
@@ -143,6 +144,7 @@ impl Dispatcher {
             Commands::LastFinalizedBlock(_) => "last-finalized-block",
             Commands::ShowMainChain(_) => "show-main-chain",
             Commands::Transfer(_) => "transfer",
+            Commands::LoadTest(_) => "load-test",
             Commands::GetDeploy(_) => "get-deploy",
             Commands::EpochInfo(_) => "epoch-info",
             Commands::ValidatorStatus(_) => "validator-status",

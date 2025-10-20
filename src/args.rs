@@ -74,6 +74,9 @@ pub enum Commands {
     /// Transfer REV tokens between addresses
     Transfer(TransferArgs),
 
+    /// Run load test by sending multiple transfers and tracking orphan rate
+    LoadTest(LoadTestArgs),
+
     /// Get a specific deploy by ID
     GetDeploy(GetDeployArgs),
 
@@ -548,6 +551,53 @@ pub struct TransferArgs {
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
+}
+
+/// Arguments for load-test command
+#[derive(Parser)]
+pub struct LoadTestArgs {
+    /// Recipient REV address
+    #[arg(long)]
+    pub to_address: String,
+
+    /// Number of transfers to send
+    #[arg(long, default_value_t = 20)]
+    pub num_tests: u32,
+
+    /// Amount in REV per transfer
+    #[arg(long, default_value_t = 1)]
+    pub amount: u64,
+
+    /// Seconds between tests
+    #[arg(long, default_value_t = 10)]
+    pub interval: u64,
+
+    /// Private key for signing (hex format)
+    #[arg(
+        long,
+        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+    )]
+    pub private_key: String,
+
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// gRPC port number
+    #[arg(short, long, default_value_t = 40412)]
+    pub port: u16,
+
+    /// HTTP port for status queries
+    #[arg(long = "http-port", default_value_t = 40413)]
+    pub http_port: u16,
+
+    /// Check interval in seconds for deploy status (fast mode)
+    #[arg(long = "check-interval", default_value_t = 1)]
+    pub check_interval: u64,
+
+    /// Max depth to check main chain for orphan detection
+    #[arg(long = "chain-depth", default_value_t = 200)]
+    pub chain_depth: u32,
 }
 
 /// Arguments for validator-status command
