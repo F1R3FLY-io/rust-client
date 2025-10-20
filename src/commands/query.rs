@@ -752,10 +752,12 @@ pub async fn validator_status_command(
     println!("🔍 Checking validator status for: {}", args.public_key);
 
     let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // Bootstrap private key
+        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // dummy private key
         &args.host,
         args.port,
     );
+
+    println!("Node API at {}:{}", args.host, args.port);
 
     let start_time = Instant::now();
 
@@ -785,7 +787,8 @@ pub async fn validator_status_command(
 
     // Use HTTP API for PoS contract queries (like bonds/network-consensus commands)
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
+    println!("HTTP API at {}", http_url);
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;
@@ -1108,7 +1111,8 @@ pub async fn network_consensus_command(
 
     // Get all validator info in parallel using HTTP API for PoS queries
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port); // Use HTTP port
+    println!("HTTP API at {}", http_url);
 
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
         rl!(`rho:rchain:pos`, *poSCh) |
@@ -1310,9 +1314,8 @@ pub async fn get_blocks_by_height_command(
 fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<(), String> {
     match (host, custom_ports) {
         // Remote host without custom ports - ERROR
-        (h, None) if h != "localhost" && h != "127.0.0.1" => {
-            Err(format!(
-                "When using -H with remote host '{}', you must specify --custom-ports\n\
+        (h, None) if h != "localhost" && h != "127.0.0.1" => Err(format!(
+            "When using -H with remote host '{}', you must specify --custom-ports\n\
                 \n\
                 Remote hosts don't use standard F1r3fly ports. Specify the actual ports:\n\
                 \n\
@@ -1323,10 +1326,9 @@ fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<
                 For localhost, standard ports are assumed:\n\
                   cargo run -- network-health -H localhost  (uses standard ports)\n\
                   cargo run -- network-health              (uses localhost + standard ports)",
-                h, h, h
-            ))
-        }
+            h, h, h
+        )),
         // All other combinations are valid
-        _ => Ok(())
+        _ => Ok(()),
     }
 }

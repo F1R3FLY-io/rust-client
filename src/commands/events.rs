@@ -115,7 +115,7 @@ pub async fn watch_blocks_command(args: &WatchBlocksArgs) -> Result<()> {
             }
             Err(e) => {
                 retry_count += 1;
-                
+
                 // Check if we should stop retrying
                 if !args.retry_forever && retry_count > MAX_RETRIES {
                     println!("❌ Max reconnection attempts ({}) reached", MAX_RETRIES);
@@ -123,7 +123,7 @@ pub async fn watch_blocks_command(args: &WatchBlocksArgs) -> Result<()> {
                 }
 
                 println!("⚠️  Connection lost: {}", e);
-                
+
                 if args.retry_forever {
                     println!(
                         "🔄 Reconnecting in {} seconds... (attempt {})",
@@ -135,7 +135,7 @@ pub async fn watch_blocks_command(args: &WatchBlocksArgs) -> Result<()> {
                         RETRY_DELAY_SECS, retry_count, MAX_RETRIES
                     );
                 }
-                
+
                 tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
                 println!("🔌 Reconnecting to {}...", ws_url);
             }

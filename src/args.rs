@@ -576,6 +576,9 @@ pub struct ValidatorStatusArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+
+    #[arg(long = "http-port", default_value_t = 40453)]
+    pub http_port: u16,
 }
 
 /// Arguments for PoS contract query commands (epoch-info, network-consensus, epoch-rewards)
@@ -588,6 +591,9 @@ pub struct PosQueryArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+
+    #[arg(long = "http-port", default_value_t = 40453)]
+    pub http_port: u16,
 }
 
 impl WaitArgs {
