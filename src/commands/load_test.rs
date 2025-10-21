@@ -15,6 +15,8 @@ pub struct TestResult {
 }
 
 pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::utils::CryptoUtils;
+
     println!("╔═══════════════════════════════════════════╗");
     println!("║  F1R3FLY Load Test                        ║");
     println!("╚═══════════════════════════════════════════╝");
@@ -24,10 +26,46 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
     println!("Check interval: {}s (fast mode)", args.check_interval);
     println!("Target: {}:{}", args.host, args.port);
     println!();
-    
+
+    // Derive sender address from private key
+    let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
+    let public_key = CryptoUtils::derive_public_key(&secret_key);
+    let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
+    let sender_address = CryptoUtils::generate_rev_address(&public_key_hex)?;
+
+    // Check initial balances
+    println!("💰 Checking initial wallet balances...");
+    println!();
+
+    match get_balance_for_address(&sender_address, args).await {
+        Ok(balance) => {
+            println!("Sender Wallet:");
+            println!("  Address: {}", sender_address);
+            println!("  Balance: {} REV", balance);
+        }
+        Err(e) => {
+            println!("⚠️  Failed to get sender balance: {}", e);
+        }
+    }
+    println!();
+
+    match get_balance_for_address(&args.to_address, args).await {
+        Ok(balance) => {
+            println!("Recipient Wallet:");
+            println!("  Address: {}", args.to_address);
+            println!("  Balance: {} REV", balance);
+        }
+        Err(e) => {
+            println!("⚠️  Failed to get recipient balance: {}", e);
+        }
+    }
+    println!();
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!();
+
     // Initialize API once (reuse connection)
     let api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
-    
+
     let mut results = Vec::new();
     
     for test_num in 1..=args.num_tests {
@@ -62,50 +100,50 @@ async fn run_single_test(
     test_num: u32,
 ) -> Result<TestResult, Box<dyn std::error::Error>> {
     let test_start = Instant::now();
-    
+
     // Step 1: Deploy
     println!("📤 [{}] Deploying transfer...", now_timestamp());
     let deploy_start = Instant::now();
-    
+
     let rholang = generate_transfer_contract(args);
     let deploy_id = api.deploy(&rholang, true, "rholang").await?.to_string();
-    
-    println!("✅ [{}] Deploy submitted ({}ms)", 
-        now_timestamp(), 
+
+    println!("✅ [{}] Deploy submitted ({}ms)",
+        now_timestamp(),
         deploy_start.elapsed().as_millis()
     );
     println!("   Deploy ID: {}", deploy_id);
-    
+
     // Step 2: Wait for block inclusion (FAST polling)
     println!("⏳ [{}] Waiting for block inclusion...", now_timestamp());
     let block_wait_start = Instant::now();
-    
+
     let block_hash = wait_for_block_fast(
-        api, 
-        &deploy_id, 
-        args.http_port, 
+        api,
+        &deploy_id,
+        args.http_port,
         args.check_interval
     ).await?;
-    
+
     let inclusion_time = block_wait_start.elapsed();
-    println!("✅ [{}] Included in block ({:.1}s)", 
+    println!("✅ [{}] Included in block ({:.1}s)",
         now_timestamp(),
         inclusion_time.as_secs_f32()
     );
     println!("   Block hash: {}", block_hash);
-    
+
     // Step 3: Wait for finalization
     println!("🔍 [{}] Waiting for block finalization...", now_timestamp());
     let finalization_start = Instant::now();
-    
+
     let is_finalized = api.is_finalized(
         &block_hash,
         120, // 2 minutes max
         args.check_interval
     ).await?;
-    
+
     let finalization_time = finalization_start.elapsed();
-    
+
     // Step 4: Determine final status
     let on_main_chain = if is_finalized {
         println!("✅ [{}] Block finalized ({:.1}s)",
@@ -120,14 +158,14 @@ async fn run_single_test(
             now_timestamp(),
             finalization_time.as_secs_f32()
         );
-        
+
         // Check main chain to distinguish orphaned from timeout
         let on_chain = is_on_main_chain_fast(
             api,
             &block_hash,
             args.chain_depth
         ).await?;
-        
+
         if on_chain {
             println!("⚠️  TIMEOUT - Block on chain but not finalized");
             true
@@ -136,9 +174,20 @@ async fn run_single_test(
             false
         }
     };
-    
+
+    // Step 5: Get wallet balance
+    println!("💰 [{}] Checking wallet balance...", now_timestamp());
+    match get_wallet_balance(api, args).await {
+        Ok(balance) => {
+            println!("✅ [{}] Wallet balance: {} REV", now_timestamp(), balance);
+        }
+        Err(e) => {
+            println!("⚠️  [{}] Failed to get wallet balance: {}", now_timestamp(), e);
+        }
+    }
+
     let total_time = test_start.elapsed();
-    
+
     Ok(TestResult {
         test_num,
         deploy_id,
@@ -240,8 +289,62 @@ async fn is_on_main_chain_fast(
     depth: u32,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     let blocks = api.show_main_chain(depth).await?;
-    
+
     Ok(blocks.iter().any(|b| b.block_hash == block_hash))
+}
+
+// Get wallet balance for any address
+async fn get_balance_for_address(
+    address: &str,
+    args: &LoadTestArgs,
+) -> Result<String, Box<dyn std::error::Error>> {
+    // Build the Rholang query to get wallet balance
+    let rholang_query = format!(
+        r#"new return, rl(`rho:registry:lookup`), revVaultCh, vaultCh, balanceCh in {{
+            rl!(`rho:rchain:revVault`, *revVaultCh) |
+            for (@(_, RevVault) <- revVaultCh) {{
+                @RevVault!("findOrCreate", "{}", *vaultCh) |
+                for (@either <- vaultCh) {{
+                    match either {{
+                        (true, vault) => {{
+                            @vault!("balance", *balanceCh) |
+                            for (@balance <- balanceCh) {{
+                                return!(balance)
+                            }}
+                        }}
+                        (false, errorMsg) => {{
+                            return!(errorMsg)
+                        }}
+                    }}
+                }}
+            }}
+        }}"#,
+        address
+    );
+
+    // Create a separate API instance for read-only port
+    let readonly_api = F1r3flyApi::new(&args.private_key, &args.host, args.readonly_port);
+
+    // Execute exploratory deploy to get balance on read-only node
+    let (result, _block_info) = readonly_api.exploratory_deploy(&rholang_query, None, false).await?;
+
+    Ok(result.trim().to_string())
+}
+
+// Get wallet balance for the sender address (convenience wrapper)
+async fn get_wallet_balance(
+    _api: &F1r3flyApi<'_>,
+    args: &LoadTestArgs,
+) -> Result<String, Box<dyn std::error::Error>> {
+    use crate::utils::CryptoUtils;
+
+    // Derive sender address from private key
+    let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
+    let public_key = CryptoUtils::derive_public_key(&secret_key);
+    let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
+    let sender_address = CryptoUtils::generate_rev_address(&public_key_hex)?;
+
+    get_balance_for_address(&sender_address, args).await
 }
 
 fn print_progress_stats(results: &[TestResult]) {
