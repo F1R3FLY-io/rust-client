@@ -122,7 +122,8 @@ async fn run_single_test(
         api,
         &deploy_id,
         args.http_port,
-        args.check_interval
+        args.check_interval,
+        args.inclusion_timeout
     ).await?;
 
     let inclusion_time = block_wait_start.elapsed();
@@ -136,9 +137,10 @@ async fn run_single_test(
     println!("🔍 [{}] Waiting for block finalization...", now_timestamp());
     let finalization_start = Instant::now();
 
+    let max_finalization_attempts = (args.finalization_timeout / args.check_interval.max(1)) as u32;
     let is_finalized = api.is_finalized(
         &block_hash,
-        120, // 2 minutes max
+        max_finalization_attempts,
         args.check_interval
     ).await?;
 
@@ -257,14 +259,15 @@ in {{
     )
 }
 
-// Fast block polling (configurable interval)
+// Fast block polling (configurable interval and timeout)
 async fn wait_for_block_fast(
     api: &F1r3flyApi<'_>,
     deploy_id: &str,
     http_port: u16,
     check_interval: u64,
+    timeout_seconds: u64,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let max_attempts = 120; // 2 minutes with default 1s checks
+    let max_attempts = timeout_seconds / check_interval.max(1);
     
     for attempt in 1..=max_attempts {
         if attempt % 10 == 0 {
