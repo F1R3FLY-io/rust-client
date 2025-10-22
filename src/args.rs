@@ -598,6 +598,18 @@ pub struct LoadTestArgs {
     /// Max depth to check main chain for orphan detection
     #[arg(long = "chain-depth", default_value_t = 200)]
     pub chain_depth: u32,
+
+    /// Read-only gRPC port for balance queries (requires read-only node)
+    #[arg(long = "readonly-port", default_value_t = 40452)]
+    pub readonly_port: u16,
+
+    /// Maximum time in seconds to wait for block inclusion
+    #[arg(long = "inclusion-timeout", default_value_t = 120)]
+    pub inclusion_timeout: u64,
+
+    /// Maximum time in seconds to wait for block finalization
+    #[arg(long = "finalization-timeout", default_value_t = 120)]
+    pub finalization_timeout: u64,
 }
 
 /// Arguments for validator-status command
