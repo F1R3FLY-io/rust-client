@@ -114,8 +114,8 @@ pub struct DeployAndWaitArgs {
     pub host: String,
 
     /// gRPC port for deploy operations
-    #[arg(short = 'p', long = "port", default_value_t = 40412)]
-    pub port: u16,
+    #[arg(short, long = "grpc-port", default_value_t = 40412)]
+    pub grpc_port: u16,
 
     /// HTTP port for status queries
     #[arg(long = "http-port", default_value_t = 40413)]
@@ -138,8 +138,8 @@ pub struct DeployAndWaitArgs {
     pub observer_host: Option<String>,
 
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+    #[arg(long = "observer-grpc-port")]
+    pub observer_grpc_port: Option<u16>,
 }
 
 #[derive(Parser, Debug)]
@@ -185,7 +185,7 @@ pub struct DeployArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Use bigger phlo limit
     #[arg(short, long, default_value_t = false)]
@@ -208,7 +208,7 @@ pub struct ProposeArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 }
 
 /// Arguments for is-finalized command
@@ -231,7 +231,7 @@ pub struct IsFinalizedArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Maximum number of retry attempts
     #[arg(short, long, default_value_t = 12)]
@@ -262,7 +262,7 @@ pub struct ExploratoryDeployArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Block hash to use as reference (optional)
     #[arg(short, long)]
@@ -330,7 +330,7 @@ pub struct HttpArgs {
 
     /// HTTP port number (not gRPC port)
     #[arg(short, long, default_value_t = 40453)]
-    pub port: u16,
+    pub http_port: u16,
 }
 
 /// Arguments for blocks command
@@ -342,7 +342,7 @@ pub struct BlocksArgs {
 
     /// HTTP port number (not gRPC port)
     #[arg(short, long, default_value_t = 40413)]
-    pub port: u16,
+    pub http_port: u16,
 
     /// Number of recent blocks to fetch (default: 5)
     #[arg(short, long, default_value_t = 5)]
@@ -362,7 +362,7 @@ pub struct ShowMainChainArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Number of blocks to fetch from main chain (default: 10)
     #[arg(short, long, default_value_t = 10)]
@@ -385,7 +385,7 @@ pub struct GetBlocksByHeightArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Start block number (inclusive)
     #[arg(short, long)]
@@ -412,7 +412,7 @@ pub struct WalletBalanceArgs {
 
     /// gRPC port number (requires read-only node)
     #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Wallet address to check balance for
     #[arg(short = 'a', long)]
@@ -428,7 +428,7 @@ pub struct BondStatusArgs {
 
     /// HTTP port number (same as other inspection commands)
     #[arg(short, long, default_value_t = 40413)]
-    pub port: u16,
+    pub http_port: u16,
 
     /// Public key to check bond status for
     #[arg(short = 'k', long)]
@@ -444,7 +444,7 @@ pub struct BondValidatorArgs {
 
     /// gRPC port number for deploy
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// HTTP port for status queries
     #[arg(long = "http-port", default_value_t = 40413)]
@@ -475,8 +475,8 @@ pub struct BondValidatorArgs {
     pub observer_host: Option<String>,
 
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+    #[arg(long = "observer-grpc-port")]
+    pub observer_grpc_port: Option<u16>,
 }
 
 /// Arguments for network-health command
@@ -531,7 +531,7 @@ pub struct TransferArgs {
 
     /// gRPC port number for deploy
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// HTTP port for status queries
     #[arg(long = "http-port", default_value_t = 40413)]
@@ -558,8 +558,8 @@ pub struct TransferArgs {
     pub observer_host: Option<String>,
 
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+    #[arg(long = "observer-grpc-port")]
+    pub observer_grpc_port: Option<u16>,
 }
 
 /// Arguments for validator-status command
@@ -575,7 +575,7 @@ pub struct ValidatorStatusArgs {
 
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     #[arg(long = "http-port", default_value_t = 40453)]
     pub http_port: u16,
@@ -590,10 +590,10 @@ pub struct PosQueryArgs {
 
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+    pub grpc_port: u16,
 
-    #[arg(long = "http-port", default_value_t = 40453)]
-    pub http_port: u16,
+    #[arg(long = "http-port")]
+    pub http_port: Option<u16>,
 }
 
 impl WaitArgs {
@@ -605,11 +605,11 @@ impl WaitArgs {
             http_args: {
                 HttpArgs {
                     host: a.host.clone(),
-                    port: a.http_port,
+                    http_port: a.http_port,
                 }
             },
             observer_host: a.observer_host.clone().unwrap_or(a.host.clone()),
-            observer_grpc_port: a.observer_port.unwrap_or(40452),
+            observer_grpc_port: a.observer_grpc_port.unwrap_or(40452),
         }
     }
 }
@@ -619,7 +619,7 @@ impl GetDeployArgs {
         Self {
             deploy_id,
             host: a.http_args.host.clone(),
-            http_port: a.http_args.port,
+            http_port: a.http_args.http_port,
             format,
             verbose: false,
         }
@@ -632,7 +632,7 @@ impl IsFinalizedArgs {
             block_hash,
             private_key: a.private_key.clone(),
             host: a.observer_host.clone(),
-            port: a.observer_grpc_port,
+            grpc_port: a.observer_grpc_port,
             max_attempts: a.max_attempts,
             retry_delay: a.check_interval,
         }

@@ -16,9 +16,9 @@ pub async fn exploratory_deploy_command(
     // Initialize the F1r3fly API client
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     // Execute the exploratory deployment
     println!("🚀 Executing Rholang code (exploratory deploy)...");
@@ -73,9 +73,9 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
     // Initialize the F1r3fly API client
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     let phlo_limit = if args.bigger_phlo {
         "5,000,000,000"
@@ -112,9 +112,9 @@ pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::erro
     // Initialize the F1r3fly API client
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     // Propose a block
     println!("📦 Proposing a new block...");
@@ -147,9 +147,9 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
     // Initialize the F1r3fly API client
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     let phlo_limit = if args.bigger_phlo {
         "5,000,000,000"
@@ -188,9 +188,9 @@ pub async fn is_finalized_command(
     // Initialize the F1r3fly API client
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     // Check if the block is finalized
     println!("🔍 Checking if block is finalized: {}", args.block_hash);
@@ -235,9 +235,9 @@ pub async fn transfer_deploy(args: &TransferArgs) -> Result<String, Box<dyn std:
 
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     println!("🔍 Deriving sender address from private key...");
     let from_address = {
@@ -356,7 +356,7 @@ pub async fn bond_validator_command(
     println!("💰 Stake amount: {} REV", args.stake);
 
     // Initialize the F1r3fly API client for deploying
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     // Create the bonding Rholang code
     let bonding_code = format!(
@@ -518,13 +518,13 @@ pub async fn deploy_and_wait_command(
     // Initialize the F1r3fly API client
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
     let private_key = args
         .private_key
         .as_deref()
         .unwrap_or("5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657");
-    let f1r3fly_api = F1r3flyApi::new(private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(private_key, &args.host, args.grpc_port);
 
     let phlo_limit = if args.bigger_phlo {
         "5,000,000,000"

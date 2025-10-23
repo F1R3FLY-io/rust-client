@@ -5,9 +5,12 @@ use serde_json;
 use std::time::Instant;
 
 pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔍 Getting node status from {}:{}", args.host, args.port);
+    println!(
+        "🔍 Getting node status from {}:{}",
+        args.host, args.http_port
+    );
 
-    let url = format!("http://{}:{}/status", args.host, args.port);
+    let url = format!("http://{}:{}/status", args.host, args.http_port);
     let client = reqwest::Client::new();
 
     let start_time = Instant::now();
@@ -46,7 +49,7 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
         println!("🔍 Getting specific block: {}", block_hash);
         let url = format!(
             "http://{}:{}/api/block/{}",
-            args.host, args.port, block_hash
+            args.host, args.http_port, block_hash
         );
 
         match client.get(&url).send().await {
@@ -74,11 +77,11 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
     } else {
         println!(
             "🔍 Getting {} recent blocks from {}:{}",
-            args.number, args.host, args.port
+            args.number, args.host, args.http_port
         );
         let url = format!(
             "http://{}:{}/api/blocks/{}",
-            args.host, args.port, args.number
+            args.host, args.http_port, args.number
         );
 
         match client.get(&url).send().await {
@@ -111,10 +114,10 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
 pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔍 Getting validator bonds from {}:{}",
-        args.host, args.port
+        args.host, args.http_port
     );
 
-    let url = format!("http://{}:{}/api/explore-deploy", args.host, args.port);
+    let url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
     let client = reqwest::Client::new();
 
     let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
@@ -204,10 +207,10 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
 pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔍 Getting active validators from {}:{}",
-        args.host, args.port
+        args.host, args.http_port
     );
 
-    let url = format!("http://{}:{}/api/explore-deploy", args.host, args.port);
+    let url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
     let client = reqwest::Client::new();
 
     let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getActiveValidators", *return) } }"#;
@@ -302,13 +305,13 @@ pub async fn wallet_balance_command(
 ) -> Result<(String, String), Box<dyn std::error::Error>> {
     println!(
         "🔍 Checking wallet balance for address: {}, host: {}, port: {}",
-        args.address, args.host, args.port
+        args.address, args.host, args.grpc_port
     );
 
     let f1r3fly_api = F1r3flyApi::new(
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
         &args.host,
-        args.port,
+        args.grpc_port,
     );
 
     let rholang_query = format!(
@@ -363,7 +366,7 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
         args.public_key
     );
 
-    let url = format!("http://{}:{}/api/explore-deploy", args.host, args.port);
+    let url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
     let client = reqwest::Client::new();
 
     // Get all bonds first, then check if our public key is in there
@@ -442,9 +445,12 @@ fn check_if_key_is_bonded(bonds_json: &serde_json::Value, target_public_key: &st
 }
 
 pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔍 Getting node metrics from {}:{}", args.host, args.port);
+    println!(
+        "🔍 Getting node metrics from {}:{}",
+        args.host, args.http_port
+    );
 
-    let url = format!("http://{}:{}/metrics", args.host, args.port);
+    let url = format!("http://{}:{}/metrics", args.host, args.http_port);
     let client = reqwest::Client::new();
 
     let start_time = Instant::now();
@@ -610,12 +616,12 @@ pub async fn last_finalized_block_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔍 Getting last finalized block from {}:{}",
-        args.host, args.port
+        args.host, args.http_port
     );
 
     let url = format!(
         "http://{}:{}/api/last-finalized-block",
-        args.host, args.port
+        args.host, args.http_port
     );
     let client = reqwest::Client::new();
 
@@ -695,12 +701,12 @@ pub async fn show_main_chain_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔗 Getting main chain blocks from {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
     println!("📊 Depth: {} blocks", args.depth);
 
     // Initialize the F1r3fly API client
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     let start_time = Instant::now();
 
@@ -754,10 +760,10 @@ pub async fn validator_status_command(
     let f1r3fly_api = F1r3flyApi::new(
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // dummy private key
         &args.host,
-        args.port,
+        args.grpc_port,
     );
 
-    println!("Node API at {}:{}", args.host, args.port);
+    println!("Observer grpc API at {}:{}", args.host, args.grpc_port);
 
     let start_time = Instant::now();
 
@@ -788,7 +794,7 @@ pub async fn validator_status_command(
     // Use HTTP API for PoS contract queries (like bonds/network-consensus commands)
     let client = reqwest::Client::new();
     let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
-    println!("HTTP API at {}", http_url);
+    println!("Observer HTTP API at {}", http_url);
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;
@@ -890,13 +896,13 @@ pub async fn validator_status_command(
 pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔍 Getting current epoch information from {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
 
     let f1r3fly_api = F1r3flyApi::new(
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // Bootstrap private key
         &args.host,
-        args.port,
+        args.grpc_port,
     );
 
     let start_time = Instant::now();
@@ -1018,13 +1024,13 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
 pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔍 Getting current epoch rewards from {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
 
     let f1r3fly_api = F1r3flyApi::new(
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
         &args.host,
-        args.port,
+        args.grpc_port,
     );
 
     let rewards_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
@@ -1097,21 +1103,25 @@ pub async fn network_consensus_command(
     args: &PosQueryArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
-        "🌐 Getting network-wide consensus overview from {}:{}",
-        args.host, args.port
+        "🌐 Getting network-wide consensus overview from {}",
+        args.host
     );
 
     let f1r3fly_api = F1r3flyApi::new(
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
         &args.host,
-        args.port,
+        args.grpc_port,
     );
 
     let start_time = Instant::now();
 
     // Get all validator info in parallel using HTTP API for PoS queries
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port); // Use HTTP port
+    let http_url = format!(
+        "http://{}:{}/api/explore-deploy",
+        args.host,
+        args.http_port.unwrap_or(40453)
+    );
     println!("HTTP API at {}", http_url);
 
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
@@ -1244,7 +1254,7 @@ pub async fn get_blocks_by_height_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔗 Getting blocks by height range from {}:{}",
-        args.host, args.port
+        args.host, args.grpc_port
     );
     println!(
         "📊 Block range: {} to {}",
@@ -1261,7 +1271,7 @@ pub async fn get_blocks_by_height_command(
     }
 
     // Initialize the F1r3fly API client
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
     let start_time = Instant::now();
 
