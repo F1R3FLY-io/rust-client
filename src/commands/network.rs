@@ -231,7 +231,7 @@ pub async fn is_finalized_command(
 }
 
 pub async fn transfer_deploy(args: &TransferArgs) -> Result<String, Box<dyn std::error::Error>> {
-    println!("💸 Initiating REV transfer");
+    println!("💸 Initiating ASI transfer");
 
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
@@ -245,18 +245,18 @@ pub async fn transfer_deploy(args: &TransferArgs) -> Result<String, Box<dyn std:
         let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
         let public_key = CryptoUtils::derive_public_key(&secret_key);
         let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-        CryptoUtils::generate_rev_address(&public_key_hex)?
+        CryptoUtils::generate_asi_address(&public_key_hex)?
     };
 
-    validate_rev_address(&from_address)?;
-    validate_rev_address(&args.to_address)?;
+    validate_asi_address(&from_address)?;
+    validate_asi_address(&args.to_address)?;
 
     let amount_dust = args.amount * 100_000_000;
 
     println!("📋 Transfer Details:");
     println!("   From: {}", from_address);
     println!("   To: {}", args.to_address);
-    println!("   Amount: {} REV ({} dust)", args.amount, amount_dust);
+    println!("   Amount: {} ASI ({} dust)", args.amount, amount_dust);
     println!(
         "   Phlo limit: {}",
         if args.bigger_phlo {
@@ -353,7 +353,7 @@ pub async fn bond_validator_command(
     args: &BondValidatorArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔗 Bonding new validator to the network");
-    println!("💰 Stake amount: {} REV", args.stake);
+    println!("💰 Stake amount: {} ASI", args.stake);
 
     // Initialize the F1r3fly API client for deploying
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
@@ -748,13 +748,13 @@ pub async fn get_deploy_command(
     }
 }
 
-pub fn validate_rev_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn validate_asi_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     if !address.starts_with("1111") {
-        return Err("Invalid REV address format: must start with '1111'".into());
+        return Err("Invalid ASI address format: must start with '1111'".into());
     }
 
     if address.len() < 40 {
-        return Err("Invalid REV address format: too short".into());
+        return Err("Invalid ASI address format: too short".into());
     }
 
     Ok(())
@@ -782,7 +782,7 @@ in {{
       for (@result <- resultCh) {{
         match result {{
           (true, Nil) => {{
-            stdout!(("Transfer successful:", {}, "REV"))
+            stdout!(("Transfer successful:", {}, "ASI"))
           }}
           (false, reason) => {{
             stdout!(("Transfer failed:", reason))

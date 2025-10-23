@@ -347,7 +347,7 @@ pub async fn wallet_balance_command(
             let duration = start_time.elapsed();
             println!("✅ Wallet balance retrieved successfully!");
             println!("⏱️  Time taken: {:.2?}", duration);
-            println!("💰 Balance for {}: {} REV", args.address, balance);
+            println!("💰 Balance for {}: {} ASI", args.address, balance);
             println!("📊 {}", block_info);
 
             return Ok((balance, block_info));
@@ -848,7 +848,7 @@ pub async fn validator_status_command(
                                 if validator == args.public_key {
                                     if let Some(stake) = bond.get("stake").and_then(|s| s.as_i64())
                                     {
-                                        println!("   Stake Amount: {} REV", stake);
+                                        println!("   Stake Amount: {} ASI", stake);
                                     }
                                     break;
                                 }

@@ -31,8 +31,8 @@ impl Dispatcher {
             Commands::GenerateKeyPair(args) => {
                 generate_key_pair_command(args).map_err(NodeCliError::from)
             }
-            Commands::GenerateRevAddress(args) => {
-                generate_rev_address_command(args).map_err(NodeCliError::from)
+            Commands::GenerateAsiAddress(args) => {
+                generate_asi_address_command(args).map_err(NodeCliError::from)
             }
             Commands::Status(args) => status_command(args).await.map_err(NodeCliError::from),
             Commands::Blocks(args) => blocks_command(args).await.map_err(NodeCliError::from),

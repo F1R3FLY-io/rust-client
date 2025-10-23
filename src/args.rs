@@ -35,8 +35,8 @@ pub enum Commands {
     /// Generate a new secp256k1 private/public key pair
     GenerateKeyPair(GenerateKeyPairArgs),
 
-    /// Generate a REV address from a public key
-    GenerateRevAddress(GenerateRevAddressArgs),
+    /// Generate a ASI address from a public key
+    GenerateAsiAddress(GenerateAsiAddressArgs),
 
     /// Get node status and peer information
     Status(HttpArgs),
@@ -71,7 +71,7 @@ pub enum Commands {
     /// Get blocks in the main chain
     ShowMainChain(ShowMainChainArgs),
 
-    /// Transfer REV tokens between addresses
+    /// Transfer ASI tokens between addresses
     Transfer(TransferArgs),
 
     /// Get a specific deploy by ID
@@ -305,9 +305,9 @@ pub struct GenerateKeyPairArgs {
     pub output_dir: String,
 }
 
-/// Arguments for generate-rev-address command
+/// Arguments for generate-asi-address command
 #[derive(Parser)]
-pub struct GenerateRevAddressArgs {
+pub struct GenerateAsiAddressArgs {
     /// Public key in hex format (uncompressed format preferred)
     #[arg(short, long, conflicts_with = "private_key")]
     pub public_key: Option<String>,
@@ -510,11 +510,11 @@ pub struct WaitArgs {
 /// Arguments for transfer command
 #[derive(Parser)]
 pub struct TransferArgs {
-    /// Recipient REV address
+    /// Recipient ASI address
     #[arg(short, long)]
     pub to_address: String,
 
-    /// Amount in REV to transfer
+    /// Amount in ASI to transfer
     #[arg(short, long)]
     pub amount: u64,
 

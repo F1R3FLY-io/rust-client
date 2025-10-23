@@ -80,7 +80,7 @@ pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn generate_rev_address_command(args: &GenerateRevAddressArgs) -> Result<()> {
+pub fn generate_asi_address_command(args: &GenerateAsiAddressArgs) -> Result<()> {
     // Determine the public key to use
     let public_key_hex = if let Some(public_key_hex) = &args.public_key {
         // Use provided public key
@@ -89,7 +89,7 @@ pub fn generate_rev_address_command(args: &GenerateRevAddressArgs) -> Result<()>
         // Derive public key from private key
         let secret_key = CryptoUtils::decode_private_key(private_key_hex)?;
         let public_key = CryptoUtils::derive_public_key(&secret_key);
-        // Use uncompressed format for REV address generation
+        // Use uncompressed format for ASI address generation
         CryptoUtils::serialize_public_key(&public_key, false)
     } else {
         return Err(NodeCliError::config_missing_required(
@@ -104,12 +104,12 @@ pub fn generate_rev_address_command(args: &GenerateRevAddressArgs) -> Result<()>
         ));
     }
 
-    // Generate REV address
-    let rev_address = CryptoUtils::generate_rev_address(&public_key_hex)?;
+    // Generate ASI address
+    let asi_address = CryptoUtils::generate_asi_address(&public_key_hex)?;
 
     // Print the result using output utils
     print_key("Public key", &public_key_hex);
-    print_key("REV address", &rev_address);
+    print_key("ASI address", &asi_address);
 
     Ok(())
 }
