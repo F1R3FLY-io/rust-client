@@ -421,23 +421,11 @@ pub async fn bond_validator_command(
     // Initialize the F1r3fly API client for deploying
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
+    let bond_template = fs::read_to_string("rho_examples/cli/bond.rho")
+        .map_err(|e| format!("Failed to read bond template file: {}", e))?;
+
     // Create the bonding Rholang code
-    let bonding_code = format!(
-        r#"new rl(`rho:registry:lookup`), poSCh, retCh, stdout(`rho:io:stdout`) in {{
-  stdout!("About to lookup PoS contract...") |
-  rl!(`rho:rchain:pos`, *poSCh) |
-  for(@(_, PoS) <- poSCh) {{
-    stdout!("About to bond...") |
-    new deployerId(`rho:rchain:deployerId`) in {{
-      @PoS!("bond", *deployerId, {}, *retCh) |
-      for (@(result, message) <- retCh) {{
-        stdout!(("Bond result:", result, "Message:", message))
-      }}
-    }}
-  }}
-}}"#,
-        args.stake
-    );
+    let bonding_code = bond_template.replacen("{}", &args.stake.to_string(), 1);
 
     println!("🚀 Deploying bonding transaction...");
     let deploy_start_time = Instant::now();
@@ -828,10 +816,10 @@ fn generate_transfer_contract(
     to_address: &str,
     amount_dust: u64,
 ) -> Result<String, String> {
-    let transfer_template = fs::read_to_string("rho_examples/transfer_cli.rho")
+    let transfer_template = fs::read_to_string("rho_examples/cli/transfer.rho")
         .map_err(|e| format!("Failed to read transfer template file: {}", e))?;
 
-    let rholang_code = transfer_template
+    let transfer_code = transfer_template
         .replacen("{}", from_address, 1)
         .replacen("{}", to_address, 1)
         .replacen("{}", to_address, 1)
@@ -839,7 +827,7 @@ fn generate_transfer_contract(
         .replacen("{}", &amount_dust.to_string(), 1);
 
     // println!("Generated transfer Rholang code:");
-    // println!("{}", rholang_code);
+    // println!("{}", transfer_code);
 
-    Ok(rholang_code)
+    Ok(transfer_code)
 }

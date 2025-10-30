@@ -2,6 +2,7 @@ use crate::args::*;
 use crate::f1r3fly_api::F1r3flyApi;
 use reqwest;
 use serde_json;
+use std::fs;
 use std::time::Instant;
 
 pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -120,10 +121,11 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
     let url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
     let client = reqwest::Client::new();
 
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
+    let bonds_query = fs::read_to_string("rho_examples/cli/bonds_query.rho")
+        .map_err(|e| format!("Failed to read bonds_query file: {}", e))?;
 
     let body = serde_json::json!({
-        "term": rholang_query
+        "term": bonds_query
     });
 
     let start_time = Instant::now();
@@ -213,7 +215,8 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
     let url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
     let client = reqwest::Client::new();
 
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getActiveValidators", *return) } }"#;
+    let rholang_query = fs::read_to_string("rho_examples/cli/active_validators.rho")
+        .map_err(|e| format!("Failed to read active_validators file: {}", e))?;
 
     let body = serde_json::json!({
         "term": rholang_query
@@ -314,33 +317,15 @@ pub async fn wallet_balance_command(
         args.grpc_port,
     );
 
-    let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), asiVaultCh, vaultCh, balanceCh in {{
-            rl!(`rho:rchain:asiVault`, *asiVaultCh) |
-            for (@(_, ASIVault) <- asiVaultCh) {{
-                @ASIVault!("findOrCreate", "{}", *vaultCh) |
-                for (@either <- vaultCh) {{
-                    match either {{
-                        (true, vault) => {{
-                            @vault!("balance", *balanceCh) |
-                            for (@balance <- balanceCh) {{
-                                return!(balance)
-                            }}
-                        }}
-                        (false, errorMsg) => {{
-                            return!(errorMsg)
-                        }}
-                    }}
-                }}
-            }}
-        }}"#,
-        args.address
-    );
+    let balance_template = fs::read_to_string("rho_examples/cli/get_balance.rho")
+        .map_err(|e| format!("Failed to read get_balance template file: {}", e))?;
+
+    let balance_query = balance_template.replace("{}", &args.address);
 
     let start_time = Instant::now();
 
     match f1r3fly_api
-        .exploratory_deploy(&rholang_query, None, false)
+        .exploratory_deploy(&balance_query, None, false)
         .await
     {
         Ok((balance, block_info)) => {
@@ -370,10 +355,11 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
     let client = reqwest::Client::new();
 
     // Get all bonds first, then check if our public key is in there
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
+    let bonds_query = fs::read_to_string("rho_examples/cli/bonds_query.rho")
+        .map_err(|e| format!("Failed to read bonds_query file: {}", e))?;
 
     let body = serde_json::json!({
-        "term": rholang_query
+        "term": bonds_query
     });
 
     let start_time = Instant::now();
@@ -768,28 +754,16 @@ pub async fn validator_status_command(
     let start_time = Instant::now();
 
     // Query 1: Get all bonds to check if validator is bonded
-    let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getBonds", *return)
-        }
-    }"#;
+    let bonds_query = fs::read_to_string("rho_examples/cli/bonds_query.rho")
+        .map_err(|e| format!("Failed to read bonds_query file: {}", e))?;
 
     // Query 2: Get active validators to check if validator is active
-    let active_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getActiveValidators", *return)
-        }
-    }"#;
+    let active_query = fs::read_to_string("rho_examples/cli/active_validators.rho")
+        .map_err(|e| format!("Failed to read active_validators file: {}", e))?;
 
     // Query 3: Get quarantine length for timing calculations
-    let quarantine_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getQuarantineLength", *return)
-        }
-    }"#;
+    let quarantine_query = fs::read_to_string("rho_examples/cli/quarantine_length.rho")
+        .map_err(|e| format!("Failed to read quarantine_length file: {}", e))?;
 
     // Use HTTP API for PoS contract queries (like bonds/network-consensus commands)
     let client = reqwest::Client::new();
@@ -804,9 +778,9 @@ pub async fn validator_status_command(
 
     // Execute all queries using explicit tip block hash for consistency
     let (bonds_result, active_result, quarantine_result) = tokio::try_join!(
-        query_pos_http(&client, &http_url, bonds_query),
-        query_pos_http(&client, &http_url, active_query),
-        f1r3fly_api.exploratory_deploy(quarantine_query, Some(tip_block_hash), false),
+        query_pos_http(&client, &http_url, &bonds_query),
+        query_pos_http(&client, &http_url, &active_query),
+        f1r3fly_api.exploratory_deploy(&quarantine_query, Some(tip_block_hash), false),
     )?;
 
     let duration = start_time.elapsed();
@@ -908,19 +882,11 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
     let start_time = Instant::now();
 
     // Query epoch and quarantine lengths from PoS contract
-    let epoch_length_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getEpochLength", *return)
-        }
-    }"#;
+    let epoch_length_query = fs::read_to_string("rho_examples/cli/epoch_length.rho")
+        .map_err(|e| format!("Failed to read epoch_length file: {}", e))?;
 
-    let quarantine_length_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getQuarantineLength", *return)
-        }
-    }"#;
+    let quarantine_length_query = fs::read_to_string("rho_examples/cli/quarantine_length.rho")
+        .map_err(|e| format!("Failed to read quarantine_length file: {}", e))?;
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;
@@ -930,8 +896,8 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
 
     // Get epoch and quarantine data using explicit tip block hash for consistency
     let (epoch_result, quarantine_result, recent_blocks) = tokio::try_join!(
-        f1r3fly_api.exploratory_deploy(epoch_length_query, Some(tip_block_hash), false),
-        f1r3fly_api.exploratory_deploy(quarantine_length_query, Some(tip_block_hash), false),
+        f1r3fly_api.exploratory_deploy(&epoch_length_query, Some(tip_block_hash), false),
+        f1r3fly_api.exploratory_deploy(&quarantine_length_query, Some(tip_block_hash), false),
         f1r3fly_api.show_main_chain(5)
     )?;
 
@@ -1033,17 +999,18 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
         args.grpc_port,
     );
 
-    let rewards_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getCurrentEpochRewards", *return)
-        }
-    }"#;
+    let rewards_query = fs::read_to_string("rho_examples/cli/get_current_epoch_rewards.rho")
+        .map_err(|e| {
+            format!(
+                "Failed to read get_current_epoch_rewards template file: {}",
+                e
+            )
+        })?;
 
     let start_time = Instant::now();
 
     match f1r3fly_api
-        .exploratory_deploy(rewards_query, None, false)
+        .exploratory_deploy(&rewards_query, None, false)
         .await
     {
         Ok((result, block_info)) => {
@@ -1124,26 +1091,14 @@ pub async fn network_consensus_command(
     );
     println!("HTTP API at {}", http_url);
 
-    let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getBonds", *return)
-        }
-    }"#;
+    let bonds_query = fs::read_to_string("rho_examples/cli/bonds_query.rho")
+        .map_err(|e| format!("Failed to read bonds_query file: {}", e))?;
 
-    let active_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getActiveValidators", *return)
-        }
-    }"#;
+    let active_query = fs::read_to_string("rho_examples/cli/active_validators.rho")
+        .map_err(|e| format!("Failed to read active_validators file: {}", e))?;
 
-    let quarantine_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
-        for(@(_, PoS) <- poSCh) {
-            @PoS!("getQuarantineLength", *return)
-        }
-    }"#;
+    let quarantine_query = fs::read_to_string("rho_examples/cli/quarantine_length.rho")
+        .map_err(|e| format!("Failed to read quarantine_length file: {}", e))?;
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;
@@ -1152,9 +1107,9 @@ pub async fn network_consensus_command(
     let tip_block_hash = &tip_block.block_hash;
 
     let (bonds_result, active_result, quarantine_result) = tokio::try_join!(
-        query_pos_http(&client, &http_url, bonds_query),
-        query_pos_http(&client, &http_url, active_query),
-        f1r3fly_api.exploratory_deploy(quarantine_query, Some(tip_block_hash), false),
+        query_pos_http(&client, &http_url, &bonds_query),
+        query_pos_http(&client, &http_url, &active_query),
+        f1r3fly_api.exploratory_deploy(&quarantine_query, Some(tip_block_hash), false),
     )?;
 
     let duration = start_time.elapsed();

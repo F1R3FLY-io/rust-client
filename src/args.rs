@@ -331,7 +331,7 @@ pub struct HttpArgs {
     pub host: String,
 
     /// HTTP port number (not gRPC port)
-    #[arg(short, long, default_value_t = 40453)]
+    #[arg(long, default_value_t = 40453)]
     pub http_port: u16,
 }
 
@@ -343,7 +343,7 @@ pub struct BlocksArgs {
     pub host: String,
 
     /// HTTP port number (not gRPC port)
-    #[arg(short, long, default_value_t = 40413)]
+    #[arg(long, default_value_t = 40413)]
     pub http_port: u16,
 
     /// Number of recent blocks to fetch (default: 5)
@@ -429,7 +429,7 @@ pub struct BondStatusArgs {
     pub host: String,
 
     /// HTTP port number (same as other inspection commands)
-    #[arg(short, long, default_value_t = 40413)]
+    #[arg(long, default_value_t = 40413)]
     pub http_port: u16,
 
     /// Public key to check bond status for
