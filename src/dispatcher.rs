@@ -60,6 +60,10 @@ impl Dispatcher {
             Commands::ShowMainChain(args) => show_main_chain_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::TransferDeploy(args) => transfer_deploy(args)
+                .await
+                .map(|_| ())
+                .map_err(NodeCliError::from),
             Commands::Transfer(args) => transfer_command(args)
                 .await
                 .map(|_| ())

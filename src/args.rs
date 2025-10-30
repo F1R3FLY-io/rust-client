@@ -71,6 +71,8 @@ pub enum Commands {
     /// Get blocks in the main chain
     ShowMainChain(ShowMainChainArgs),
 
+    TransferDeploy(TransferArgs),
+
     /// Transfer ASI tokens between addresses
     Transfer(TransferArgs),
 

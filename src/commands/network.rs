@@ -266,7 +266,7 @@ pub async fn transfer_deploy(args: &TransferArgs) -> Result<String, Box<dyn std:
         }
     );
 
-    let rholang_code = generate_transfer_contract(&from_address, &args.to_address, amount_dust);
+    let rholang_code = generate_transfer_contract(&from_address, &args.to_address, amount_dust)?;
 
     println!("🚀 Deploying transfer contract...");
 
@@ -294,18 +294,55 @@ pub async fn check_deploy_status(
     args: &WaitArgs,
 ) -> Result<DeployCompressedInfo, Box<dyn std::error::Error>> {
     let get_deploy_args = GetDeployArgs::from_wait_args(&args, deploy_id, "json".to_string());
+    let block_wait_start = Instant::now();
+    let max_block_wait_attempts = args.max_attempts;
+    let mut block_wait_attempts = 0;
 
-    // TODO: add waiting
-    let deploy_info = get_deploy_command(&get_deploy_args).await?;
+    println!("- STEP 2.1: Waiting for deploy to be included in a block");
 
-    let compressed =
-        DeployCompressedInfo::from_deploy(deploy_info.status, deploy_info.block_hash.clone());
+    let compressed_deploy_info = loop {
+        block_wait_attempts += 1;
 
-    if !matches!(compressed.status(), CompressedDeployStatus::Finalizing) {
-        return Ok(compressed);
-    }
+        // Show progress every 10 attempts or if we're at the end
+        if block_wait_attempts % 10 == 0 || block_wait_attempts >= max_block_wait_attempts {
+            println!(
+                "   ⏱️  Checking... ({}/{} attempts)",
+                block_wait_attempts, max_block_wait_attempts
+            );
+        }
+        let deploy_info = get_deploy_command(&get_deploy_args).await?;
 
-    let Some(block_hash) = compressed.block_hash().map(str::to_owned) else {
+        let compressed =
+            DeployCompressedInfo::from_deploy(deploy_info.status, deploy_info.block_hash.clone());
+
+        match compressed.status() {
+            CompressedDeployStatus::DeployError => {
+                println!(
+                    "❌ Error retrieving deploy status during block wait: {:?}",
+                    compressed
+                );
+                return Ok(compressed);
+            }
+            CompressedDeployStatus::Deploying => {}
+            _ => break compressed,
+        }
+
+        if block_wait_attempts >= max_block_wait_attempts {
+            println!(
+                "❌ Timeout waiting for transfer deploy to be included in block after {} seconds",
+                max_block_wait_attempts * args.check_interval as u32
+            );
+            return Ok(DeployCompressedInfo::error(
+                CompressedDeployStatus::DeployError,
+                "Transfer deploy inclusion timeout",
+                None,
+            ));
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(args.check_interval)).await;
+    };
+
+    let Some(block_hash) = compressed_deploy_info.block_hash().map(str::to_owned) else {
         return Ok(DeployCompressedInfo::error(
             CompressedDeployStatus::DeployError,
             "block hash is missing",
@@ -313,6 +350,12 @@ pub async fn check_deploy_status(
         ));
     };
 
+    let block_wait_duration = block_wait_start.elapsed();
+    println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
+
+    println!("- STEP 2.2: Wait for block finalization using observer node");
+
+    // check with observer api
     let finalized_args = IsFinalizedArgs::from_wait_args(block_hash.clone(), args);
     let finalize_status = is_finalized_command(&finalized_args).await?;
 
@@ -323,15 +366,35 @@ pub async fn check_deploy_status(
 }
 
 pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::error::Error>> {
+    println!("STEP 1: Transfer deploy");
     let deploy_start_time = Instant::now();
-
     let deploy_id = transfer_deploy(args).await?;
-
     let deploy_duration = deploy_start_time.elapsed();
     println!("⏱️  Deploy time: {:.2?}", deploy_duration);
 
-    let wait_args: WaitArgs = WaitArgs::from_transfer_args(args);
+    // Handle propose logic if enabled
+    if args.propose {
+        println!("STEP 1.2: Transfer propose block");
+        let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
+        let propose_start = Instant::now();
 
+        match f1r3fly_api.propose().await {
+            Ok(block_hash) => {
+                let propose_duration = propose_start.elapsed();
+                println!("✅ Block proposed successfully!");
+                println!("⏱️  Propose time: {:.2?}", propose_duration);
+                println!("🧱 Block hash: {}", block_hash);
+            }
+            Err(e) => {
+                println!("❌ Block proposal failed!");
+                println!("Error: {}", e);
+                return Err(e);
+            }
+        }
+    }
+
+    println!("STEP 2: Wait for transfer deploy to be finalized");
+    let wait_args: WaitArgs = WaitArgs::from_transfer_args(args);
     let deploy_info: DeployCompressedInfo = check_deploy_status(deploy_id, &wait_args).await?;
 
     if *deploy_info.status() == CompressedDeployStatus::Finalized {
@@ -379,7 +442,7 @@ pub async fn bond_validator_command(
     println!("🚀 Deploying bonding transaction...");
     let deploy_start_time = Instant::now();
 
-    // Step 1: Deploy the bonding code
+    // STEP 1: Deploy the bonding code
     let deploy_id = match f1r3fly_api.deploy(&bonding_code, true, "rholang").await {
         Ok(deploy_id) => {
             let deploy_duration = deploy_start_time.elapsed();
@@ -394,7 +457,7 @@ pub async fn bond_validator_command(
         }
     };
 
-    // Step 2: Wait for deploy to be included in a block
+    // STEP 2: Wait for deploy to be included in a block
     println!("⏳ Waiting for bonding deploy to be included in a block...");
     let block_wait_start = Instant::now();
     let max_block_wait_attempts = args.max_wait / args.check_interval;
@@ -442,7 +505,7 @@ pub async fn bond_validator_command(
     let block_wait_duration = block_wait_start.elapsed();
     println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
 
-    // Step 3: Wait for block finalization on the same node we deployed to
+    // STEP 3: Wait for block finalization on the same node we deployed to
     println!("🔍 Waiting for block finalization...");
 
     let finalization_start = Instant::now();
@@ -533,7 +596,7 @@ pub async fn deploy_and_wait_command(
     };
     println!("💰 Using phlo limit: {}", phlo_limit);
 
-    // Step 1: Deploy the Rholang code
+    // STEP 1: Deploy the Rholang code
     println!("🚀 Deploying Rholang code...");
     let deploy_start_time = Instant::now();
 
@@ -554,7 +617,7 @@ pub async fn deploy_and_wait_command(
         }
     };
 
-    // Step 2: Wait for deploy to be included in a block
+    // STEP 2: Wait for deploy to be included in a block
     println!("⏳ Waiting for deploy to be included in a block...");
     let block_wait_start = Instant::now();
     let max_block_wait_attempts = args.max_wait / args.check_interval;
@@ -602,7 +665,7 @@ pub async fn deploy_and_wait_command(
     let block_wait_duration = block_wait_start.elapsed();
     println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
 
-    // Step 3: Wait for block finalization on the same node we deployed to
+    // STEP 3: Wait for block finalization on the same node we deployed to
     println!("🔍 Waiting for block finalization...");
 
     let finalization_start = Instant::now();
@@ -760,44 +823,23 @@ pub fn validate_asi_address(address: &str) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust: u64) -> String {
-    format!(
-        r#"new 
-    deployerId(`rho:rchain:deployerId`),
-    stdout(`rho:io:stdout`),
-    rl(`rho:registry:lookup`),
-    asiVaultCh,
-    vaultCh,
-    toVaultCh,
-    asiVaultKeyCh,
-    resultCh
-in {{
-  rl!(`rho:rchain:asiVault`, *asiVaultCh) |
-  for (@(_, ASIVault) <- asiVaultCh) {{
-    @ASIVault!("findOrCreate", "{}", *vaultCh) |
-    @ASIVault!("findOrCreate", "{}", *toVaultCh) |
-    @ASIVault!("deployerAuthKey", *deployerId, *asiVaultKeyCh) |
-    for (@(true, vault) <- vaultCh; key <- asiVaultKeyCh; @(true, toVault) <- toVaultCh) {{
-      @vault!("transfer", "{}", {}, *key, *resultCh) |
-      for (@result <- resultCh) {{
-        match result {{
-          (true, Nil) => {{
-            stdout!(("Transfer successful:", {}, "ASI"))
-          }}
-          (false, reason) => {{
-            stdout!(("Transfer failed:", reason))
-          }}
-        }}
-      }}
-    }} |
-    for (@(false, errorMsg) <- vaultCh) {{
-      stdout!(("Sender vault error:", errorMsg))
-    }} |
-    for (@(false, errorMsg) <- toVaultCh) {{
-      stdout!(("Destination vault error:", errorMsg))
-    }}
-  }}
-}}"#,
-        from_address, to_address, to_address, amount_dust, amount_dust
-    )
+fn generate_transfer_contract(
+    from_address: &str,
+    to_address: &str,
+    amount_dust: u64,
+) -> Result<String, String> {
+    let transfer_template = fs::read_to_string("rho_examples/transfer_cli.rho")
+        .map_err(|e| format!("Failed to read transfer template file: {}", e))?;
+
+    let rholang_code = transfer_template
+        .replacen("{}", from_address, 1)
+        .replacen("{}", to_address, 1)
+        .replacen("{}", to_address, 1)
+        .replacen("{}", &amount_dust.to_string(), 1)
+        .replacen("{}", &amount_dust.to_string(), 1);
+
+    // println!("Generated transfer Rholang code:");
+    // println!("{}", rholang_code);
+
+    Ok(rholang_code)
 }
