@@ -118,27 +118,56 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
     use sha3::{Digest};
     use std::process::Command;
 
-    println!("🔑 Extracting node ID from TLS key file: {}", args.key_file);
+    // Determine which file to use
+    let (file_path, file_type) = if let Some(key_file) = &args.key_file {
+        (key_file.as_str(), "TLS private key")
+    } else if let Some(cert_file) = &args.cert_file {
+        (cert_file.as_str(), "TLS certificate")
+    } else {
+        return Err(NodeCliError::config_missing_required(
+            "Either --key-file or --cert-file must be provided",
+        ));
+    };
 
-    // Use OpenSSL command following F1R3FLY's documented approach
-    let output = Command::new("openssl")
-        .args(&[
-            "ec", "-text", "-in", &args.key_file, "-noout"
-        ])
-        .output()
-        .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {}", e)))?;
+    println!("🔑 Extracting node ID from {} file: {}", file_type, file_path);
 
-    if !output.status.success() {
-        let error_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(NodeCliError::crypto_invalid_private_key(&format!("OpenSSL error: {}", error_msg)));
-    }
+    // Use appropriate OpenSSL command based on file type
+    let openssl_output = if args.key_file.is_some() {
+        // Extract public key from private key file
+        let output = Command::new("openssl")
+            .args(&[
+                "ec", "-text", "-in", file_path, "-noout"
+            ])
+            .output()
+            .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {}", e)))?;
 
-    let openssl_output = String::from_utf8_lossy(&output.stdout);
-    
+        if !output.status.success() {
+            let error_msg = String::from_utf8_lossy(&output.stderr);
+            return Err(NodeCliError::crypto_invalid_private_key(&format!("OpenSSL error: {}", error_msg)));
+        }
+
+        String::from_utf8_lossy(&output.stdout).to_string()
+    } else {
+        // Extract public key from certificate file
+        let output = Command::new("openssl")
+            .args(&[
+                "x509", "-in", file_path, "-noout", "-text"
+            ])
+            .output()
+            .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {}", e)))?;
+
+        if !output.status.success() {
+            let error_msg = String::from_utf8_lossy(&output.stderr);
+            return Err(NodeCliError::crypto_invalid_private_key(&format!("OpenSSL error: {}", error_msg)));
+        }
+
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+
     // Debug: Uncomment to see OpenSSL output
     // println!("🔍 Debug: OpenSSL output:");
     // println!("{}", openssl_output);
-    
+
     // Extract public key from OpenSSL output
     let public_key_hex = extract_public_key_from_openssl_output(&openssl_output)?;
     

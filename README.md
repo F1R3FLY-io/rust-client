@@ -177,18 +177,25 @@ cargo run -- generate-rev-address --public-key YOUR_PUBLIC_KEY
 
 ### Get Node ID
 
-Extract the F1R3FLY node ID from a TLS private key file. The node ID is a 40-character hexadecimal string derived from the Keccak-256 hash of the TLS public key (removing the '04' prefix).
+Extract the F1R3FLY node ID from a TLS private key file or certificate file. The node ID is a 40-character hexadecimal string derived from the Keccak-256 hash of the TLS public key (removing the '04' prefix).
 
 ```bash
-# Extract node ID from TLS key file (hex format)
+# Extract node ID from TLS private key file (hex format)
 cargo run -- get-node-id --key-file /path/to/node.key.pem
 
+# Extract node ID from TLS certificate file (hex format) - recommended for distribution
+cargo run -- get-node-id --cert-file /path/to/node.certificate.pem
+
 # Extract node ID and generate RNode URL format
-cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url
+cargo run -- get-node-id --cert-file /path/to/node.certificate.pem --format rnode-url
 
 # Generate RNode URL with custom host and ports
-cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url --host mynode.com --protocol-port 40400 --discovery-port 40404
+cargo run -- get-node-id --cert-file /path/to/node.certificate.pem --format rnode-url --host mynode.com --protocol-port 40400 --discovery-port 40404
 ```
+
+**Input options:**
+- `--key-file`: Path to TLS private key file (node.key.pem)
+- `--cert-file`: Path to TLS certificate file (node.certificate.pem) - use this when distributing to clients
 
 **Output formats:**
 - `hex` (default): Returns just the 40-character node ID
@@ -602,11 +609,14 @@ cargo run -- network-consensus -H node.example.com -p 40452
 
 ### Get-Node-ID Command
 
-- `-k, --key-file <KEY_FILE>`: Path to the TLS private key file (node.key.pem) (required)
+- `-k, --key-file <KEY_FILE>`: Path to the TLS private key file (node.key.pem) (mutually exclusive with --cert-file)
+- `-c, --cert-file <CERT_FILE>`: Path to the TLS certificate file (node.certificate.pem) (mutually exclusive with --key-file)
 - `-f, --format <FORMAT>`: Output format: "hex" (default) or "rnode-url"
 - `-H, --host <HOST>`: Node hostname for rnode-url format (default: "localhost")
 - `--protocol-port <PROTOCOL_PORT>`: Protocol port for rnode-url format (default: 40400)
 - `--discovery-port <DISCOVERY_PORT>`: Discovery port for rnode-url format (default: 40404)
+
+**Note:** Either `--key-file` or `--cert-file` must be provided. Use `--cert-file` when distributing to clients to avoid exposing private keys.
 
 ### Status Command
 

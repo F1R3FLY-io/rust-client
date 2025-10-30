@@ -644,11 +644,15 @@ pub struct PosQueryArgs {
 #[derive(Parser, Debug)]
 pub struct GetNodeIdArgs {
     /// Path to the TLS private key file (node.key.pem)
-    #[arg(short, long)]
-    pub key_file: String,
+    #[arg(short = 'k', long, conflicts_with = "cert_file")]
+    pub key_file: Option<String>,
+
+    /// Path to the TLS certificate file (node.certificate.pem)
+    #[arg(short = 'c', long, conflicts_with = "key_file")]
+    pub cert_file: Option<String>,
 
     /// Output format (hex, rnode-url)
-    #[arg(short, long, default_value = "hex")]
+    #[arg(short = 'f', long, default_value = "hex")]
     pub format: String,
 
     /// Node hostname for rnode-url format
