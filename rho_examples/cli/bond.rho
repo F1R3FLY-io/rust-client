@@ -1,0 +1,13 @@
+new rl(`rho:registry:lookup`), poSCh, retCh, stdout(`rho:io:stdout`) in {
+  stdout!("About to lookup PoS contract...") |
+  rl!(`rho:rchain:pos`, *poSCh) |
+  for(@(_, PoS) <- poSCh) {
+    stdout!("About to bond...") |
+    new deployerId(`rho:rchain:deployerId`) in {
+      @PoS!("bond", *deployerId, {}, *retCh) |
+      for (@(result, message) <- retCh) {
+        stdout!(("Bond result:", result, "Message:", message))
+      }
+    }
+  }
+}

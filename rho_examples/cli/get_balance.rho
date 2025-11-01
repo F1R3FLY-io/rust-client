@@ -1,0 +1,19 @@
+new return, rl(`rho:registry:lookup`), asiVaultCh, vaultCh, balanceCh in {
+            rl!(`rho:rchain:asiVault`, *asiVaultCh) |
+            for (@(_, ASIVault) <- asiVaultCh) {
+                @ASIVault!("findOrCreate", "{}", *vaultCh) |
+                for (@either <- vaultCh) {
+                    match either {
+                        (true, vault) => {
+                            @vault!("balance", *balanceCh) |
+                            for (@balance <- balanceCh) {
+                                return!(balance)
+                            }
+                        }
+                        (false, errorMsg) => {
+                            return!(errorMsg)
+                        }
+                    }
+                }
+            }
+        }

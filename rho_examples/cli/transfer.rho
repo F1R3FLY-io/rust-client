@@ -1,0 +1,36 @@
+new 
+    deployerId(`rho:rchain:deployerId`),
+    stdout(`rho:io:stdout`),
+    rl(`rho:registry:lookup`),
+    asiVaultCh,
+    vaultCh,
+    toVaultCh,
+    asiVaultKeyCh,
+    resultCh
+in {
+  rl!(`rho:rchain:asiVault`, *asiVaultCh) |
+  for (@(_, ASIVault) <- asiVaultCh) {
+    @ASIVault!("findOrCreate", "{}", *vaultCh) |
+    @ASIVault!("findOrCreate", "{}", *toVaultCh) |
+    @ASIVault!("deployerAuthKey", *deployerId, *asiVaultKeyCh) |
+    for (@(true, vault) <- vaultCh; key <- asiVaultKeyCh; @(true, toVault) <- toVaultCh) {
+      @vault!("transfer", "{}", {}, *key, *resultCh) |
+      for (@result <- resultCh) {
+        match result {
+          (true, Nil) => {
+            stdout!(("Transfer successful:", {}, "ASI"))
+          }
+          (false, reason) => {
+            stdout!(("Transfer failed:", reason))
+          }
+        }
+      }
+    } |
+    for (@(false, errorMsg) <- vaultCh) {
+      stdout!(("Sender vault error:", errorMsg))
+    } |
+    for (@(false, errorMsg) <- toVaultCh) {
+      stdout!(("Destination vault error:", errorMsg))
+    }
+  }
+}

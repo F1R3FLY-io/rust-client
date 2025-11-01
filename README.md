@@ -27,7 +27,7 @@ Deploy Rholang code to a F1r3fly node.
 cargo run -- deploy -f ./rho_examples/stdout.rho
 
 # With custom parameters
-cargo run -- deploy -f ./rho_examples/stdout.rho --private-key YOUR_PRIVATE_KEY -H node.example.com -p 40412
+cargo run -- deploy -f ./rho_examples/stdout.rho --private-key YOUR_PRIVATE_KEY -H node.example.com --grpc-port 40412
 
 # With bigger phlo limit
 cargo run -- deploy -f ./rho_examples/stdout.rho -b
@@ -42,7 +42,7 @@ Propose a block to the F1r3fly network.
 cargo run -- propose
 
 # With custom parameters
-cargo run -- propose --private-key YOUR_PRIVATE_KEY -H node.example.com -p 40412
+cargo run -- propose --private-key YOUR_PRIVATE_KEY -H node.example.com --grpc-port 40412
 ```
 
 ### Full Deploy
@@ -54,7 +54,7 @@ Deploy Rholang code and propose a block in one operation.
 cargo run -- full-deploy -f ./rho_examples/stdout.rho
 
 # With custom parameters
-cargo run -- full-deploy -f ./rho_examples/stdout.rho --private-key YOUR_PRIVATE_KEY -H node.example.com -p 40412
+cargo run -- full-deploy -f ./rho_examples/stdout.rho --private-key YOUR_PRIVATE_KEY -H node.example.com --grpc-port 40412
 
 # With bigger phlo limit
 cargo run -- full-deploy -f ./rho_examples/stdout.rho -b
@@ -103,7 +103,7 @@ Check if a block is finalized, with automatic retries.
 cargo run -- is-finalized -b BLOCK_HASH
 
 # With custom parameters
-cargo run -- is-finalized -b BLOCK_HASH --private-key YOUR_PRIVATE_KEY -H node.example.com -p 40412
+cargo run -- is-finalized -b BLOCK_HASH --private-key YOUR_PRIVATE_KEY -H node.example.com --grpc-port 40412
 
 # With custom retry settings
 cargo run -- is-finalized -b BLOCK_HASH -m 20 -r 3  # Retry every 3 seconds, up to 20 times
@@ -118,7 +118,7 @@ Execute Rholang code without committing it to the blockchain. This is useful for
 cargo run -- exploratory-deploy -f ./rho_examples/stdout.rho
 
 # With custom parameters
-cargo run -- exploratory-deploy -f ./rho_examples/stdout.rho --private-key YOUR_PRIVATE_KEY -H node.example.com -p 40412
+cargo run -- exploratory-deploy -f ./rho_examples/stdout.rho --private-key YOUR_PRIVATE_KEY -H node.example.com --grpc-port 40412
 
 # Execute at a specific block
 cargo run -- exploratory-deploy -f ./rho_examples/stdout.rho --block-hash BLOCK_HASH
@@ -160,19 +160,19 @@ cargo run -- generate-key-pair --save
 cargo run -- generate-key-pair --save --output-dir /path/to/keys
 ```
 
-### Generate REV Address
+### Generate address
 
-Generate a REV address from a public key. You can either provide a public key directly or use a private key (from which the public key will be derived).
+Generate an address from a public key. You can either provide a public key directly or use a private key (from which the public key will be derived).
 
 ```bash
 # Using default private key
-cargo run -- generate-rev-address
+cargo run -- generate-address
 
 # Provide your own private key
-cargo run -- generate-rev-address --private-key YOUR_PRIVATE_KEY
+cargo run -- generate-address --private-key YOUR_PRIVATE_KEY
 
 # Provide a public key directly
-cargo run -- generate-rev-address --public-key YOUR_PUBLIC_KEY
+cargo run -- generate-address --public-key YOUR_PUBLIC_KEY
 ```
 
 ### Get Node ID
@@ -237,28 +237,50 @@ cargo run -- watch-blocks --retry-forever
 - `-f, --filter <TYPE>` - Show only specific event type (created/added/finalized)
 - `--retry-forever` - Keep trying to reconnect indefinitely until manually killed (Ctrl+C)
 
-### Transfer REV
 
-Transfer REV tokens between addresses. The command automatically derives the sender address from the private key and deploys a transfer contract.
+### Transfer 
+
+Transfer tokens between addresses. The command waits for the deploy to be included in a block and finalized, providing full confirmation of the transfer.
+
+Transfer ASI token as default.
 
 ```bash
-# Basic transfer (requires manual block proposal)
-cargo run -- transfer --to-address "111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA" --amount 100
+# Basic transfer from default wallet 
+cargo run -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 100
+
+# Transfer 1000 of custom token from default wallet 
+cargo run -- transfer --to-address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M --amount 1000 --token ETH
 
 # Transfer with custom private key
-cargo run -- transfer --to-address "111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA" --amount 100 --private-key YOUR_PRIVATE_KEY
+cargo run -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 100 --private-key <YOUR_PRIVATE_KEY>
 
 # Transfer and auto-propose a block
-cargo run -- transfer --to-address "111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA" --amount 100 --propose true
+cargo run -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 100 --propose true
+
+# Transfer with custom wait settings
+cargo run -- transfer --to-address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M --amount 1000 --max-wait 600 --check-interval 10 
 
 # Transfer with standard phlo limit (not recommended - may run out of gas)
-cargo run -- transfer --to-address "111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA" --amount 100 --bigger-phlo false
+cargo run -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 100 --bigger-phlo false
 
 # Transfer to custom node
-cargo run -- transfer --to-address "111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA" --amount 100 -H node.example.com -p 40412
+cargo run -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 100 -H node.example.com --grpc-port 40412 --http-port 40413
+
+# Transfer to custom node with custom observer
+cargo run -- transfer --to-address 1111LAd2PWaHsw84gxarNx99YVK2aZhCThhrPsWTV7cs1BPcvHftP --observer-host <ENTER_OBSERVER_HOST> --observer-grpc-port 40402 --amount 100 --private-key <ENTER_YOUR_PRIVATE_KEY> -H <ENTER_NODE_HOST> --grpc-port 40402 --http-port 40403
 ```
 
 **Note**: The transfer command uses a high phlo limit by default (`--bigger-phlo true`) because transfer contracts require more computational resources than simple deployments. This helps prevent "out of phlogistons" errors.
+
+### Transfer deploy
+
+Transfer tokens between addresses. The command automatically derives the sender address from the private key and deploys a transfer contract, without waiting functionality.
+
+```bash
+# Basic Transfer deploy from default wallet 
+cargo run -- transfer-deploy --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 100 --token ETH
+```
+
 ## Node Inspection Commands
 
 The CLI provides several commands for inspecting and monitoring F1r3fly nodes using HTTP endpoints:
@@ -272,7 +294,7 @@ Get node status and peer information.
 cargo run -- status
 
 # Get status from custom node
-cargo run -- status -H node.example.com -p 40413
+cargo run -- status -H node.example.com --http-port 40413
 ```
 
 ### Blocks
@@ -290,7 +312,7 @@ cargo run -- blocks -n 10
 cargo run -- blocks --block-hash BLOCK_HASH_HERE
 
 # Get blocks from custom node
-cargo run -- blocks -H node.example.com -p 40413 -n 3
+cargo run -- blocks -H node.example.com --http-port 40413 -n 3
 ```
 
 ### Bonds
@@ -302,7 +324,7 @@ Get current validator bonds from the PoS contract.
 cargo run -- bonds
 
 # Get bonds from custom node
-cargo run -- bonds -H node.example.com -p 40453
+cargo run -- bonds -H node.example.com --http-port 40453
 ```
 
 ### Active Validators
@@ -314,19 +336,22 @@ Get active validators from the PoS contract.
 cargo run -- active-validators
 
 # Get active validators from custom node
-cargo run -- active-validators -H node.example.com -p 40413
+cargo run -- active-validators -H node.example.com --http-port 40413
 ```
 
 ### Wallet Balance
 
-Check wallet balance for a specific address.
+Check wallet balance for a specific address. Checks for ASI token as default.
 
 ```bash
 # Check wallet balance for an address (requires read-only node on port 40452)
-cargo run -- wallet-balance --address "1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g"
+cargo run -- wallet-balance --address 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g
+
+# Check wallet balance for custom token
+cargo run -- wallet-balance --address 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g --token ETH
 
 # Check balance from custom node (uses gRPC, requires read-only node)
-cargo run -- wallet-balance -a "1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g" -H node.example.com -p 40452
+cargo run -- wallet-balance -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g -H node.example.com --grpc-port 40452
 ```
 
 ### Bond Status
@@ -338,7 +363,7 @@ Check if a validator is bonded by public key.
 cargo run -- bond-status --public-key "04ffc016579a68050d655d55df4e09f04605164543e257c8e6df10361e6068a5336588e9b355ea859c5ab4285a5ef0efdf62bc28b80320ce99e26bb1607b3ad93d"
 
 # Check from custom node (uses HTTP port like other inspection commands)
-cargo run -- bond-status -k "PUBLIC_KEY_HERE" -H node.example.com -p 40413
+cargo run -- bond-status -k "PUBLIC_KEY_HERE" -H node.example.com --http-port 40413
 ```
 
 ### Metrics
@@ -350,7 +375,7 @@ Get node metrics for monitoring.
 cargo run -- metrics
 
 # Get metrics from custom node
-cargo run -- metrics -H node.example.com -p 40413
+cargo run -- metrics -H node.example.com --http-port 40413
 ```
 
 ### Last Finalized Block
@@ -362,7 +387,7 @@ Get the last finalized block from the node.
 cargo run -- last-finalized-block
 
 # Get last finalized block from custom node
-cargo run -- last-finalized-block -H node.example.com -p 40413
+cargo run -- last-finalized-block -H node.example.com --http-port 40413
 ```
 
 ### Show Main Chain
@@ -377,7 +402,7 @@ cargo run -- show-main-chain
 cargo run -- show-main-chain -d 5
 
 # Get main chain blocks from custom node
-cargo run -- show-main-chain -H node.example.com -p 40412 -d 20
+cargo run -- show-main-chain -H node.example.com --grpc-port 40412 -d 20
 
 # Use custom private key for authentication
 cargo run -- show-main-chain --private-key YOUR_PRIVATE_KEY
@@ -392,7 +417,7 @@ Get blocks within a specific height range from the blockchain.
 cargo run -- get-blocks-by-height -s 100 -e 105
 
 # Get blocks from custom node
-cargo run -- get-blocks-by-height -s 50 -e 75 -H node.example.com -p 40412
+cargo run -- get-blocks-by-height -s 50 -e 75 -H node.example.com --grpc-port 40412
 
 # Use custom private key for authentication
 cargo run -- get-blocks-by-height -s 1 -e 10 --private-key YOUR_PRIVATE_KEY
@@ -405,7 +430,7 @@ cargo run -- get-blocks-by-height -s 42 -e 42
 - `-s, --start-block-number`: Start block number (inclusive)
 - `-e, --end-block-number`: End block number (inclusive)
 - `-H, --host`: Node hostname (default: localhost)
-- `-p, --port`: gRPC port (default: 40412)
+- `-g, --grpc-port`: gRPC port (default: 40412)
 - `--private-key`: Private key for gRPC authentication
 
 **Note:** The command validates that start block number ≤ end block number and both are non-negative.
@@ -419,39 +444,20 @@ The CLI provides commands for dynamically adding validators to a running F1r3fly
 Deploy a bonding transaction to add a new validator to the network. The command waits for the deploy to be included in a block and finalized, similar to `deploy-and-wait`. **Requires specifying which validator to bond via private key.**
 
 ```bash
-# Bond Validator_4 node as validator (1000 REV stake)
-cargo run -- bond-validator --stake 1000 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd --port 40411
+# Bond Validator_4 node as validator (1000 stake amount)
+cargo run -- bond-validator --stake 1000 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd
 
 # Deploy bonding transaction and propose block immediately  
-cargo run -- bond-validator --stake 1000 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd --propose true --port 40411
+cargo run -- bond-validator --stake 1000 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd --propose true
 
 # Deploy bonding transaction and wait for finalization (with custom timeouts)
-cargo run -- bond-validator --stake 1000 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd --max-wait 600 --check-interval 10 --port 40411
+cargo run -- bond-validator --stake 1000 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd --max-wait 600 --check-interval 10 
 
 # Bond validator on custom node
-cargo run -- bond-validator --stake 1000 --private-key YOUR_VALIDATOR_PRIVATE_KEY -H node.example.com -p 40411
+cargo run -- bond-validator --stake 1000 --private-key YOUR_VALIDATOR_PRIVATE_KEY -H node.example.com --grpc-port 40412 --http-port 40413
+
 ```
 
-### Transfer
-
-Transfer REV tokens between addresses. The command waits for the deploy to be included in a block and finalized, providing full confirmation of the transfer.
-
-```bash
-# Transfer 1000 REV from bootstrap wallet to another address
-cargo run -- transfer --to-address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M --amount 1000 --port 40411
-
-# Transfer with custom private key (different sender)
-cargo run -- transfer --to-address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M --amount 500 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd --port 40411
-
-# Transfer with auto-propose enabled
-cargo run -- transfer --to-address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M --amount 1000 --propose true --port 40411
-
-# Transfer with custom wait settings
-cargo run -- transfer --to-address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M --amount 1000 --max-wait 600 --check-interval 10 --port 40411
-
-# Transfer using custom node connection
-cargo run -- transfer --to-address RECIPIENT_ADDRESS --amount 1000 -H node.example.com -p 40411
-```
 
 ### Network Health
 
@@ -496,8 +502,8 @@ Get current epoch information including epoch length, quarantine length, and tra
 # Get epoch information (uses default observer port 40452)
 cargo run -- epoch-info
 
-# Get epoch info from custom node
-cargo run -- epoch-info -H node.example.com -p 40452
+# Get epoch info from custom observer node
+cargo run -- epoch-info -H node.example.com --grpc-port 40452 --http-port 40453
 ```
 
 ### Validator Status
@@ -508,8 +514,8 @@ Check the detailed status of a specific validator (bonded, active, or quarantine
 # Check validator4 status (replace with actual public key)
 cargo run -- validator-status -k 04d26c6103d7269773b943d7a9c456f9eb227e0d8b1fe30bccee4fca963f4446e3385d99f6386317f2c1ad36b9e6b0d5f97bb0a0041f05781c60a5ebca124a251d
 
-# Check validator status on custom node
-cargo run -- validator-status -k YOUR_VALIDATOR_PUBLIC_KEY -H node.example.com -p 40452
+# Check validator status on custom observer node
+cargo run -- validator-status -k YOUR_VALIDATOR_PUBLIC_KEY -H node.example.com --grpc-port 40452 --http-port 40453
 ```
 
 ### Epoch Rewards
@@ -520,8 +526,8 @@ Get current epoch rewards information from the PoS contract.
 # Get epoch rewards (uses default observer port 40452)
 cargo run -- epoch-rewards
 
-# Get epoch rewards from custom node
-cargo run -- epoch-rewards -H node.example.com -p 40452
+# Get epoch rewards from custom observer node
+cargo run -- epoch-rewards -H node.example.com --grpc-port 40452
 ```
 
 ### Network Consensus
@@ -532,8 +538,8 @@ Get network-wide consensus health overview including validator participation rat
 # Get network consensus overview (uses default observer port 40452)
 cargo run -- network-consensus
 
-# Get consensus overview from custom node
-cargo run -- network-consensus -H node.example.com -p 40452
+# Get consensus overview from custom observer node
+cargo run -- network-consensus -H node.example.com --grpc-port 40452 --http-port 40453
 ```
 
 ## Command Line Options
@@ -543,7 +549,7 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-f, --file <FILE>`: Path to the Rholang file to deploy (required)
 - `--private-key <PRIVATE_KEY>`: Private key in hex format
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number (default: 40412)
 - `-b, --bigger-phlo`: Use bigger phlo limit
 
 ### Deploy-and-Wait Command
@@ -551,7 +557,7 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-f, --file <FILE>`: Path to the Rholang file to deploy (required)
 - `--private-key <PRIVATE_KEY>`: Private key in hex format
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number for deploy (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number for deploy (default: 40412)
 - `--http-port <HTTP_PORT>`: HTTP port number for deploy status checks (default: 40413)
 - `-b, --bigger-phlo`: Use bigger phlo limit
 - `--max-wait <MAX_WAIT>`: Maximum total wait time in seconds (default: 300)
@@ -569,14 +575,14 @@ cargo run -- network-consensus -H node.example.com -p 40452
 
 - `--private-key <PRIVATE_KEY>`: Private key in hex format
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number (default: 40412)
 
 ### Is-Finalized Command
 
 - `-b, --block-hash <BLOCK_HASH>`: Block hash to check (required)
 - `--private-key <PRIVATE_KEY>`: Private key in hex format
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number (default: 40412)
 - `-m, --max-attempts <MAX_ATTEMPTS>`: Maximum number of retry attempts (default: 12)
 - `-r, --retry-delay <RETRY_DELAY>`: Delay between retries in seconds (default: 5)
 
@@ -585,7 +591,7 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-f, --file <FILE>`: Path to the Rholang file to execute (required)
 - `--private-key <PRIVATE_KEY>`: Private key in hex format
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number (default: 40412)
 - `-b, --block-hash <BLOCK_HASH>`: Optional block hash to use as reference
 - `-u, --use-pre-state`: Use pre-state hash instead of post-state hash
 
@@ -611,58 +617,59 @@ cargo run -- network-consensus -H node.example.com -p 40452
 ### Status Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: HTTP port number (default: 40413)
+- `--http-port <PORT>`: HTTP port number (default: 40413)
 
 ### Blocks Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: HTTP port number (default: 40413)
+- `--http-port <PORT>`: HTTP port number (default: 40413)
 - `-n, --number <NUMBER>`: Number of recent blocks to fetch (default: 5)
 - `-b, --block-hash <BLOCK_HASH>`: Specific block hash to fetch (optional)
 
 ### Bonds Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: HTTP port number (default: 40413)
+- `--http-port <PORT>`: HTTP port number (default: 40413)
 
 ### Active-Validators Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: HTTP port number (default: 40413)
+- `--http-port <PORT>`: HTTP port number (default: 40413)
 
 ### Wallet-Balance Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number (default: 40452, requires read-only node)
+- `--grpc-port <PORT>`: gRPC port number (default: 40452, requires read-only node)
 - `-a, --address <ADDRESS>`: Wallet address to check balance for (required)
+- `--token <TOKEN_NAME>`: Token name (like ASI or REV) in specific shard
 
 ### Bond-Status Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: HTTP port number (default: 40413)
+- `--http-port <PORT>`: HTTP port number (default: 40413)
 - `-k, --public-key <PUBLIC_KEY>`: Public key to check bond status for (required)
 
 ### Metrics Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: HTTP port number (default: 40413)
+- `--http-port <PORT>`: HTTP port number (default: 40413)
 
 ### Last-Finalized-Block Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: HTTP port number (default: 40413)
+- `--http-port <PORT>`: HTTP port number (default: 40413)
 
 ### Show-Main-Chain Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number (default: 40412)
 - `-d, --depth <DEPTH>`: Number of blocks to fetch from main chain (default: 10)
 - `--private-key <PRIVATE_KEY>`: Private key in hex format (required for gRPC)
 
 ### Get-Blocks-By-Height Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number (default: 40412)
 - `-s, --start-block-number <START>`: Start block number (inclusive)
 - `-e, --end-block-number <END>`: End block number (inclusive)
 - `--private-key <PRIVATE_KEY>`: Private key in hex format (required for gRPC)
@@ -670,7 +677,7 @@ cargo run -- network-consensus -H node.example.com -p 40452
 ### Bond-Validator Command
 
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number for deploy (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number for deploy (default: 40412)
 - `--http-port <HTTP_PORT>`: HTTP port number for deploy status checks (default: 40413)
 - `-s, --stake <STAKE>`: Stake amount for the validator (required)
 - `--private-key <PRIVATE_KEY>`: Private key for signing the deploy - determines which validator gets bonded (required)
@@ -684,15 +691,27 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-s, --standard-ports <STANDARD_PORTS>`: Check standard F1r3fly shard ports (default: true)
 - `-c, --custom-ports <CUSTOM_PORTS>`: Additional custom ports to check (comma-separated)
 
-### Transfer Command
+### Transfer Command 
 
-- `-t, --to-address <TO_ADDRESS>`: Recipient REV address (required)
-- `-a, --amount <AMOUNT>`: Amount in REV to transfer (required)
+- `-t, --to-address <TO_ADDRESS>`: Recipient address (required)
+- `-a, --amount <AMOUNT>`: Amount of token to transfer (required)
 - `--private-key <PRIVATE_KEY>`: Private key for signing the transfer (hex format)
 - `-H, --host <HOST>`: Host address (default: "localhost")
-- `-p, --port <PORT>`: gRPC port number for deploy (default: 40412)
+- `--grpc-port <PORT>`: gRPC port number for deploy (default: 40412)
 - `--http-port <HTTP_PORT>`: HTTP port number for deploy status checks (default: 40413)
 - `-b, --bigger-phlo`: Use bigger phlo limit (default: true, recommended for transfers)
 - `--propose <PROPOSE>`: Also propose a block after transfer (default: false)
 - `--max-wait <MAX_WAIT>`: Maximum total wait time in seconds for deploy finalization (default: 300)
 - `--check-interval <CHECK_INTERVAL>`: Check interval in seconds for deploy status (default: 5)
+- `--token <TOKEN_NAME>`: Token name (like ASI or REV) in specific shard
+
+### Transfer Deploy
+
+- `-t, --to-address <TO_ADDRESS>`: Recipient address (required)
+- `-a, --amount <AMOUNT>`: Amount of token to transfer (required)
+- `--private-key <PRIVATE_KEY>`: Private key for signing the transfer (hex format)
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `--grpc-port <PORT>`: gRPC port number for deploy (default: 40412)
+- `--http-port <HTTP_PORT>`: HTTP port number for deploy status checks (default: 40413)
+- `-b, --bigger-phlo`: Use bigger phlo limit (default: true, recommended for transfers)
+- `--token <TOKEN_NAME>`: Token name (like ASI or REV) in specific shard

@@ -35,8 +35,8 @@ pub enum Commands {
     /// Generate a new secp256k1 private/public key pair
     GenerateKeyPair(GenerateKeyPairArgs),
 
-    /// Generate a REV address from a public key
-    GenerateRevAddress(GenerateRevAddressArgs),
+    /// Generate an address from a public key
+    GenerateAddress(GenerateAddressArgs),
 
     /// Get node status and peer information
     Status(HttpArgs),
@@ -71,7 +71,9 @@ pub enum Commands {
     /// Get blocks in the main chain
     ShowMainChain(ShowMainChainArgs),
 
-    /// Transfer REV tokens between addresses
+    TransferDeploy(TransferArgs),
+
+    /// Transfer tokens between addresses
     Transfer(TransferArgs),
 
     /// Get a specific deploy by ID
@@ -106,7 +108,11 @@ pub struct DeployAndWaitArgs {
     pub file: String,
 
     /// Private key for deploy (defaults to well-known dev key)
-    #[arg(short = 'k', long = "private-key")]
+    #[arg(
+        short = 'k',
+        long = "private-key",
+        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+    )]
     pub private_key: Option<String>,
 
     /// Node hostname
@@ -114,8 +120,8 @@ pub struct DeployAndWaitArgs {
     pub host: String,
 
     /// gRPC port for deploy operations
-    #[arg(short = 'p', long = "port", default_value_t = 40412)]
-    pub port: u16,
+    #[arg(short, long = "grpc-port", default_value_t = 40412)]
+    pub grpc_port: u16,
 
     /// HTTP port for status queries
     #[arg(long = "http-port", default_value_t = 40413)]
@@ -138,8 +144,8 @@ pub struct DeployAndWaitArgs {
     pub observer_host: Option<String>,
 
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+    #[arg(long = "observer-grpc-port")]
+    pub observer_grpc_port: Option<u16>,
 }
 
 #[derive(Parser, Debug)]
@@ -185,7 +191,7 @@ pub struct DeployArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Use bigger phlo limit
     #[arg(short, long, default_value_t = false)]
@@ -208,7 +214,7 @@ pub struct ProposeArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 }
 
 /// Arguments for is-finalized command
@@ -218,20 +224,13 @@ pub struct IsFinalizedArgs {
     #[arg(short, long)]
     pub block_hash: String,
 
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
-
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Maximum number of retry attempts
     #[arg(short, long, default_value_t = 12)]
@@ -262,7 +261,7 @@ pub struct ExploratoryDeployArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Block hash to use as reference (optional)
     #[arg(short, long)]
@@ -305,9 +304,9 @@ pub struct GenerateKeyPairArgs {
     pub output_dir: String,
 }
 
-/// Arguments for generate-rev-address command
+/// Arguments for generate-address command
 #[derive(Parser)]
-pub struct GenerateRevAddressArgs {
+pub struct GenerateAddressArgs {
     /// Public key in hex format (uncompressed format preferred)
     #[arg(short, long, conflicts_with = "private_key")]
     pub public_key: Option<String>,
@@ -329,8 +328,8 @@ pub struct HttpArgs {
     pub host: String,
 
     /// HTTP port number (not gRPC port)
-    #[arg(short, long, default_value_t = 40453)]
-    pub port: u16,
+    #[arg(long, default_value_t = 40453)]
+    pub http_port: u16,
 }
 
 /// Arguments for blocks command
@@ -341,8 +340,8 @@ pub struct BlocksArgs {
     pub host: String,
 
     /// HTTP port number (not gRPC port)
-    #[arg(short, long, default_value_t = 40413)]
-    pub port: u16,
+    #[arg(long, default_value_t = 40413)]
+    pub http_port: u16,
 
     /// Number of recent blocks to fetch (default: 5)
     #[arg(short, long, default_value_t = 5)]
@@ -362,7 +361,7 @@ pub struct ShowMainChainArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Number of blocks to fetch from main chain (default: 10)
     #[arg(short, long, default_value_t = 10)]
@@ -385,7 +384,7 @@ pub struct GetBlocksByHeightArgs {
 
     /// gRPC port number
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Start block number (inclusive)
     #[arg(short, long)]
@@ -412,11 +411,14 @@ pub struct WalletBalanceArgs {
 
     /// gRPC port number (requires read-only node)
     #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// Wallet address to check balance for
     #[arg(short = 'a', long)]
     pub address: String,
+
+    #[arg(long, default_value = "ASI")]
+    pub token: String,
 }
 
 /// Arguments for bond-status command
@@ -427,8 +429,8 @@ pub struct BondStatusArgs {
     pub host: String,
 
     /// HTTP port number (same as other inspection commands)
-    #[arg(short, long, default_value_t = 40413)]
-    pub port: u16,
+    #[arg(long, default_value_t = 40413)]
+    pub http_port: u16,
 
     /// Public key to check bond status for
     #[arg(short = 'k', long)]
@@ -444,7 +446,7 @@ pub struct BondValidatorArgs {
 
     /// gRPC port number for deploy
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// HTTP port for status queries
     #[arg(long = "http-port", default_value_t = 40413)]
@@ -475,8 +477,8 @@ pub struct BondValidatorArgs {
     pub observer_host: Option<String>,
 
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+    #[arg(long = "observer-grpc-port")]
+    pub observer_grpc_port: Option<u16>,
 }
 
 /// Arguments for network-health command
@@ -495,14 +497,24 @@ pub struct NetworkHealthArgs {
     pub host: String,
 }
 
+pub struct WaitArgs {
+    pub max_attempts: u32,
+    pub check_interval: u64,
+
+    pub http_node_args: HttpArgs,
+
+    pub observer_host: String,
+    pub observer_grpc_port: u16,
+}
+
 /// Arguments for transfer command
 #[derive(Parser)]
 pub struct TransferArgs {
-    /// Recipient REV address
+    /// Recipient address
     #[arg(short, long)]
     pub to_address: String,
 
-    /// Amount in REV to transfer
+    /// Amount to transfer
     #[arg(short, long)]
     pub amount: u64,
 
@@ -519,7 +531,7 @@ pub struct TransferArgs {
 
     /// gRPC port number for deploy
     #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    pub grpc_port: u16,
 
     /// HTTP port for status queries
     #[arg(long = "http-port", default_value_t = 40413)]
@@ -546,8 +558,11 @@ pub struct TransferArgs {
     pub observer_host: Option<String>,
 
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+    #[arg(long = "observer-grpc-port")]
+    pub observer_grpc_port: Option<u16>,
+
+    #[arg(long, default_value = "ASI")]
+    pub token: String,
 }
 
 /// Arguments for validator-status command
@@ -563,7 +578,10 @@ pub struct ValidatorStatusArgs {
 
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+    pub grpc_port: u16,
+
+    #[arg(long = "http-port", default_value_t = 40453)]
+    pub http_port: u16,
 }
 
 /// Arguments for PoS contract query commands (epoch-info, network-consensus, epoch-rewards)
@@ -575,7 +593,69 @@ pub struct PosQueryArgs {
 
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+    pub grpc_port: u16,
+
+    #[arg(long = "http-port")]
+    pub http_port: Option<u16>,
+}
+
+impl WaitArgs {
+    pub fn from_transfer_args(a: &TransferArgs) -> Self {
+        Self {
+            max_attempts: (a.max_wait / a.check_interval) as u32,
+            check_interval: a.check_interval,
+            http_node_args: {
+                HttpArgs {
+                    host: a.host.clone(),
+                    http_port: a.http_port,
+                }
+            },
+            observer_host: a.observer_host.clone().unwrap_or(a.host.clone()),
+            observer_grpc_port: a.observer_grpc_port.unwrap_or(a.grpc_port),
+        }
+    }
+
+    pub fn from_bond_validator_args(a: &BondValidatorArgs) -> Self {
+        Self {
+            max_attempts: (a.max_wait / a.check_interval) as u32,
+            check_interval: a.check_interval,
+            http_node_args: {
+                HttpArgs {
+                    host: a.host.clone(),
+                    http_port: a.http_port,
+                }
+            },
+            observer_host: a.observer_host.clone().unwrap_or(a.host.clone()),
+            observer_grpc_port: a.observer_grpc_port.unwrap_or(a.grpc_port),
+        }
+    }
+
+    pub fn from_deploy_args(a: &DeployAndWaitArgs) -> Self {
+        Self {
+            max_attempts: (a.max_wait / a.check_interval) as u32,
+            check_interval: a.check_interval,
+            http_node_args: {
+                HttpArgs {
+                    host: a.host.clone(),
+                    http_port: a.http_port,
+                }
+            },
+            observer_host: a.observer_host.clone().unwrap_or(a.host.clone()),
+            observer_grpc_port: a.observer_grpc_port.unwrap_or(a.grpc_port),
+        }
+    }
+}
+
+impl IsFinalizedArgs {
+    pub fn from_wait_args(block_hash: String, a: &WaitArgs) -> Self {
+        Self {
+            block_hash,
+            host: a.observer_host.clone(),
+            grpc_port: a.observer_grpc_port,
+            max_attempts: a.max_attempts,
+            retry_delay: a.check_interval,
+        }
+    }
 }
 
 /// Arguments for get-node-id command

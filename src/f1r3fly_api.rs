@@ -6,8 +6,8 @@ use f1r3fly_models::casper::v1::is_finalized_response::Message as IsFinalizedRes
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
 use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
 use f1r3fly_models::casper::{
-    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery, LightBlockInfo,
-    ProposeQuery,
+    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery,
+    LightBlockInfo, ProposeQuery,
 };
 use f1r3fly_models::rhoapi::Par;
 use f1r3fly_models::ByteString;
@@ -33,15 +33,14 @@ pub struct DeployInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DeployStatus {
-    Pending,       // Deploy submitted but not yet in a block
-    Included,      // Deploy included in a block
-    NotFound,      // Deploy ID not found
-    Error(String), // Error occurred
+    Deploying,           // Deploy submitted but not yet in a block
+    Included,            // Deploy included in a block
+    DeployError(String), // Error occurred or Id not found
 }
 
 /// Client for interacting with the F1r3fly API
 pub struct F1r3flyApi<'a> {
-    signing_key: SecretKey,
+    signing_key: Option<SecretKey>,
     node_host: &'a str,
     grpc_port: u16,
 }
@@ -59,8 +58,19 @@ impl<'a> F1r3flyApi<'a> {
     ///
     /// A new `F1r3flyApi` instance
     pub fn new(signing_key: &str, node_host: &'a str, grpc_port: u16) -> Self {
+        let key =
+            SecretKey::from_slice(&hex::decode(signing_key).unwrap()).expect("Invalid private key");
+
         F1r3flyApi {
-            signing_key: SecretKey::from_slice(&hex::decode(signing_key).unwrap()).unwrap(),
+            signing_key: Some(key),
+            node_host,
+            grpc_port,
+        }
+    }
+
+    pub fn new_readonly(node_host: &'a str, grpc_port: u16) -> Self {
+        F1r3flyApi {
+            signing_key: None,
             node_host,
             grpc_port,
         }
@@ -505,7 +515,7 @@ impl<'a> F1r3flyApi<'a> {
                         shard_id: None,
                         version: None,
                         timestamp: None,
-                        status: DeployStatus::NotFound,
+                        status: DeployStatus::DeployError(format!("Deploy ID not found")),
                     })
                 } else {
                     let status = response.status();
@@ -526,7 +536,7 @@ impl<'a> F1r3flyApi<'a> {
                             shard_id: None,
                             version: None,
                             timestamp: None,
-                            status: DeployStatus::Pending,
+                            status: DeployStatus::Deploying,
                         })
                     } else {
                         Ok(DeployInfo {
@@ -539,7 +549,7 @@ impl<'a> F1r3flyApi<'a> {
                             shard_id: None,
                             version: None,
                             timestamp: None,
-                            status: DeployStatus::Error(format!(
+                            status: DeployStatus::DeployError(format!(
                                 "HTTP error {}: {}",
                                 status, error_body
                             )),
@@ -557,7 +567,7 @@ impl<'a> F1r3flyApi<'a> {
                 shard_id: None,
                 version: None,
                 timestamp: None,
-                status: DeployStatus::Error(format!("Network error: {}", e)),
+                status: DeployStatus::DeployError(format!("Network error: {}", e)),
             }),
         }
     }
@@ -733,13 +743,13 @@ impl<'a> F1r3flyApi<'a> {
         // Sign the digest with secp256k1
         let secp = Secp256k1::new();
         let message = Secp256k1Message::from_digest(digest.into());
-        let signature = secp.sign_ecdsa(&message, &self.signing_key);
+        let signature = secp.sign_ecdsa(&message, self.signing_key.as_ref().unwrap());
 
         // Get signature in DER format
         let sig_bytes = signature.serialize_der().to_vec();
 
         // Get the public key in uncompressed format
-        let public_key = self.signing_key.public_key(&secp);
+        let public_key = self.signing_key.unwrap().public_key(&secp);
         let pub_key_bytes = public_key.serialize_uncompressed().to_vec();
 
         // Return the complete deploy message
@@ -767,7 +777,9 @@ fn extract_par_data(par: &Par) -> Option<String> {
         if let Some(instance) = &expr.expr_instance {
             match instance {
                 // Handle different types of expressions
-                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => Some(format!("\"{}\"", s)),
+                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => {
+                    Some(format!("\"{}\"", s))
+                }
                 f1r3fly_models::rhoapi::expr::ExprInstance::GInt(i) => Some(i.to_string()),
                 f1r3fly_models::rhoapi::expr::ExprInstance::GBool(b) => Some(b.to_string()),
                 // Add other types as needed

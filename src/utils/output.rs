@@ -1,5 +1,92 @@
+use crate::f1r3fly_api::DeployStatus;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use std::time::Duration;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum FinalizeStatus {
+    Finalizing,
+    Finalized,
+    FinalizationError(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CompressedDeployStatus {
+    Deploying,
+    Finalizing,
+    Finalized,
+    DeployError,
+    FinalizationError,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeployCompressedInfo {
+    status: CompressedDeployStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    msg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    block_hash: Option<String>,
+}
+
+impl DeployCompressedInfo {
+    pub fn ok(status: CompressedDeployStatus, block_hash: Option<String>) -> Self {
+        debug_assert!(!matches!(
+            status,
+            CompressedDeployStatus::DeployError | CompressedDeployStatus::FinalizationError
+        ));
+        Self {
+            status,
+            msg: None,
+            block_hash,
+        }
+    }
+
+    pub fn error(
+        status: CompressedDeployStatus,
+        err: impl Into<String>,
+        block_hash: Option<String>,
+    ) -> Self {
+        debug_assert!(matches!(
+            status,
+            CompressedDeployStatus::DeployError | CompressedDeployStatus::FinalizationError
+        ));
+        Self {
+            status,
+            msg: Some(err.into()),
+            block_hash,
+        }
+    }
+
+    pub fn from_deploy(s: DeployStatus, block_hash: Option<String>) -> Self {
+        match s {
+            DeployStatus::Deploying => Self::ok(CompressedDeployStatus::Deploying, None),
+            DeployStatus::Included => Self::ok(CompressedDeployStatus::Finalizing, block_hash),
+            DeployStatus::DeployError(e) => {
+                Self::error(CompressedDeployStatus::DeployError, e, None)
+            }
+        }
+    }
+
+    pub fn from_finalize(s: FinalizeStatus, block_hash: Option<String>) -> Self {
+        match s {
+            FinalizeStatus::Finalizing => Self::ok(CompressedDeployStatus::Finalizing, block_hash),
+            FinalizeStatus::Finalized => Self::ok(CompressedDeployStatus::Finalized, block_hash),
+            FinalizeStatus::FinalizationError(e) => {
+                Self::error(CompressedDeployStatus::FinalizationError, e, block_hash)
+            }
+        }
+    }
+
+    pub fn status(&self) -> &CompressedDeployStatus {
+        &self.status
+    }
+    pub fn msg(&self) -> Option<&str> {
+        self.msg.as_deref()
+    }
+    pub fn block_hash(&self) -> Option<&str> {
+        self.block_hash.as_deref()
+    }
+}
 
 // Emoji constants
 pub const EMOJI_SEARCH: &str = "🔍";
