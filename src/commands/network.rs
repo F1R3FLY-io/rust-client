@@ -580,10 +580,7 @@ pub async fn deploy_and_wait_command(
         "🔌 Connecting to F1r3fly node at {}:{}",
         args.host, args.grpc_port
     );
-    let private_key = args
-        .private_key
-        .as_deref()
-        .unwrap_or("5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657");
+    let private_key = args.private_key.as_deref().unwrap();
     let f1r3fly_api = F1r3flyApi::new(private_key, &args.host, args.grpc_port);
 
     let phlo_limit = if args.bigger_phlo {
@@ -714,8 +711,7 @@ pub async fn get_deploy_command(
     );
 
     // Initialize the F1r3fly API client (private key not needed for read operations)
-    let dummy_private_key = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-    let f1r3fly_api = F1r3flyApi::new(dummy_private_key, &args.host, args.http_port);
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.http_port);
 
     let start_time = Instant::now();
 

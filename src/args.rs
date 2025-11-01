@@ -108,7 +108,11 @@ pub struct DeployAndWaitArgs {
     pub file: String,
 
     /// Private key for deploy (defaults to well-known dev key)
-    #[arg(short = 'k', long = "private-key")]
+    #[arg(
+        short = 'k',
+        long = "private-key",
+        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+    )]
     pub private_key: Option<String>,
 
     /// Node hostname

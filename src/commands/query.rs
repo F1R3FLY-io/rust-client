@@ -312,11 +312,7 @@ pub async fn wallet_balance_command(
         args.address, args.host, args.grpc_port
     );
 
-    let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
-        &args.host,
-        args.grpc_port,
-    );
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.grpc_port);
 
     let balance_template = fs::read_to_string("rho_examples/cli/get_balance.rho")
         .map_err(|e| format!("Failed to read get_balance template file: {}", e))?;
@@ -749,11 +745,7 @@ pub async fn validator_status_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 Checking validator status for: {}", args.public_key);
 
-    let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // dummy private key
-        &args.host,
-        args.grpc_port,
-    );
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.grpc_port);
 
     println!("Observer grpc API at {}:{}", args.host, args.grpc_port);
 
@@ -879,11 +871,7 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
         args.host, args.grpc_port
     );
 
-    let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // Bootstrap private key
-        &args.host,
-        args.grpc_port,
-    );
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.grpc_port);
 
     let start_time = Instant::now();
 
@@ -999,11 +987,7 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
         args.host, args.grpc_port
     );
 
-    let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
-        &args.host,
-        args.grpc_port,
-    );
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.grpc_port);
 
     let rewards_query = fs::read_to_string("rho_examples/cli/get_current_epoch_rewards.rho")
         .map_err(|e| {
@@ -1080,11 +1064,7 @@ pub async fn network_consensus_command(
         args.host
     );
 
-    let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
-        &args.host,
-        args.grpc_port,
-    );
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.grpc_port);
 
     let start_time = Instant::now();
 

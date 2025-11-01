@@ -265,6 +265,9 @@ cargo run -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVv
 
 # Transfer to custom node
 cargo run -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 100 -H node.example.com --grpc-port 40412 --http-port 40413
+
+# Transfer to custom node with custom observer
+cargo run -- transfer --to-address 1111LAd2PWaHsw84gxarNx99YVK2aZhCThhrPsWTV7cs1BPcvHftP --observer-host <ENTER_OBSERVER_HOST> --observer-grpc-port 40402 --amount 100 --private-key <ENTER_YOUR_PRIVATE_KEY> -H <ENTER_NODE_HOST> --grpc-port 40402 --http-port 40403
 ```
 
 **Note**: The transfer command uses a high phlo limit by default (`--bigger-phlo true`) because transfer contracts require more computational resources than simple deployments. This helps prevent "out of phlogistons" errors.

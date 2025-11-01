@@ -40,7 +40,7 @@ pub enum DeployStatus {
 
 /// Client for interacting with the F1r3fly API
 pub struct F1r3flyApi<'a> {
-    signing_key: SecretKey,
+    signing_key: Option<SecretKey>,
     node_host: &'a str,
     grpc_port: u16,
 }
@@ -58,8 +58,19 @@ impl<'a> F1r3flyApi<'a> {
     ///
     /// A new `F1r3flyApi` instance
     pub fn new(signing_key: &str, node_host: &'a str, grpc_port: u16) -> Self {
+        let key =
+            SecretKey::from_slice(&hex::decode(signing_key).unwrap()).expect("Invalid private key");
+
         F1r3flyApi {
-            signing_key: SecretKey::from_slice(&hex::decode(signing_key).unwrap()).unwrap(),
+            signing_key: Some(key),
+            node_host,
+            grpc_port,
+        }
+    }
+
+    pub fn new_readonly(node_host: &'a str, grpc_port: u16) -> Self {
+        F1r3flyApi {
+            signing_key: None,
             node_host,
             grpc_port,
         }
@@ -732,13 +743,13 @@ impl<'a> F1r3flyApi<'a> {
         // Sign the digest with secp256k1
         let secp = Secp256k1::new();
         let message = Secp256k1Message::from_digest(digest.into());
-        let signature = secp.sign_ecdsa(&message, &self.signing_key);
+        let signature = secp.sign_ecdsa(&message, self.signing_key.as_ref().unwrap());
 
         // Get signature in DER format
         let sig_bytes = signature.serialize_der().to_vec();
 
         // Get the public key in uncompressed format
-        let public_key = self.signing_key.public_key(&secp);
+        let public_key = self.signing_key.unwrap().public_key(&secp);
         let pub_key_bytes = public_key.serialize_uncompressed().to_vec();
 
         // Return the complete deploy message
