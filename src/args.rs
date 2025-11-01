@@ -35,8 +35,8 @@ pub enum Commands {
     /// Generate a new secp256k1 private/public key pair
     GenerateKeyPair(GenerateKeyPairArgs),
 
-    /// Generate a ASI address from a public key
-    GenerateAsiAddress(GenerateAsiAddressArgs),
+    /// Generate an address from a public key
+    GenerateAddress(GenerateAddressArgs),
 
     /// Get node status and peer information
     Status(HttpArgs),
@@ -73,7 +73,7 @@ pub enum Commands {
 
     TransferDeploy(TransferArgs),
 
-    /// Transfer ASI tokens between addresses
+    /// Transfer tokens between addresses
     Transfer(TransferArgs),
 
     /// Get a specific deploy by ID
@@ -307,9 +307,9 @@ pub struct GenerateKeyPairArgs {
     pub output_dir: String,
 }
 
-/// Arguments for generate-asi-address command
+/// Arguments for generate-address command
 #[derive(Parser)]
-pub struct GenerateAsiAddressArgs {
+pub struct GenerateAddressArgs {
     /// Public key in hex format (uncompressed format preferred)
     #[arg(short, long, conflicts_with = "private_key")]
     pub public_key: Option<String>,
@@ -419,6 +419,9 @@ pub struct WalletBalanceArgs {
     /// Wallet address to check balance for
     #[arg(short = 'a', long)]
     pub address: String,
+
+    #[arg(long, default_value = "ASI")]
+    pub token: String,
 }
 
 /// Arguments for bond-status command
@@ -512,11 +515,11 @@ pub struct WaitArgs {
 /// Arguments for transfer command
 #[derive(Parser)]
 pub struct TransferArgs {
-    /// Recipient ASI address
+    /// Recipient address
     #[arg(short, long)]
     pub to_address: String,
 
-    /// Amount in ASI to transfer
+    /// Amount to transfer
     #[arg(short, long)]
     pub amount: u64,
 
@@ -562,6 +565,9 @@ pub struct TransferArgs {
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
     #[arg(long = "observer-grpc-port")]
     pub observer_grpc_port: Option<u16>,
+
+    #[arg(long, default_value = "ASI")]
+    pub token: String,
 }
 
 /// Arguments for validator-status command

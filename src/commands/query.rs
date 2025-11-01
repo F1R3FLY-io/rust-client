@@ -1,5 +1,6 @@
 use crate::args::*;
 use crate::f1r3fly_api::F1r3flyApi;
+use crate::utils::rho_helpers::change_contract_token_name;
 use reqwest;
 use serde_json;
 use std::fs;
@@ -320,7 +321,12 @@ pub async fn wallet_balance_command(
     let balance_template = fs::read_to_string("rho_examples/cli/get_balance.rho")
         .map_err(|e| format!("Failed to read get_balance template file: {}", e))?;
 
-    let balance_query = balance_template.replace("{}", &args.address);
+    let mut balance_query = balance_template.replace("{}", &args.address);
+
+    let token = args.token.to_uppercase();
+    if token != "ASI" {
+        balance_query = change_contract_token_name(&balance_query, &token);
+    }
 
     let start_time = Instant::now();
 
@@ -332,7 +338,7 @@ pub async fn wallet_balance_command(
             let duration = start_time.elapsed();
             println!("✅ Wallet balance retrieved successfully!");
             println!("⏱️  Time taken: {:.2?}", duration);
-            println!("💰 Balance for {}: {} ASI", args.address, balance);
+            println!("💰 Balance for {}: {} {}", args.address, balance, token);
             println!("📊 {}", block_info);
 
             return Ok((balance, block_info));
@@ -822,7 +828,7 @@ pub async fn validator_status_command(
                                 if validator == args.public_key {
                                     if let Some(stake) = bond.get("stake").and_then(|s| s.as_i64())
                                     {
-                                        println!("   Stake Amount: {} ASI", stake);
+                                        println!("   Stake Amount: {}", stake);
                                     }
                                     break;
                                 }

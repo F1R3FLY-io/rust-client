@@ -1,6 +1,7 @@
 use crate::args::*;
 use crate::f1r3fly_api::{DeployInfo, DeployStatus, F1r3flyApi};
 use crate::utils::output::{CompressedDeployStatus, DeployCompressedInfo, FinalizeStatus};
+use crate::utils::rho_helpers::change_contract_token_name;
 use std::fs;
 use std::time::Instant;
 
@@ -231,7 +232,8 @@ pub async fn is_finalized_command(
 }
 
 pub async fn transfer_deploy(args: &TransferArgs) -> Result<String, Box<dyn std::error::Error>> {
-    println!("💸 Initiating ASI transfer");
+    let token = &args.token.to_uppercase();
+    println!("💸 Initiating {} transfer", token);
 
     println!(
         "🔌 Connecting to F1r3fly node at {}:{}",
@@ -245,18 +247,21 @@ pub async fn transfer_deploy(args: &TransferArgs) -> Result<String, Box<dyn std:
         let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
         let public_key = CryptoUtils::derive_public_key(&secret_key);
         let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-        CryptoUtils::generate_asi_address(&public_key_hex)?
+        CryptoUtils::generate_address(&public_key_hex)?
     };
 
-    validate_asi_address(&from_address)?;
-    validate_asi_address(&args.to_address)?;
+    validate_address(&from_address)?;
+    validate_address(&args.to_address)?;
 
     let amount_dust = args.amount * 100_000_000;
 
     println!("📋 Transfer Details:");
     println!("   From: {}", from_address);
     println!("   To: {}", args.to_address);
-    println!("   Amount: {} ASI ({} dust)", args.amount, amount_dust);
+    println!(
+        "   Amount: {} {} ({} dust)",
+        args.amount, token, amount_dust
+    );
     println!(
         "   Phlo limit: {}",
         if args.bigger_phlo {
@@ -266,7 +271,11 @@ pub async fn transfer_deploy(args: &TransferArgs) -> Result<String, Box<dyn std:
         }
     );
 
-    let rholang_code = generate_transfer_contract(&from_address, &args.to_address, amount_dust)?;
+    let mut rholang_code =
+        generate_transfer_contract(&from_address, &args.to_address, amount_dust)?;
+    if token != "ASI" {
+        rholang_code = change_contract_token_name(&rholang_code, &token);
+    }
 
     println!("🚀 Deploying transfer contract...");
 
@@ -293,7 +302,7 @@ pub async fn check_deploy_status(
     deploy_id: String,
     args: &WaitArgs,
 ) -> Result<DeployCompressedInfo, Box<dyn std::error::Error>> {
-    let get_deploy_args = GetDeployArgs::from_wait_args(&args, deploy_id, "json".to_string());
+    let get_deploy_args = GetDeployArgs::from_wait_args(&args, deploy_id, "none".to_string());
     let block_wait_start = Instant::now();
     let max_block_wait_attempts = args.max_attempts;
     let mut block_wait_attempts = 0;
@@ -416,7 +425,7 @@ pub async fn bond_validator_command(
     args: &BondValidatorArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔗 Bonding new validator to the network");
-    println!("💰 Stake amount: {} ASI", args.stake);
+    println!("💰 Stake amount: {}", args.stake);
 
     // Initialize the F1r3fly API client for deploying
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
@@ -718,6 +727,7 @@ pub async fn get_deploy_command(
             let duration = start_time.elapsed();
 
             match args.format.as_str() {
+                "none" => {}
                 "json" => {
                     let json_output = serde_json::to_string_pretty(&deploy_info)?;
                     println!("{}", json_output);
@@ -799,13 +809,13 @@ pub async fn get_deploy_command(
     }
 }
 
-pub fn validate_asi_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn validate_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     if !address.starts_with("1111") {
-        return Err("Invalid ASI address format: must start with '1111'".into());
+        return Err("Invalid address format: must start with '1111'".into());
     }
 
     if address.len() < 40 {
-        return Err("Invalid ASI address format: too short".into());
+        return Err("Invalid address format: too short".into());
     }
 
     Ok(())
