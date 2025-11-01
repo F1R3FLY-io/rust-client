@@ -191,7 +191,7 @@ pub async fn is_finalized_command(
         "🔌 Connecting to F1r3fly node at {}:{}",
         args.host, args.grpc_port
     );
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.grpc_port);
 
     // Check if the block is finalized
     println!("🔍 Checking if block is finalized: {}", args.block_hash);
@@ -302,14 +302,16 @@ pub async fn check_deploy_status(
     deploy_id: String,
     args: &WaitArgs,
 ) -> Result<DeployCompressedInfo, Box<dyn std::error::Error>> {
-    let get_deploy_args = GetDeployArgs::from_wait_args(&args, deploy_id, "none".to_string());
+    let f1r3fly_api =
+        F1r3flyApi::new_readonly(&args.http_node_args.host, args.http_node_args.http_port - 1);
+
     let block_wait_start = Instant::now();
     let max_block_wait_attempts = args.max_attempts;
     let mut block_wait_attempts = 0;
 
-    println!("- STEP 2.1: Waiting for deploy to be included in a block");
+    println!("⏳ Waiting for deploy to be included in a block");
 
-    let compressed_deploy_info = loop {
+    let block_hash = loop {
         block_wait_attempts += 1;
 
         // Show progress every 10 attempts or if we're at the end
@@ -319,26 +321,31 @@ pub async fn check_deploy_status(
                 block_wait_attempts, max_block_wait_attempts
             );
         }
-        let deploy_info = get_deploy_command(&get_deploy_args).await?;
 
-        let compressed =
-            DeployCompressedInfo::from_deploy(deploy_info.status, deploy_info.block_hash.clone());
-
-        match compressed.status() {
-            CompressedDeployStatus::DeployError => {
-                println!(
-                    "❌ Error retrieving deploy status during block wait: {:?}",
-                    compressed
-                );
-                return Ok(compressed);
+        match f1r3fly_api
+            .get_deploy_block_hash(&deploy_id, args.http_node_args.http_port)
+            .await
+        {
+            Ok(Some(hash)) => {
+                println!("✅ Deploy found in block: {}", hash);
+                break hash;
             }
-            CompressedDeployStatus::Deploying => {}
-            _ => break compressed,
+            Ok(None) => {
+                // Deploy not in block yet, continue waiting
+            }
+            Err(e) => {
+                println!("❌ Error checking deploy status: {}", e);
+                return Ok(DeployCompressedInfo::error(
+                    CompressedDeployStatus::DeployError,
+                    e.to_string().as_str(),
+                    None,
+                ));
+            }
         }
 
         if block_wait_attempts >= max_block_wait_attempts {
             println!(
-                "❌ Timeout waiting for transfer deploy to be included in block after {} seconds",
+                "❌ Timeout waiting for deploy to be included in block after {} seconds",
                 max_block_wait_attempts * args.check_interval as u32
             );
             return Ok(DeployCompressedInfo::error(
@@ -351,22 +358,23 @@ pub async fn check_deploy_status(
         tokio::time::sleep(tokio::time::Duration::from_secs(args.check_interval)).await;
     };
 
-    let Some(block_hash) = compressed_deploy_info.block_hash().map(str::to_owned) else {
-        return Ok(DeployCompressedInfo::error(
-            CompressedDeployStatus::DeployError,
-            "block hash is missing",
-            None,
-        ));
-    };
-
     let block_wait_duration = block_wait_start.elapsed();
     println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
 
-    println!("- STEP 2.2: Wait for block finalization using observer node");
+    println!("🔍 Wait for block finalization using observer node");
 
     // check with observer api
     let finalized_args = IsFinalizedArgs::from_wait_args(block_hash.clone(), args);
-    let finalize_status = is_finalized_command(&finalized_args).await?;
+    let finalize_status = match is_finalized_command(&finalized_args).await {
+        Ok(status) => status,
+        Err(e) => {
+            return Ok(DeployCompressedInfo::error(
+                CompressedDeployStatus::FinalizationError,
+                e.to_string().as_str(),
+                Some(block_hash),
+            ));
+        }
+    };
 
     return Ok(DeployCompressedInfo::from_finalize(
         finalize_status,
@@ -455,87 +463,6 @@ pub async fn bond_validator_command(
     };
 
     // STEP 2: Wait for deploy to be included in a block
-    println!("⏳ Waiting for bonding deploy to be included in a block...");
-    let block_wait_start = Instant::now();
-    let max_block_wait_attempts = args.max_wait / args.check_interval;
-    let mut block_wait_attempts = 0;
-
-    let block_hash = loop {
-        block_wait_attempts += 1;
-
-        // Show progress every 10 attempts or if we're at the end
-        if block_wait_attempts % 10 == 0 || block_wait_attempts >= max_block_wait_attempts {
-            println!(
-                "   ⏱️  Checking... ({}/{} attempts)",
-                block_wait_attempts, max_block_wait_attempts
-            );
-        }
-
-        match f1r3fly_api
-            .get_deploy_block_hash(&deploy_id, args.http_port)
-            .await
-        {
-            Ok(Some(hash)) => {
-                println!("✅ Bonding deploy found in block: {}", hash);
-                break hash;
-            }
-            Ok(None) => {
-                // Deploy not in block yet, continue waiting
-            }
-            Err(e) => {
-                println!("❌ Error checking bonding deploy status: {}", e);
-                return Err(e);
-            }
-        }
-
-        if block_wait_attempts >= max_block_wait_attempts {
-            println!(
-                "❌ Timeout waiting for bonding deploy to be included in block after {} seconds",
-                args.max_wait
-            );
-            return Err("Bonding deploy inclusion timeout".into());
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(args.check_interval)).await;
-    };
-
-    let block_wait_duration = block_wait_start.elapsed();
-    println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
-
-    // STEP 3: Wait for block finalization on the same node we deployed to
-    println!("🔍 Waiting for block finalization...");
-
-    let finalization_start = Instant::now();
-
-    // Use the same finalization logic as deploy_and_wait_command
-    let finalization_max_attempts: u32 = 120; // 10 minutes (120 * 5 seconds)
-    let finalization_retry_delay: u64 = 5;
-
-    // Check finalization on the same node we deployed to (using existing f1r3fly_api)
-    match f1r3fly_api
-        .is_finalized(
-            &block_hash,
-            finalization_max_attempts,
-            finalization_retry_delay,
-        )
-        .await
-    {
-        Ok(true) => {
-            let finalization_duration = finalization_start.elapsed();
-            let total_duration = deploy_start_time.elapsed();
-            println!("✅ Block finalized! Bonding transaction is complete.");
-            println!("⏱️  Finalization time: {:.2?}", finalization_duration);
-            println!("🎉 Total bonding process time: {:.2?}", total_duration);
-        }
-        Ok(false) => {
-            println!("⚠️  Block not yet finalized after {} attempts, but bonding deploy is in the blockchain.", finalization_max_attempts);
-            println!("💡 The validator bonding is likely successful and will be finalized soon.");
-        }
-        Err(e) => {
-            println!("❌ Error checking finalization status: {}", e);
-            println!("⚠️  Could not verify finalization, but bonding deploy is in the blockchain.");
-        }
-    }
 
     // Handle propose logic if enabled
     if args.propose {
@@ -555,6 +482,21 @@ pub async fn bond_validator_command(
                 return Err(e);
             }
         }
+    }
+
+    let wait_args = WaitArgs::from_bond_validator_args(args);
+    let deploy_info = check_deploy_status(deploy_id, &wait_args).await?;
+
+    if *deploy_info.status() == CompressedDeployStatus::Finalized {
+        let total_duration = deploy_start_time.elapsed();
+        println!("🎉 Total bonding time: {:.2?}", total_duration);
+        println!("🎯 Bonding process completed!");
+    } else {
+        println!(
+            "⚠️  Bonding deploy status {:?} after {} attempts",
+            deploy_info.status(),
+            wait_args.max_attempts
+        );
     }
 
     println!("🎯 Validator bonding process completed!");
@@ -612,90 +554,19 @@ pub async fn deploy_and_wait_command(
     };
 
     // STEP 2: Wait for deploy to be included in a block
-    println!("⏳ Waiting for deploy to be included in a block...");
-    let block_wait_start = Instant::now();
-    let max_block_wait_attempts = args.max_wait / args.check_interval;
-    let mut block_wait_attempts = 0;
+    let wait_args = WaitArgs::from_deploy_args(args);
+    let deploy_info = check_deploy_status(deploy_id, &wait_args).await?;
 
-    let block_hash = loop {
-        block_wait_attempts += 1;
-
-        // Show progress every 10 attempts or if we're at the end
-        if block_wait_attempts % 10 == 0 || block_wait_attempts >= max_block_wait_attempts {
-            println!(
-                "   ⏱️  Checking... ({}/{} attempts)",
-                block_wait_attempts, max_block_wait_attempts
-            );
-        }
-
-        match f1r3fly_api
-            .get_deploy_block_hash(&deploy_id, args.http_port)
-            .await
-        {
-            Ok(Some(hash)) => {
-                println!("✅ Deploy found in block: {}", hash);
-                break hash;
-            }
-            Ok(None) => {
-                // Deploy not in block yet, continue waiting
-            }
-            Err(e) => {
-                println!("❌ Error checking deploy status: {}", e);
-                return Err(e);
-            }
-        }
-
-        if block_wait_attempts >= max_block_wait_attempts {
-            println!(
-                "❌ Timeout waiting for deploy to be included in block after {} seconds",
-                args.max_wait
-            );
-            return Err("Deploy inclusion timeout".into());
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(args.check_interval)).await;
-    };
-
-    let block_wait_duration = block_wait_start.elapsed();
-    println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
-
-    // STEP 3: Wait for block finalization on the same node we deployed to
-    println!("🔍 Waiting for block finalization...");
-
-    let finalization_start = Instant::now();
-
-    // Calculate finalization attempts (default: 120 attempts, 5 second intervals = 10 minutes)
-    let finalization_max_attempts: u32 = 120; // 10 minutes (120 * 5 seconds)
-    let finalization_retry_delay: u64 = 5;
-
-    // Check finalization on the same node we deployed to (using existing f1r3fly_api)
-    match f1r3fly_api
-        .is_finalized(
-            &block_hash,
-            finalization_max_attempts,
-            finalization_retry_delay,
-        )
-        .await
-    {
-        Ok(true) => {
-            let finalization_duration = finalization_start.elapsed();
-            let total_duration = deploy_start_time.elapsed();
-
-            println!("✅ Block finalized! Deploy completed successfully.");
-            println!("⏱️  Finalization time: {:.2?}", finalization_duration);
-            println!("📊 Total time: {:.2?}", total_duration);
-        }
-        Ok(false) => {
-            println!(
-                "⚠️  Block not yet finalized after {} attempts, but deploy is in the blockchain.",
-                finalization_max_attempts
-            );
-            println!("💡 The deployment is likely successful and will be finalized soon.");
-        }
-        Err(e) => {
-            println!("❌ Error checking finalization status: {}", e);
-            println!("⚠️  Could not verify finalization, but deploy is in the blockchain.");
-        }
+    if *deploy_info.status() == CompressedDeployStatus::Finalized {
+        let total_duration = deploy_start_time.elapsed();
+        println!("🎉 Total deploy time: {:.2?}", total_duration);
+        println!("🎯 Deploy process completed!");
+    } else {
+        println!(
+            "⚠️  Deploy status {:?} after {} attempts",
+            deploy_info.status(),
+            wait_args.max_attempts
+        );
     }
 
     Ok(())

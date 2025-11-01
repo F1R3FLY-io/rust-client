@@ -224,13 +224,6 @@ pub struct IsFinalizedArgs {
     #[arg(short, long)]
     pub block_hash: String,
 
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
-
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
@@ -505,12 +498,10 @@ pub struct NetworkHealthArgs {
 }
 
 pub struct WaitArgs {
-    pub private_key: String,
-
     pub max_attempts: u32,
     pub check_interval: u64,
 
-    pub http_args: HttpArgs,
+    pub http_node_args: HttpArgs,
 
     pub observer_host: String,
     pub observer_grpc_port: u16,
@@ -611,29 +602,46 @@ pub struct PosQueryArgs {
 impl WaitArgs {
     pub fn from_transfer_args(a: &TransferArgs) -> Self {
         Self {
-            private_key: a.private_key.clone(),
             max_attempts: (a.max_wait / a.check_interval) as u32,
             check_interval: a.check_interval,
-            http_args: {
+            http_node_args: {
                 HttpArgs {
                     host: a.host.clone(),
                     http_port: a.http_port,
                 }
             },
             observer_host: a.observer_host.clone().unwrap_or(a.host.clone()),
-            observer_grpc_port: a.observer_grpc_port.unwrap_or(40452),
+            observer_grpc_port: a.observer_grpc_port.unwrap_or(a.grpc_port),
         }
     }
-}
 
-impl GetDeployArgs {
-    pub fn from_wait_args(a: &WaitArgs, deploy_id: String, format: String) -> Self {
+    pub fn from_bond_validator_args(a: &BondValidatorArgs) -> Self {
         Self {
-            deploy_id,
-            host: a.http_args.host.clone(),
-            http_port: a.http_args.http_port,
-            format,
-            verbose: false,
+            max_attempts: (a.max_wait / a.check_interval) as u32,
+            check_interval: a.check_interval,
+            http_node_args: {
+                HttpArgs {
+                    host: a.host.clone(),
+                    http_port: a.http_port,
+                }
+            },
+            observer_host: a.observer_host.clone().unwrap_or(a.host.clone()),
+            observer_grpc_port: a.observer_grpc_port.unwrap_or(a.grpc_port),
+        }
+    }
+
+    pub fn from_deploy_args(a: &DeployAndWaitArgs) -> Self {
+        Self {
+            max_attempts: (a.max_wait / a.check_interval) as u32,
+            check_interval: a.check_interval,
+            http_node_args: {
+                HttpArgs {
+                    host: a.host.clone(),
+                    http_port: a.http_port,
+                }
+            },
+            observer_host: a.observer_host.clone().unwrap_or(a.host.clone()),
+            observer_grpc_port: a.observer_grpc_port.unwrap_or(a.grpc_port),
         }
     }
 }
@@ -642,7 +650,6 @@ impl IsFinalizedArgs {
     pub fn from_wait_args(block_hash: String, a: &WaitArgs) -> Self {
         Self {
             block_hash,
-            private_key: a.private_key.clone(),
             host: a.observer_host.clone(),
             grpc_port: a.observer_grpc_port,
             max_attempts: a.max_attempts,
