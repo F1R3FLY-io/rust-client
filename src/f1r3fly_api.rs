@@ -83,12 +83,54 @@ impl<'a> F1r3flyApi<'a> {
         use_bigger_phlo_price: bool,
         language: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
+        self.deploy_with_timestamp(rho_code, use_bigger_phlo_price, language, None).await
+    }
+
+    /// Deploy with custom phlo limit
+    pub async fn deploy_with_phlo_limit(
+        &self,
+        rho_code: &str,
+        phlo_limit: i64,
+        language: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.deploy_with_timestamp_and_phlo(rho_code, language, None, phlo_limit).await
+    }
+
+    /// Deploy with custom timestamp and phlo limit (for insertSigned)
+    pub async fn deploy_with_timestamp_and_phlo_limit(
+        &self,
+        rho_code: &str,
+        language: &str,
+        timestamp_millis: Option<i64>,
+        phlo_limit: i64,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.deploy_with_timestamp_and_phlo(rho_code, language, timestamp_millis, phlo_limit).await
+    }
+
+    /// Deploy Rholang code with a specific timestamp
+    pub async fn deploy_with_timestamp(
+        &self,
+        rho_code: &str,
+        use_bigger_phlo_price: bool,
+        language: &str,
+        timestamp_millis: Option<i64>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let phlo_limit: i64 = if use_bigger_phlo_price {
             5_000_000_000
         } else {
             50_000
         };
+        self.deploy_with_timestamp_and_phlo(rho_code, language, timestamp_millis, phlo_limit).await
+    }
 
+    /// Deploy Rholang code with timestamp and custom phlo limit
+    async fn deploy_with_timestamp_and_phlo(
+        &self,
+        rho_code: &str,
+        language: &str,
+        timestamp_millis: Option<i64>,
+        phlo_limit: i64,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         // Get current block number for VABN (solves Block 50 issue)
         let current_block = match self.get_current_block_number().await {
             Ok(block_num) => {
@@ -116,6 +158,7 @@ impl<'a> F1r3flyApi<'a> {
             phlo_limit,
             language.to_string(),
             current_block,
+            timestamp_millis,
         );
 
         // Connect to the F1r3fly node
@@ -702,12 +745,15 @@ impl<'a> F1r3flyApi<'a> {
         phlo_limit: i64,
         language: String,
         valid_after_block_number: i64,
+        timestamp_millis: Option<i64>,
     ) -> DeployDataProto {
-        // Get current timestamp in milliseconds
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get system time")
-            .as_millis() as i64;
+        // Use provided timestamp or get current time
+        let timestamp = timestamp_millis.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Failed to get system time")
+                .as_millis() as i64
+        });
 
         // Create a projection with only the fields used for signature calculation
         // IMPORTANT: The language field is deliberately excluded from signature calculation
