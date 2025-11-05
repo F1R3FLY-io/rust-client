@@ -3,7 +3,6 @@ use crate::f1r3fly_api::F1r3flyApi;
 use crate::utils::rho_helpers::change_contract_token_name;
 use reqwest;
 use serde_json;
-use std::fs;
 use std::time::Instant;
 
 pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -122,8 +121,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
     let url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
     let client = reqwest::Client::new();
 
-    let bonds_query = fs::read_to_string("rho_examples/cli/bonds_query.rho")
-        .map_err(|e| format!("Failed to read bonds_query file: {}", e))?;
+    let bonds_query = include_str!("../../rho_examples/cli/bonds_query.rho");
 
     let body = serde_json::json!({
         "term": bonds_query
@@ -216,8 +214,7 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
     let url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
     let client = reqwest::Client::new();
 
-    let rholang_query = fs::read_to_string("rho_examples/cli/active_validators.rho")
-        .map_err(|e| format!("Failed to read active_validators file: {}", e))?;
+    let rholang_query = include_str!("../../rho_examples/cli/active_validators.rho");
 
     let body = serde_json::json!({
         "term": rholang_query
@@ -314,8 +311,7 @@ pub async fn wallet_balance_command(
 
     let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.grpc_port);
 
-    let balance_template = fs::read_to_string("rho_examples/cli/get_balance.rho")
-        .map_err(|e| format!("Failed to read get_balance template file: {}", e))?;
+    let balance_template = include_str!("../../rho_examples/cli/get_balance.rho");
 
     let mut balance_query = balance_template.replace("{}", &args.address);
 
@@ -357,8 +353,7 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
     let client = reqwest::Client::new();
 
     // Get all bonds first, then check if our public key is in there
-    let bonds_query = fs::read_to_string("rho_examples/cli/bonds_query.rho")
-        .map_err(|e| format!("Failed to read bonds_query file: {}", e))?;
+    let bonds_query = include_str!("../../rho_examples/cli/bonds_query.rho");
 
     let body = serde_json::json!({
         "term": bonds_query
@@ -752,16 +747,13 @@ pub async fn validator_status_command(
     let start_time = Instant::now();
 
     // Query 1: Get all bonds to check if validator is bonded
-    let bonds_query = fs::read_to_string("rho_examples/cli/bonds_query.rho")
-        .map_err(|e| format!("Failed to read bonds_query file: {}", e))?;
+    let bonds_query = include_str!("../../rho_examples/cli/bonds_query.rho");
 
     // Query 2: Get active validators to check if validator is active
-    let active_query = fs::read_to_string("rho_examples/cli/active_validators.rho")
-        .map_err(|e| format!("Failed to read active_validators file: {}", e))?;
+    let active_query = include_str!("../../rho_examples/cli/active_validators.rho");
 
     // Query 3: Get quarantine length for timing calculations
-    let quarantine_query = fs::read_to_string("rho_examples/cli/quarantine_length.rho")
-        .map_err(|e| format!("Failed to read quarantine_length file: {}", e))?;
+    let quarantine_query = include_str!("../../rho_examples/cli/quarantine_length.rho");
 
     // Use HTTP API for PoS contract queries (like bonds/network-consensus commands)
     let client = reqwest::Client::new();
@@ -876,11 +868,8 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
     let start_time = Instant::now();
 
     // Query epoch and quarantine lengths from PoS contract
-    let epoch_length_query = fs::read_to_string("rho_examples/cli/epoch_length.rho")
-        .map_err(|e| format!("Failed to read epoch_length file: {}", e))?;
-
-    let quarantine_length_query = fs::read_to_string("rho_examples/cli/quarantine_length.rho")
-        .map_err(|e| format!("Failed to read quarantine_length file: {}", e))?;
+    let epoch_length_query = include_str!("../../rho_examples/cli/epoch_length.rho");
+    let quarantine_length_query = include_str!("../../rho_examples/cli/quarantine_length.rho");
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;
@@ -989,13 +978,7 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
 
     let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.grpc_port);
 
-    let rewards_query = fs::read_to_string("rho_examples/cli/get_current_epoch_rewards.rho")
-        .map_err(|e| {
-            format!(
-                "Failed to read get_current_epoch_rewards template file: {}",
-                e
-            )
-        })?;
+    let rewards_query = include_str!("../../rho_examples/cli/get_current_epoch_rewards.rho");
 
     let start_time = Instant::now();
 
@@ -1077,14 +1060,11 @@ pub async fn network_consensus_command(
     );
     println!("HTTP API at {}", http_url);
 
-    let bonds_query = fs::read_to_string("rho_examples/cli/bonds_query.rho")
-        .map_err(|e| format!("Failed to read bonds_query file: {}", e))?;
+    let bonds_query = include_str!("../../rho_examples/cli/bonds_query.rho");
 
-    let active_query = fs::read_to_string("rho_examples/cli/active_validators.rho")
-        .map_err(|e| format!("Failed to read active_validators file: {}", e))?;
+    let active_query = include_str!("../../rho_examples/cli/active_validators.rho");
 
-    let quarantine_query = fs::read_to_string("rho_examples/cli/quarantine_length.rho")
-        .map_err(|e| format!("Failed to read quarantine_length file: {}", e))?;
+    let quarantine_query = include_str!("../../rho_examples/cli/quarantine_length.rho");
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;

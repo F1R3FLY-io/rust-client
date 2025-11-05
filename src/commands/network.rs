@@ -438,8 +438,7 @@ pub async fn bond_validator_command(
     // Initialize the F1r3fly API client for deploying
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.grpc_port);
 
-    let bond_template = fs::read_to_string("rho_examples/cli/bond.rho")
-        .map_err(|e| format!("Failed to read bond template file: {}", e))?;
+    let bond_template = include_str!("../../rho_examples/cli/bond.rho");
 
     // Create the bonding Rholang code
     let bonding_code = bond_template.replacen("{}", &args.stake.to_string(), 1);
@@ -693,8 +692,7 @@ fn generate_transfer_contract(
     to_address: &str,
     amount_dust: u64,
 ) -> Result<String, String> {
-    let transfer_template = fs::read_to_string("rho_examples/cli/transfer.rho")
-        .map_err(|e| format!("Failed to read transfer template file: {}", e))?;
+    let transfer_template = include_str!("../../rho_examples/cli/transfer.rho");
 
     let transfer_code = transfer_template
         .replacen("{}", from_address, 1)
