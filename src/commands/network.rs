@@ -331,7 +331,17 @@ pub async fn check_deploy_status(
                 break hash;
             }
             Ok(None) => {
-                // Deploy not in block yet, continue waiting
+                if block_wait_attempts >= max_block_wait_attempts {
+                    println!(
+                        "❌ Timeout waiting for deploy to be included in block after {} seconds",
+                        max_block_wait_attempts * args.check_interval as u32
+                    );
+                    return Ok(DeployCompressedInfo::ok(
+                        CompressedDeployStatus::Deploying,
+                        None,
+                    ));
+                }
+                // Likely deploy not in block yet, continue waiting
             }
             Err(e) => {
                 println!("❌ Error checking deploy status: {}", e);
@@ -341,18 +351,6 @@ pub async fn check_deploy_status(
                     None,
                 ));
             }
-        }
-
-        if block_wait_attempts >= max_block_wait_attempts {
-            println!(
-                "❌ Timeout waiting for deploy to be included in block after {} seconds",
-                max_block_wait_attempts * args.check_interval as u32
-            );
-            return Ok(DeployCompressedInfo::error(
-                CompressedDeployStatus::DeployError,
-                "Transfer deploy inclusion timeout",
-                None,
-            ));
         }
 
         tokio::time::sleep(tokio::time::Duration::from_secs(args.check_interval)).await;
