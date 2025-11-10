@@ -1,5 +1,5 @@
 target/
+reports/
 
-.env
-
-.vscode
+.*
+*.log

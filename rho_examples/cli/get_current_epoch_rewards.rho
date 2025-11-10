@@ -1,0 +1,6 @@
+new return, rl(`rho:registry:lookup`), poSCh in {
+    rl!(`rho:rchain:pos`, *poSCh) |
+    for(@(_, PoS) <- poSCh) {
+        @PoS!("getCurrentEpochRewards", *return)
+    }
+}
