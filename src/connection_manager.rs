@@ -139,7 +139,7 @@ impl F1r3flyConnectionManager {
     ///
     /// Note: This is lightweight (just references and a SecretKey), but we still
     /// want to minimize calls to this method.
-    fn api(&self) -> F1r3flyApi {
+    fn api(&self) -> F1r3flyApi<'_> {
         F1r3flyApi::new(
             &self.config.signing_key,
             &self.config.node_host,
@@ -333,7 +333,7 @@ impl F1r3flyConnectionManager {
     /// Get direct access to the underlying F1r3flyApi for advanced operations
     ///
     /// Use this sparingly - prefer the higher-level methods when possible.
-    pub fn get_api(&self) -> F1r3flyApi {
+    pub fn get_api(&self) -> F1r3flyApi<'_> {
         self.api()
     }
 }

@@ -4,5 +4,8 @@ pub mod connection_manager;
 pub mod dispatcher;
 pub mod error;
 pub mod f1r3fly_api;
+pub mod http_client;
+pub mod registry;
+pub mod signing;
 pub mod rholang_helpers;
 pub mod utils;
