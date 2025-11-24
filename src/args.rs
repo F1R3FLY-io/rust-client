@@ -496,6 +496,22 @@ pub struct NetworkHealthArgs {
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
+
+    /// Enable recursive peer discovery to find all peers in the network
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// Maximum number of unique peers to discover (-1 or 0 means no limit)
+    #[arg(short = 'n', long, default_value = "20")]
+    pub max_peers: i32,
+
+    /// Print more details about the results
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    /// Print underlying HTTP requests and responses
+    #[arg(long)]
+    pub debug: bool,
 }
 
 /// Arguments for transfer command
