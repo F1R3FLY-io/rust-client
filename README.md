@@ -462,7 +462,7 @@ cargo run -- transfer --to-address RECIPIENT_ADDRESS --amount 1000 -H node.examp
 
 ### Network Health
 
-Check the health and connectivity of multiple nodes in your F1r3fly shard.
+Check the health and connectivity of multiple nodes in your F1r3fly shard. Supports recursive peer discovery to map network topology and detailed peer information.
 
 **Local Development (Single Host):**
 ```bash
@@ -479,6 +479,27 @@ cargo run -- network-health --custom-ports "60503"
 cargo run -- network-health --standard-ports false --custom-ports "60503,70503"
 ```
 
+**Recursive Peer Discovery:**
+```bash
+# Recursively discover all peers in the network (max 20 unique peers by default)
+cargo run -- network-health -H localhost --recursive
+
+# Discover all peers with no limit
+cargo run -- network-health -H localhost --recursive --max-peers -1
+
+# Discover up to 50 unique peers
+cargo run -- network-health -H localhost --recursive --max-peers 50
+
+# Recursive discovery with verbose output (detailed peer information)
+cargo run -- network-health -H localhost --recursive --verbose
+
+# Show HTTP requests and responses for debugging
+cargo run -- network-health -H localhost --recursive --debug
+
+# Combine all options for comprehensive network analysis
+cargo run -- network-health -H localhost --recursive --max-peers 100 --verbose --debug
+```
+
 **Multi-Host / Remote Networks:**
 ```bash
 # For remote hosts, you MUST specify --custom-ports (no standard port assumptions)
@@ -487,11 +508,27 @@ cargo run -- network-health -H testnet.example.com --custom-ports "8001,8002,944
 # Single remote node
 cargo run -- network-health -H validator.net --custom-ports "7890"
 
+# Recursive discovery on remote network
+cargo run -- network-health -H validator.net --custom-ports "7890" --recursive --max-peers 50
+
 # Different hosts require separate commands
 cargo run -- network-health -H host1.com --custom-ports "8001"
-cargo run -- network-health -H host2.com --custom-ports "8002" 
+cargo run -- network-health -H host2.com --custom-ports "8002"
 cargo run -- network-health -H host3.com --custom-ports "9443"
 ```
+
+**Features:**
+- **Standard Mode**: Queries specified nodes and displays basic health status
+- **Recursive Mode**: Automatically discovers peers from each node and adds them to discovery queue (BFS traversal)
+- **Verbose Output**: Shows detailed peer information including connection status and network statistics
+- **Debug Mode**: Displays HTTP requests and responses for troubleshooting
+
+**Peer Statistics (Recursive Mode):**
+- Total healthy nodes discovered
+- Total peer count
+- Average peers per node
+- Min/max peers (with `--verbose`)
+- Connected peer ratio (with `--verbose`)
 
 **Note:** Remote hosts don't use standard F1r3fly ports (40403, 40413, etc.). You must explicitly specify the actual ports in use with `--custom-ports` to avoid connection failures.
 
@@ -693,6 +730,10 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-H, --host <HOST>`: Host address (default: "localhost")
 - `-s, --standard-ports <STANDARD_PORTS>`: Check standard F1r3fly shard ports (default: true)
 - `-c, --custom-ports <CUSTOM_PORTS>`: Additional custom ports to check (comma-separated)
+- `-r, --recursive`: Enable recursive peer discovery to find all peers in the network (default: false)
+- `-n, --max-peers <MAX_PEERS>`: Maximum number of unique peers to discover; -1 or 0 means no limit (default: 20)
+- `-v, --verbose`: Print more details about the results, including peer statistics and min/max values (default: false)
+- `--debug`: Print underlying HTTP requests and responses for troubleshooting (default: false)
 
 ### Transfer Command
 
