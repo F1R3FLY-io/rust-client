@@ -837,59 +837,9 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
 }
 
 fn validate_rev_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
-    if !address.starts_with("1111") {
-        return Err("Invalid REV address format: must start with '1111'".into());
-    }
-
-    if address.len() < 40 {
-        return Err("Invalid REV address format: too short".into());
-    }
-
-    Ok(())
+    crate::rev_vault::validate_rev_address(address).map_err(|e| e.into())
 }
 
 fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust: u64) -> String {
-    format!(
-        r#"new 
-    deployerId(`rho:rchain:deployerId`),
-    stdout(`rho:io:stdout`),
-    rl(`rho:registry:lookup`),
-    revVaultCh,
-    vaultCh,
-    toVaultCh,
-    revVaultKeyCh,
-    resultCh
-in {{
-  rl!(`rho:rchain:revVault`, *revVaultCh) |
-  for (@(_, RevVault) <- revVaultCh) {{
-    @RevVault!("findOrCreate", "{}", *vaultCh) |
-    @RevVault!("findOrCreate", "{}", *toVaultCh) |
-    @RevVault!("deployerAuthKey", *deployerId, *revVaultKeyCh) |
-    for (@(true, vault) <- vaultCh; key <- revVaultKeyCh; @(true, toVault) <- toVaultCh) {{
-      @vault!("transfer", "{}", {}, *key, *resultCh) |
-      for (@result <- resultCh) {{
-        match result {{
-          (true, Nil) => {{
-            stdout!(("Transfer successful:", {}, "REV"))
-          }}
-          (false, reason) => {{
-            stdout!(("Transfer failed:", reason))
-          }}
-        }}
-      }}
-    }} |
-    for (@(false, errorMsg) <- vaultCh) {{
-      stdout!(("Sender vault error:", errorMsg))
-    }} |
-    for (@(false, errorMsg) <- toVaultCh) {{
-      stdout!(("Destination vault error:", errorMsg))
-    }}
-  }}
-}}"#,
-        from_address, // findOrCreate sender
-        to_address,   // findOrCreate recipient
-        to_address,   // transfer target
-        amount_dust,  // transfer amount
-        amount_dust   // success message amount
-    )
+    crate::rev_vault::build_rev_transfer_rholang(from_address, to_address, amount_dust)
 }

@@ -2,8 +2,10 @@
 ///
 /// Manages connections to F1r3fly nodes with connection reuse and pooling.
 /// This eliminates the need to create new F1r3flyApi instances on every call.
-
 use crate::f1r3fly_api::F1r3flyApi;
+use crate::rev_vault::{build_rev_transfer_rholang, RevTransferResult};
+use crate::utils::CryptoUtils;
+use secp256k1::PublicKey;
 use std::env;
 
 /// Configuration for F1r3fly node connection
@@ -29,12 +31,11 @@ impl ConnectionConfig {
     ///
     /// Returns an error if `FIREFLY_PRIVATE_KEY` is not set
     pub fn from_env() -> Result<Self, ConnectionError> {
-        let signing_key = env::var("FIREFLY_PRIVATE_KEY")
-            .map_err(|_| ConnectionError::MissingPrivateKey)?;
+        let signing_key =
+            env::var("FIREFLY_PRIVATE_KEY").map_err(|_| ConnectionError::MissingPrivateKey)?;
 
         Ok(Self {
-            node_host: env::var("FIREFLY_HOST")
-                .unwrap_or_else(|_| "localhost".to_string()),
+            node_host: env::var("FIREFLY_HOST").unwrap_or_else(|_| "localhost".to_string()),
             grpc_port: env::var("FIREFLY_GRPC_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
@@ -48,12 +49,7 @@ impl ConnectionConfig {
     }
 
     /// Create a new configuration with explicit values
-    pub fn new(
-        node_host: String,
-        grpc_port: u16,
-        http_port: u16,
-        signing_key: String,
-    ) -> Self {
+    pub fn new(node_host: String, grpc_port: u16, http_port: u16, signing_key: String) -> Self {
         Self {
             node_host,
             grpc_port,
@@ -68,10 +64,10 @@ impl ConnectionConfig {
 pub enum ConnectionError {
     /// FIREFLY_PRIVATE_KEY environment variable not set
     MissingPrivateKey,
-    
+
     /// Failed to connect to F1r3fly node
     ConnectionFailed(String),
-    
+
     /// Failed to execute operation
     OperationFailed(String),
 }
@@ -321,7 +317,9 @@ impl F1r3flyConnectionManager {
         let deploy_id = self.deploy(rholang_code).await?;
 
         // Step 2: Wait for deploy to be included in a block
-        let block_hash = self.wait_for_deploy(&deploy_id, max_block_wait_attempts).await?;
+        let block_hash = self
+            .wait_for_deploy(&deploy_id, max_block_wait_attempts)
+            .await?;
 
         // Step 3: Wait for block to be finalized
         self.wait_for_finalization(&block_hash, max_finalization_attempts)
@@ -336,6 +334,110 @@ impl F1r3flyConnectionManager {
     pub fn get_api(&self) -> F1r3flyApi<'_> {
         self.api()
     }
+
+    // =========================================================================
+    // REV Vault Operations
+    // =========================================================================
+
+    /// Transfer REV from this connection's vault to another address
+    ///
+    /// The transfer is authorized by the connection's signing key, which must
+    /// have sufficient REV balance in its vault.
+    ///
+    /// # Arguments
+    ///
+    /// * `to_address` - Recipient REV address (1111...)
+    /// * `amount_dust` - Amount in dust (1 REV = 100,000,000 dust)
+    ///
+    /// # Returns
+    ///
+    /// `RevTransferResult` with deploy ID, block hash, and transfer details
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let manager = F1r3flyConnectionManager::from_env()?;
+    ///
+    /// // Transfer 1 REV to another address
+    /// let result = manager.transfer_rev("1111abc...", 100_000_000).await?;
+    /// println!("Transfer complete in block: {}", result.block_hash);
+    /// ```
+    pub async fn transfer_rev(
+        &self,
+        to_address: &str,
+        amount_dust: u64,
+    ) -> Result<RevTransferResult, ConnectionError> {
+        // 1. Validate recipient address
+        crate::rev_vault::validate_rev_address(to_address)
+            .map_err(|e| ConnectionError::OperationFailed(e))?;
+
+        // 2. Get sender's REV address from signing key
+        let from_address = self.get_rev_address()?;
+
+        log::info!(
+            "Transferring {} dust ({:.8} REV) from {} to {}",
+            amount_dust,
+            crate::rev_vault::dust_to_rev(amount_dust),
+            from_address,
+            to_address
+        );
+
+        // 3. Build Rholang transfer contract
+        let rholang = build_rev_transfer_rholang(&from_address, to_address, amount_dust);
+
+        // 4. Deploy and wait for finalization
+        let (deploy_id, block_hash) = self.deploy_and_wait(&rholang, 60, 20).await?;
+
+        log::info!(
+            "REV transfer complete: {} dust to {} (deploy: {})",
+            amount_dust,
+            to_address,
+            deploy_id
+        );
+
+        Ok(RevTransferResult {
+            deploy_id,
+            block_hash,
+            from_address,
+            to_address: to_address.to_string(),
+            amount_dust,
+        })
+    }
+
+    /// Get the REV address for this connection's signing key
+    ///
+    /// The REV address is derived from the public key of the signing key.
+    ///
+    /// # Returns
+    ///
+    /// The REV address as a base58-encoded string (1111...)
+    pub fn get_rev_address(&self) -> Result<String, ConnectionError> {
+        let public_key = self.get_public_key()?;
+        let pubkey_hex = hex::encode(public_key.serialize_uncompressed());
+        CryptoUtils::generate_rev_address(&pubkey_hex)
+            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))
+    }
+
+    /// Get the public key for this connection's signing key
+    ///
+    /// # Returns
+    ///
+    /// The secp256k1 public key
+    pub fn get_public_key(&self) -> Result<PublicKey, ConnectionError> {
+        let secret_key = CryptoUtils::decode_private_key(&self.config.signing_key)
+            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
+        Ok(CryptoUtils::derive_public_key(&secret_key))
+    }
+
+    /// Get the public key as hex string (uncompressed format)
+    ///
+    /// # Returns
+    ///
+    /// Hex-encoded uncompressed public key (65 bytes = 130 hex chars)
+    pub fn get_public_key_hex(&self) -> Result<String, ConnectionError> {
+        let public_key = self.get_public_key()?;
+        Ok(hex::encode(public_key.serialize_uncompressed()))
+    }
 }
 
 #[cfg(test)]
@@ -349,7 +451,10 @@ mod tests {
 
         let result = ConnectionConfig::from_env();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ConnectionError::MissingPrivateKey));
+        assert!(matches!(
+            result.unwrap_err(),
+            ConnectionError::MissingPrivateKey
+        ));
     }
 
     #[test]
@@ -372,12 +477,8 @@ mod tests {
 
     #[test]
     fn test_config_new() {
-        let config = ConnectionConfig::new(
-            "example.com".to_string(),
-            9000,
-            9001,
-            "my_key".to_string(),
-        );
+        let config =
+            ConnectionConfig::new("example.com".to_string(), 9000, 9001, "my_key".to_string());
 
         assert_eq!(config.node_host, "example.com");
         assert_eq!(config.grpc_port, 9000);
@@ -385,4 +486,3 @@ mod tests {
         assert_eq!(config.signing_key, "my_key");
     }
 }
-
