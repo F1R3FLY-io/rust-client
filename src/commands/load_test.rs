@@ -1,7 +1,14 @@
 use crate::args::LoadTestArgs;
 use crate::f1r3fly_api::F1r3flyApi;
-use std::time::{Duration, Instant};
 use chrono::Local;
+use std::time::{Duration, Instant};
+
+/// Format dust balance as REV with both units displayed
+fn format_balance(dust_str: &str) -> String {
+    let dust: u64 = dust_str.trim().parse().unwrap_or(0);
+    let rev = dust as f64 / 100_000_000.0;
+    format!("{:.8} REV ({} dust)", rev, dust)
+}
 
 #[derive(Debug)]
 pub struct TestResult {
@@ -41,7 +48,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         Ok(balance) => {
             println!("Sender Wallet:");
             println!("  Address: {}", sender_address);
-            println!("  Balance: {} REV", balance);
+            println!("  Balance: {}", format_balance(&balance));
         }
         Err(e) => {
             println!("⚠️  Failed to get sender balance: {}", e);
@@ -53,7 +60,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         Ok(balance) => {
             println!("Recipient Wallet:");
             println!("  Address: {}", args.to_address);
-            println!("  Balance: {} REV", balance);
+            println!("  Balance: {}", format_balance(&balance));
         }
         Err(e) => {
             println!("⚠️  Failed to get recipient balance: {}", e);
@@ -67,30 +74,30 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
     let api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
 
     let mut results = Vec::new();
-    
+
     for test_num in 1..=args.num_tests {
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!("🧪 Test {}/{}", test_num, args.num_tests);
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        
+
         // Run single test with detailed logging
         let result = run_single_test(&api, args, test_num).await?;
-        
+
         results.push(result);
-        
+
         // Show running stats
         print_progress_stats(&results);
-        
+
         // Wait before next test (unless last one)
         if test_num < args.num_tests {
             println!("⏱️  Waiting {}s before next test...\n", args.interval);
             tokio::time::sleep(Duration::from_secs(args.interval)).await;
         }
     }
-    
+
     // Final visual summary
     print_final_summary(&results);
-    
+
     Ok(())
 }
 
@@ -108,7 +115,8 @@ async fn run_single_test(
     let rholang = generate_transfer_contract(args);
     let deploy_id = api.deploy(&rholang, true, "rholang").await?.to_string();
 
-    println!("✅ [{}] Deploy submitted ({}ms)",
+    println!(
+        "✅ [{}] Deploy submitted ({}ms)",
         now_timestamp(),
         deploy_start.elapsed().as_millis()
     );
@@ -123,11 +131,13 @@ async fn run_single_test(
         &deploy_id,
         args.http_port,
         args.check_interval,
-        args.inclusion_timeout
-    ).await?;
+        args.inclusion_timeout,
+    )
+    .await?;
 
     let inclusion_time = block_wait_start.elapsed();
-    println!("✅ [{}] Included in block ({:.1}s)",
+    println!(
+        "✅ [{}] Included in block ({:.1}s)",
         now_timestamp(),
         inclusion_time.as_secs_f32()
     );
@@ -138,17 +148,16 @@ async fn run_single_test(
     let finalization_start = Instant::now();
 
     let max_finalization_attempts = (args.finalization_timeout / args.check_interval.max(1)) as u32;
-    let is_finalized = api.is_finalized(
-        &block_hash,
-        max_finalization_attempts,
-        args.check_interval
-    ).await?;
+    let is_finalized = api
+        .is_finalized(&block_hash, max_finalization_attempts, args.check_interval)
+        .await?;
 
     let finalization_time = finalization_start.elapsed();
 
     // Step 4: Determine final status
     let on_main_chain = if is_finalized {
-        println!("✅ [{}] Block finalized ({:.1}s)",
+        println!(
+            "✅ [{}] Block finalized ({:.1}s)",
             now_timestamp(),
             finalization_time.as_secs_f32()
         );
@@ -156,17 +165,14 @@ async fn run_single_test(
         true
     } else {
         // Not finalized - check if orphaned or just slow
-        println!("⚠️  [{}] Block not finalized after {:.1}s",
+        println!(
+            "⚠️  [{}] Block not finalized after {:.1}s",
             now_timestamp(),
             finalization_time.as_secs_f32()
         );
 
         // Check main chain to distinguish orphaned from timeout
-        let on_chain = is_on_main_chain_fast(
-            api,
-            &block_hash,
-            args.chain_depth
-        ).await?;
+        let on_chain = is_on_main_chain_fast(api, &block_hash, args.chain_depth).await?;
 
         if on_chain {
             println!("⚠️  TIMEOUT - Block on chain but not finalized");
@@ -181,10 +187,18 @@ async fn run_single_test(
     println!("💰 [{}] Checking wallet balance...", now_timestamp());
     match get_wallet_balance(api, args).await {
         Ok(balance) => {
-            println!("✅ [{}] Wallet balance: {} REV", now_timestamp(), balance);
+            println!(
+                "✅ [{}] Wallet balance: {}",
+                now_timestamp(),
+                format_balance(&balance)
+            );
         }
         Err(e) => {
-            println!("⚠️  [{}] Failed to get wallet balance: {}", now_timestamp(), e);
+            println!(
+                "⚠️  [{}] Failed to get wallet balance: {}",
+                now_timestamp(),
+                e
+            );
         }
     }
 
@@ -203,17 +217,17 @@ async fn run_single_test(
 
 fn generate_transfer_contract(args: &LoadTestArgs) -> String {
     use crate::utils::CryptoUtils;
-    
+
     // Derive sender address from private key
-    let secret_key = CryptoUtils::decode_private_key(&args.private_key)
-        .expect("Invalid private key");
+    let secret_key =
+        CryptoUtils::decode_private_key(&args.private_key).expect("Invalid private key");
     let public_key = CryptoUtils::derive_public_key(&secret_key);
     let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-    let from_address = CryptoUtils::generate_rev_address(&public_key_hex)
-        .expect("Failed to generate address");
-    
+    let from_address =
+        CryptoUtils::generate_rev_address(&public_key_hex).expect("Failed to generate address");
+
     let amount_dust = args.amount * 100_000_000;
-    
+
     format!(
         r#"new 
     deployerId(`rho:rchain:deployerId`),
@@ -251,11 +265,7 @@ in {{
     }}
   }}
 }}"#,
-        from_address,
-        args.to_address,
-        args.to_address,
-        amount_dust,
-        amount_dust
+        from_address, args.to_address, args.to_address, amount_dust, amount_dust
     )
 }
 
@@ -268,12 +278,15 @@ async fn wait_for_block_fast(
     timeout_seconds: u64,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let max_attempts = timeout_seconds / check_interval.max(1);
-    
+
     for attempt in 1..=max_attempts {
         if attempt % 10 == 0 {
-            println!("   ⏱️  Still waiting... ({}s elapsed)", attempt * check_interval);
+            println!(
+                "   ⏱️  Still waiting... ({}s elapsed)",
+                attempt * check_interval
+            );
         }
-        
+
         match api.get_deploy_block_hash(deploy_id, http_port).await? {
             Some(hash) => return Ok(hash),
             None => {
@@ -281,7 +294,7 @@ async fn wait_for_block_fast(
             }
         }
     }
-    
+
     Err("Timeout waiting for block inclusion".into())
 }
 
@@ -329,7 +342,9 @@ async fn get_balance_for_address(
     let readonly_api = F1r3flyApi::new(&args.private_key, &args.host, args.readonly_port);
 
     // Execute exploratory deploy to get balance on read-only node
-    let (result, _block_info) = readonly_api.exploratory_deploy(&rholang_query, None, false).await?;
+    let (result, _block_info) = readonly_api
+        .exploratory_deploy(&rholang_query, None, false)
+        .await?;
 
     Ok(result.trim().to_string())
 }
@@ -354,11 +369,19 @@ fn print_progress_stats(results: &[TestResult]) {
     let total = results.len();
     let finalized = results.iter().filter(|r| r.on_main_chain).count();
     let orphaned = total - finalized;
-    
+
     println!();
     println!("📊 Current Stats:");
-    println!("   ✅ Finalized: {} ({}%)", finalized, finalized * 100 / total);
-    println!("   ❌ Orphaned/Timeout: {} ({}%)", orphaned, orphaned * 100 / total);
+    println!(
+        "   ✅ Finalized: {} ({}%)",
+        finalized,
+        finalized * 100 / total
+    );
+    println!(
+        "   ❌ Orphaned/Timeout: {} ({}%)",
+        orphaned,
+        orphaned * 100 / total
+    );
     println!();
 }
 
@@ -367,42 +390,50 @@ fn print_final_summary(results: &[TestResult]) {
     println!("╔═══════════════════════════════════════════╗");
     println!("║  FINAL RESULTS                            ║");
     println!("╚═══════════════════════════════════════════╝");
-    
+
     let total = results.len();
     let finalized = results.iter().filter(|r| r.on_main_chain).count();
     let failed = total - finalized;
-    
+
     println!("Total tests: {}", total);
     println!("✅ Finalized: {} ({}%)", finalized, finalized * 100 / total);
-    println!("❌ Orphaned/Timeout: {} ({}%)", failed, failed * 100 / total);
+    println!(
+        "❌ Orphaned/Timeout: {} ({}%)",
+        failed,
+        failed * 100 / total
+    );
     println!();
-    
+
     // Visual bar chart
     println!("Finalization rate:");
     print_bar_chart(finalized as f32 / total as f32);
-    
+
     println!();
     println!("Failure rate:");
     print_bar_chart(failed as f32 / total as f32);
-    
+
     // Timing stats
     if !results.is_empty() {
-        let avg_inclusion = results.iter()
+        let avg_inclusion = results
+            .iter()
             .map(|r| r.inclusion_time.as_secs_f32())
-            .sum::<f32>() / total as f32;
-        
-        let avg_total = results.iter()
+            .sum::<f32>()
+            / total as f32;
+
+        let avg_total = results
+            .iter()
             .map(|r| r.total_time.as_secs_f32())
-            .sum::<f32>() / total as f32;
-        
+            .sum::<f32>()
+            / total as f32;
+
         println!();
         println!("⏱️  Timing Statistics:");
         println!("   Average inclusion time: {:.1}s", avg_inclusion);
         println!("   Average total time: {:.1}s", avg_total);
     }
-    
+
     println!();
-    
+
     // Exit code hint
     if failed > 0 {
         println!("⚠️  {} blocks failed to finalize or were orphaned", failed);
@@ -415,7 +446,7 @@ fn print_bar_chart(percentage: f32) {
     let bar_length = 40;
     let filled = (percentage * bar_length as f32) as usize;
     let empty = bar_length - filled;
-    
+
     print!("[");
     print!("{}", "█".repeat(filled));
     print!("{}", "░".repeat(empty));
@@ -425,4 +456,3 @@ fn print_bar_chart(percentage: f32) {
 fn now_timestamp() -> String {
     Local::now().format("%H:%M:%S").to_string()
 }
-

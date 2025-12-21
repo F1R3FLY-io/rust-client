@@ -2,8 +2,8 @@ use crate::args::*;
 use crate::f1r3fly_api::F1r3flyApi;
 use reqwest;
 use serde_json;
-use std::time::Instant;
 use std::collections::{HashSet, VecDeque};
+use std::time::Instant;
 
 pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 Getting node status from {}:{}", args.host, args.port);
@@ -343,7 +343,14 @@ pub async fn wallet_balance_command(
             let duration = start_time.elapsed();
             println!("✅ Wallet balance retrieved successfully!");
             println!("⏱️  Time taken: {:.2?}", duration);
-            println!("💰 Balance for {}: {} REV", args.address, result);
+
+            // Parse the balance from the result and convert dust to REV
+            let balance_dust: u64 = result.trim().parse().unwrap_or(0);
+            let balance_rev = balance_dust as f64 / 100_000_000.0;
+            println!(
+                "💰 Balance for {}: {:.8} REV ({} dust)",
+                args.address, balance_rev, balance_dust
+            );
             println!("📊 {}", block_info);
         }
         Err(e) => {
@@ -557,7 +564,10 @@ async fn query_node_status(
                     Ok(status_text) => {
                         if debug {
                             println!("🐛 [DEBUG] Response Body:");
-                            if let Ok(pretty) = serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&status_text).unwrap_or(serde_json::json!({}))) {
+                            if let Ok(pretty) = serde_json::to_string_pretty(
+                                &serde_json::from_str::<serde_json::Value>(&status_text)
+                                    .unwrap_or(serde_json::json!({})),
+                            ) {
                                 for line in pretty.lines() {
                                     println!("   {}", line);
                                 }
@@ -567,7 +577,7 @@ async fn query_node_status(
                             Ok(json) => Ok((json, status_text)),
                             Err(_) => Err("Invalid JSON response".to_string()),
                         }
-                    },
+                    }
                     Err(_) => Err("Failed to read response".to_string()),
                 }
             } else {
@@ -658,7 +668,11 @@ pub async fn network_health_command(
         // Recursive peer discovery mode
         println!(
             "🔍 Starting recursive peer discovery (max peers: {})\n",
-            if args.max_peers <= 0 { "unlimited".to_string() } else { args.max_peers.to_string() }
+            if args.max_peers <= 0 {
+                "unlimited".to_string()
+            } else {
+                args.max_peers.to_string()
+            }
         );
 
         let mut visited = HashSet::new();
@@ -712,11 +726,16 @@ pub async fn network_health_command(
                                 visited.insert(peer_uri);
                                 queue.push_back((peer.host.clone(), peer.protocol_port));
                                 discovered_peers.push(peer.clone());
-                                print!("      Added: {} ({}:{})", peer.node_id, peer.host, peer.protocol_port);
+                                print!(
+                                    "      Added: {} ({}:{})",
+                                    peer.node_id, peer.host, peer.protocol_port
+                                );
                                 if args.verbose {
                                     print!(" [status: {}]", peer.connection_status);
                                 }
-                                if args.max_peers > 0 && discovered_peers.len() >= args.max_peers as usize {
+                                if args.max_peers > 0
+                                    && discovered_peers.len() >= args.max_peers as usize
+                                {
                                     println!(" [LIMIT REACHED]");
                                     break;
                                 }
@@ -818,7 +837,8 @@ pub async fn network_health_command(
         println!("   Average peers per node: {:.1}", avg_peers);
 
         if args.verbose {
-            let mut peer_counts_by_node: Vec<usize> = all_peer_lists.iter().map(|p| p.len()).collect();
+            let mut peer_counts_by_node: Vec<usize> =
+                all_peer_lists.iter().map(|p| p.len()).collect();
             peer_counts_by_node.sort();
             if let Some(min) = peer_counts_by_node.first() {
                 println!("   Minimum peers on a node: {}", min);
@@ -831,10 +851,16 @@ pub async fn network_health_command(
             let connected_peers: usize = all_peer_lists
                 .iter()
                 .flat_map(|peers| peers.iter())
-                .filter(|p| p.connection_status.to_lowercase().contains("connected") || p.connection_status.to_lowercase().contains("active"))
+                .filter(|p| {
+                    p.connection_status.to_lowercase().contains("connected")
+                        || p.connection_status.to_lowercase().contains("active")
+                })
                 .count();
             if connected_peers > 0 {
-                println!("   Connected peers: {}/{}", connected_peers, total_peer_count);
+                println!(
+                    "   Connected peers: {}/{}",
+                    connected_peers, total_peer_count
+                );
             }
         }
 
@@ -1487,7 +1513,10 @@ pub async fn get_blocks_by_height_command(
         "🔗 Getting blocks by height range from {}:{}",
         args.host, args.port
     );
-    println!("📊 Block range: {} to {}", args.start_block_number, args.end_block_number);
+    println!(
+        "📊 Block range: {} to {}",
+        args.start_block_number, args.end_block_number
+    );
 
     // Validate block range
     if args.start_block_number > args.end_block_number {
@@ -1503,7 +1532,10 @@ pub async fn get_blocks_by_height_command(
 
     let start_time = Instant::now();
 
-    match f1r3fly_api.get_blocks_by_height(args.start_block_number, args.end_block_number).await {
+    match f1r3fly_api
+        .get_blocks_by_height(args.start_block_number, args.end_block_number)
+        .await
+    {
         Ok(blocks) => {
             let duration = start_time.elapsed();
             println!("✅ Blocks retrieved successfully!");
@@ -1549,9 +1581,8 @@ pub async fn get_blocks_by_height_command(
 fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<(), String> {
     match (host, custom_ports) {
         // Remote host without custom ports - ERROR
-        (h, None) if h != "localhost" && h != "127.0.0.1" => {
-            Err(format!(
-                "When using -H with remote host '{}', you must specify --custom-ports\n\
+        (h, None) if h != "localhost" && h != "127.0.0.1" => Err(format!(
+            "When using -H with remote host '{}', you must specify --custom-ports\n\
                 \n\
                 Remote hosts don't use standard F1r3fly ports. Specify the actual ports:\n\
                 \n\
@@ -1562,10 +1593,9 @@ fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<
                 For localhost, standard ports are assumed:\n\
                   cargo run -- network-health -H localhost  (uses standard ports)\n\
                   cargo run -- network-health              (uses localhost + standard ports)",
-                h, h, h
-            ))
-        }
+            h, h, h
+        )),
         // All other combinations are valid
-        _ => Ok(())
+        _ => Ok(()),
     }
 }
