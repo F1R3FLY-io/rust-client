@@ -78,6 +78,7 @@ impl Dispatcher {
             Commands::WatchBlocks(args) => watch_blocks_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::Dag(args) => run_dag(args).await,
         };
 
         // Handle errors with better formatting
@@ -153,6 +154,7 @@ impl Dispatcher {
             Commands::GetBlocksByHeight(_) => "get-blocks-by-height",
             Commands::GetNodeId(_) => "get-node-id",
             Commands::WatchBlocks(_) => "watch-blocks",
+            Commands::Dag(_) => "dag",
         }
     }
 }

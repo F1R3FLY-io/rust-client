@@ -280,4 +280,21 @@ impl NodeCliError {
             msg.to_string(),
         ))
     }
+
+    pub fn http_error(msg: &str) -> Self {
+        NodeCliError::Network(NetworkError::RequestFailed(msg.to_string()))
+    }
+
+    pub fn websocket_error(msg: &str) -> Self {
+        NodeCliError::Network(NetworkError::ConnectionFailed(msg.to_string()))
+    }
+
+    pub fn parse_error(msg: &str) -> Self {
+        NodeCliError::Api(ApiError::ParseError(msg.to_string()))
+    }
+
+    pub fn io_error(msg: &str) -> Self {
+        NodeCliError::File(FileError::ReadFailed("io".to_string(), msg.to_string()))
+    }
 }
+

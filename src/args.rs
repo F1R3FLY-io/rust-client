@@ -100,6 +100,9 @@ pub enum Commands {
 
     /// Watch real-time block events via WebSocket
     WatchBlocks(WatchBlocksArgs),
+
+    /// Interactive DAG visualization with real-time updates
+    Dag(DagArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -496,6 +499,22 @@ pub struct NetworkHealthArgs {
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
+
+    /// Enable recursive peer discovery to find all peers in the network
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// Maximum number of unique peers to discover (-1 or 0 means no limit)
+    #[arg(short = 'n', long, default_value = "20")]
+    pub max_peers: i32,
+
+    /// Print more details about the results
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    /// Print underlying HTTP requests and responses
+    #[arg(long)]
+    pub debug: bool,
 }
 
 /// Arguments for transfer command
@@ -686,4 +705,31 @@ pub struct WatchBlocksArgs {
     /// Retry reconnection indefinitely until manually killed (Ctrl+C)
     #[arg(long, default_value_t = false)]
     pub retry_forever: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct DagArgs {
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port for block queries
+    #[arg(long, default_value_t = 40413)]
+    pub http_port: u16,
+
+    /// WebSocket port for real-time events
+    #[arg(long, default_value_t = 40403)]
+    pub ws_port: u16,
+
+    /// Initial number of blocks to load
+    #[arg(short, long, default_value_t = 50)]
+    pub depth: usize,
+
+    /// Disable real-time updates (static view)
+    #[arg(long, default_value_t = false)]
+    pub no_live: bool,
+
+    /// Show deploy counts inline
+    #[arg(long, default_value_t = true)]
+    pub show_deploys: bool,
 }
