@@ -6,8 +6,8 @@ use f1r3fly_models::casper::v1::is_finalized_response::Message as IsFinalizedRes
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
 use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
 use f1r3fly_models::casper::{
-    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery, LightBlockInfo,
-    ProposeQuery,
+    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery,
+    LightBlockInfo, ProposeQuery,
 };
 use f1r3fly_models::rhoapi::Par;
 use f1r3fly_models::ByteString;
@@ -767,7 +767,9 @@ fn extract_par_data(par: &Par) -> Option<String> {
         if let Some(instance) = &expr.expr_instance {
             match instance {
                 // Handle different types of expressions
-                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => Some(format!("\"{}\"", s)),
+                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => {
+                    Some(format!("\"{}\"", s))
+                }
                 f1r3fly_models::rhoapi::expr::ExprInstance::GInt(i) => Some(i.to_string()),
                 f1r3fly_models::rhoapi::expr::ExprInstance::GBool(b) => Some(b.to_string()),
                 // Add other types as needed

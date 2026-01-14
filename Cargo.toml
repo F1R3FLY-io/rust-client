@@ -9,7 +9,7 @@ edition = "2021"
 f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
 f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
 f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
-prost = "0.13.5"
+prost = "0.14"
 tokio = { version = "1", features = ["full"] }
 hex = "0.4.3"
 clap = { version = "4.4.6", features = ["derive"] }
