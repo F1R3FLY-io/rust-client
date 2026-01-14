@@ -6,8 +6,8 @@ use f1r3fly_models::casper::v1::is_finalized_response::Message as IsFinalizedRes
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
 use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
 use f1r3fly_models::casper::{
-    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery, LightBlockInfo,
-    ProposeQuery,
+    BlocksQuery, BlocksQueryByHeight, DeployDataProto, ExploratoryDeployQuery, IsFinalizedQuery,
+    LightBlockInfo, ProposeQuery,
 };
 use f1r3fly_models::rhoapi::Par;
 use f1r3fly_models::ByteString;
@@ -29,6 +29,10 @@ pub struct DeployInfo {
     pub version: Option<u64>,
     pub timestamp: Option<u64>,
     pub status: DeployStatus,
+    /// Whether the deploy execution errored
+    pub errored: bool,
+    /// System deploy error message (e.g., "Insufficient funds")
+    pub system_deploy_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -454,24 +458,142 @@ impl<'a> F1r3flyApi<'a> {
         deploy_id: &str,
         http_port: u16,
     ) -> Result<DeployInfo, Box<dyn std::error::Error>> {
-        let url = format!(
+        let client = reqwest::Client::new();
+
+        // Step 1: Get block hash from /api/deploy/{id}
+        let deploy_url = format!(
             "http://{}:{}/api/deploy/{}",
             self.node_host, http_port, deploy_id
         );
-        let client = reqwest::Client::new();
 
-        match client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    let deploy_data: serde_json::Value = response.json().await?;
+        let deploy_response = match client.get(&deploy_url).send().await {
+            Ok(response) => response,
+            Err(e) => {
+                return Ok(DeployInfo {
+                    deploy_id: deploy_id.to_string(),
+                    block_hash: None,
+                    sender: None,
+                    seq_num: None,
+                    sig: None,
+                    sig_algorithm: None,
+                    shard_id: None,
+                    version: None,
+                    timestamp: None,
+                    status: DeployStatus::Error(format!("Network error: {}", e)),
+                    errored: false,
+                    system_deploy_error: None,
+                });
+            }
+        };
+
+        if deploy_response.status().as_u16() == 404 {
+            return Ok(DeployInfo {
+                deploy_id: deploy_id.to_string(),
+                block_hash: None,
+                sender: None,
+                seq_num: None,
+                sig: None,
+                sig_algorithm: None,
+                shard_id: None,
+                version: None,
+                timestamp: None,
+                status: DeployStatus::NotFound,
+                errored: false,
+                system_deploy_error: None,
+            });
+        }
+
+        if !deploy_response.status().is_success() {
+            let error_body = deploy_response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unable to read response body".to_string());
+
+            if error_body.contains("Couldn't find block containing deploy with id:") {
+                return Ok(DeployInfo {
+                    deploy_id: deploy_id.to_string(),
+                    block_hash: None,
+                    sender: None,
+                    seq_num: None,
+                    sig: None,
+                    sig_algorithm: None,
+                    shard_id: None,
+                    version: None,
+                    timestamp: None,
+                    status: DeployStatus::Pending,
+                    errored: false,
+                    system_deploy_error: None,
+                });
+            }
+
+            return Ok(DeployInfo {
+                deploy_id: deploy_id.to_string(),
+                block_hash: None,
+                sender: None,
+                seq_num: None,
+                sig: None,
+                sig_algorithm: None,
+                shard_id: None,
+                version: None,
+                timestamp: None,
+                status: DeployStatus::Error(format!("HTTP error: {}", error_body)),
+                errored: false,
+                system_deploy_error: None,
+            });
+        }
+
+        let deploy_data: serde_json::Value = deploy_response.json().await?;
+        let block_hash = deploy_data
+            .get("blockHash")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Step 2: Get full block info to find deploy details with systemDeployError
+        let (errored, system_deploy_error) = if let Some(ref bh) = block_hash {
+            let block_url = format!("http://{}:{}/api/block/{}", self.node_host, http_port, bh);
+
+            match client.get(&block_url).send().await {
+                Ok(block_response) if block_response.status().is_success() => {
+                    let block_data: serde_json::Value = block_response.json().await?;
+
+                    // Find our deploy in the block's deploys array by matching sig
+                    let deploy_details = block_data
+                        .get("deploys")
+                        .and_then(|d| d.as_array())
+                        .and_then(|deploys| {
+                            deploys.iter().find(|d| {
+                                d.get("sig")
+                                    .and_then(|s| s.as_str())
+                                    .map(|s| s == deploy_id)
+                                    .unwrap_or(false)
+                            })
+                        });
+
+                    if let Some(details) = deploy_details {
+                        let errored = details
+                            .get("errored")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let system_error = details
+                            .get("systemDeployError")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.to_string());
+                        (errored, system_error)
+                    } else {
+                        (false, None)
+                    }
+                }
+                _ => (false, None),
+            }
+        } else {
+            (false, None)
+        };
 
                     // Parse the response into DeployInfo
                     let deploy_info = DeployInfo {
                         deploy_id: deploy_id.to_string(),
-                        block_hash: deploy_data
-                            .get("blockHash")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
+            block_hash,
                         sender: deploy_data
                             .get("sender")
                             .and_then(|v| v.as_str())
@@ -492,74 +614,10 @@ impl<'a> F1r3flyApi<'a> {
                         version: deploy_data.get("version").and_then(|v| v.as_u64()),
                         timestamp: deploy_data.get("timestamp").and_then(|v| v.as_u64()),
                         status: DeployStatus::Included,
+            errored,
+            system_deploy_error,
                     };
                     Ok(deploy_info)
-                } else if response.status().as_u16() == 404 {
-                    Ok(DeployInfo {
-                        deploy_id: deploy_id.to_string(),
-                        block_hash: None,
-                        sender: None,
-                        seq_num: None,
-                        sig: None,
-                        sig_algorithm: None,
-                        shard_id: None,
-                        version: None,
-                        timestamp: None,
-                        status: DeployStatus::NotFound,
-                    })
-                } else {
-                    let status = response.status();
-                    let error_body = response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unable to read response body".to_string());
-
-                    // Handle the case where the deploy exists but isn't in a block yet
-                    if error_body.contains("Couldn't find block containing deploy with id:") {
-                        Ok(DeployInfo {
-                            deploy_id: deploy_id.to_string(),
-                            block_hash: None,
-                            sender: None,
-                            seq_num: None,
-                            sig: None,
-                            sig_algorithm: None,
-                            shard_id: None,
-                            version: None,
-                            timestamp: None,
-                            status: DeployStatus::Pending,
-                        })
-                    } else {
-                        Ok(DeployInfo {
-                            deploy_id: deploy_id.to_string(),
-                            block_hash: None,
-                            sender: None,
-                            seq_num: None,
-                            sig: None,
-                            sig_algorithm: None,
-                            shard_id: None,
-                            version: None,
-                            timestamp: None,
-                            status: DeployStatus::Error(format!(
-                                "HTTP error {}: {}",
-                                status, error_body
-                            )),
-                        })
-                    }
-                }
-            }
-            Err(e) => Ok(DeployInfo {
-                deploy_id: deploy_id.to_string(),
-                block_hash: None,
-                sender: None,
-                seq_num: None,
-                sig: None,
-                sig_algorithm: None,
-                shard_id: None,
-                version: None,
-                timestamp: None,
-                status: DeployStatus::Error(format!("Network error: {}", e)),
-            }),
-        }
     }
 
     /// Gets blocks in the main chain
@@ -767,7 +825,9 @@ fn extract_par_data(par: &Par) -> Option<String> {
         if let Some(instance) = &expr.expr_instance {
             match instance {
                 // Handle different types of expressions
-                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => Some(format!("\"{}\"", s)),
+                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => {
+                    Some(format!("\"{}\"", s))
+                }
                 f1r3fly_models::rhoapi::expr::ExprInstance::GInt(i) => Some(i.to_string()),
                 f1r3fly_models::rhoapi::expr::ExprInstance::GBool(b) => Some(b.to_string()),
                 // Add other types as needed

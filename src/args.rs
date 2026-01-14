@@ -103,6 +103,9 @@ pub enum Commands {
 
     /// Interactive DAG visualization with real-time updates
     Dag(DagArgs),
+
+    /// Get transfer information from a block's deploys
+    BlockTransfers(BlockTransfersArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -732,4 +735,24 @@ pub struct DagArgs {
     /// Show deploy counts inline
     #[arg(long, default_value_t = true)]
     pub show_deploys: bool,
+}
+
+/// Arguments for block-transfers command
+#[derive(Parser, Debug)]
+pub struct BlockTransfersArgs {
+    /// Block hash to get transfers from
+    #[arg(short = 'b', long = "block-hash")]
+    pub block_hash: String,
+
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port number
+    #[arg(short, long, default_value_t = 40403)]
+    pub port: u16,
+
+    /// Show all deploys, not just those with transfers
+    #[arg(long = "all-deploys", default_value_t = false)]
+    pub all_deploys: bool,
 }
