@@ -79,6 +79,9 @@ impl Dispatcher {
                 .await
                 .map_err(NodeCliError::from),
             Commands::Dag(args) => run_dag(args).await,
+            Commands::BlockTransfers(args) => block_transfers_command(args)
+                .await
+                .map_err(NodeCliError::from),
         };
 
         // Handle errors with better formatting
@@ -155,6 +158,7 @@ impl Dispatcher {
             Commands::GetNodeId(_) => "get-node-id",
             Commands::WatchBlocks(_) => "watch-blocks",
             Commands::Dag(_) => "dag",
+            Commands::BlockTransfers(_) => "block-transfers",
         }
     }
 }
