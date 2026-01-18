@@ -741,7 +741,6 @@ pub struct DagArgs {
 #[derive(Parser, Debug)]
 pub struct BlockTransfersArgs {
     /// Block hash to get transfers from
-    #[arg(short = 'b', long = "block-hash")]
     pub block_hash: String,
 
     /// Host address

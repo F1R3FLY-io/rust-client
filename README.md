@@ -306,13 +306,13 @@ Get transfer information from a specific block. This command extracts and displa
 
 ```bash
 # Get transfers from a specific block
-cargo run -- block-transfers -b BLOCK_HASH
+cargo run -- block-transfers BLOCK_HASH
 
 # Show all deploys (including those without transfers)
-cargo run -- block-transfers -b BLOCK_HASH --all-deploys
+cargo run -- block-transfers BLOCK_HASH --all-deploys
 
 # From a custom node
-cargo run -- block-transfers -b BLOCK_HASH -H node.example.com -p 40403
+cargo run -- block-transfers BLOCK_HASH -H node.example.com -p 40403
 ```
 
 ### Bonds
