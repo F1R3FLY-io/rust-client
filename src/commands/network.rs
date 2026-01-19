@@ -501,6 +501,30 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     let block_wait_duration = block_wait_start.elapsed();
     println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
 
+    // Step 2.5: Check deploy execution result for errors
+    println!("🔍 Checking deploy execution result...");
+    match f1r3fly_api
+        .get_deploy_info(&deploy_id, args.http_port)
+        .await
+    {
+        Ok(deploy_info) => {
+            if let Some(ref error_msg) = deploy_info.system_deploy_error {
+                println!("❌ Transfer execution failed!");
+                println!("   Error: {}", error_msg);
+                return Err(format!("Transfer failed: {}", error_msg).into());
+            } else if deploy_info.errored {
+                println!("❌ Transfer execution errored!");
+                return Err("Transfer execution failed with unknown error".into());
+            } else {
+                println!("✅ Deploy executed successfully (no system errors)");
+            }
+        }
+        Err(e) => {
+            println!("⚠️  Could not verify deploy execution result: {}", e);
+            println!("   Continuing with finalization check...");
+        }
+    }
+
     // Step 3: Wait for block finalization using observer node
     println!("🔍 Waiting for block finalization...");
 

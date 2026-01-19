@@ -300,6 +300,21 @@ cargo run -- blocks --block-hash BLOCK_HASH_HERE
 cargo run -- blocks -H node.example.com -p 40413 -n 3
 ```
 
+### Block Transfers
+
+Get transfer information from a specific block. This command extracts and displays all native REV transfers that were executed within a block's deploys.
+
+```bash
+# Get transfers from a specific block
+cargo run -- block-transfers BLOCK_HASH
+
+# Show all deploys (including those without transfers)
+cargo run -- block-transfers BLOCK_HASH --all-deploys
+
+# From a custom node
+cargo run -- block-transfers BLOCK_HASH -H node.example.com -p 40403
+```
+
 ### Bonds
 
 Get current validator bonds from the PoS contract.
@@ -666,6 +681,13 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-p, --port <PORT>`: HTTP port number (default: 40413)
 - `-n, --number <NUMBER>`: Number of recent blocks to fetch (default: 5)
 - `-b, --block-hash <BLOCK_HASH>`: Specific block hash to fetch (optional)
+
+### Block-Transfers Command
+
+- `-b, --block-hash <BLOCK_HASH>`: Block hash to get transfers from (required)
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: HTTP port number (default: 40403)
+- `--all-deploys`: Show all deploys, not just those with transfers (default: false)
 
 ### Bonds Command
 
