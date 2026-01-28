@@ -1049,7 +1049,7 @@ pub async fn validator_status_command(
 
     // Use HTTP API for PoS contract queries (like bonds/network-consensus commands)
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;
@@ -1372,7 +1372,7 @@ pub async fn network_consensus_command(
 
     // Get all validator info in parallel using HTTP API for PoS queries
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
         rl!(`rho:rchain:pos`, *poSCh) |

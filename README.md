@@ -568,7 +568,10 @@ Check the detailed status of a specific validator (bonded, active, or quarantine
 cargo run -- validator-status -k 04d26c6103d7269773b943d7a9c456f9eb227e0d8b1fe30bccee4fca963f4446e3385d99f6386317f2c1ad36b9e6b0d5f97bb0a0041f05781c60a5ebca124a251d
 
 # Check validator status on custom node
-cargo run -- validator-status -k YOUR_VALIDATOR_PUBLIC_KEY -H node.example.com -p 40452
+cargo run -- validator-status -k YOUR_VALIDATOR_PUBLIC_KEY -H node.example.com -p 40452 --http-port 40453
+
+# For standalone node (same port for gRPC and HTTP)
+cargo run -- validator-status -k YOUR_VALIDATOR_PUBLIC_KEY -p 40402 --http-port 40403
 ```
 
 ### Epoch Rewards
@@ -592,8 +595,18 @@ Get network-wide consensus health overview including validator participation rat
 cargo run -- network-consensus
 
 # Get consensus overview from custom node
-cargo run -- network-consensus -H node.example.com -p 40452
+cargo run -- network-consensus -H node.example.com -p 40452 --http-port 40453
+
+# For standalone node (same port for gRPC and HTTP)
+cargo run -- network-consensus -p 40402 --http-port 40403
 ```
+
+## Testing
+
+See [scripts/README.md](scripts/README.md) for documentation on:
+- **Smoke Tests** - Comprehensive test suite validating 30+ CLI commands
+- **Load Tests** - Performance testing with transfer finalization tracking
+- **Important notes** on consensus issues with repeated test runs
 
 ## Command Line Options
 
@@ -769,3 +782,28 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `--propose <PROPOSE>`: Also propose a block after transfer (default: false)
 - `--max-wait <MAX_WAIT>`: Maximum total wait time in seconds for deploy finalization (default: 300)
 - `--check-interval <CHECK_INTERVAL>`: Check interval in seconds for deploy status (default: 5)
+
+### Epoch-Info Command
+
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
+- `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)
+
+### Epoch-Rewards Command
+
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
+- `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)
+
+### Validator-Status Command
+
+- `-k, --public-key <PUBLIC_KEY>`: Validator public key to check (hex format, required)
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
+- `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)
+
+### Network-Consensus Command
+
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
+- `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)

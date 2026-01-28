@@ -1,5 +1,57 @@
 # F1R3FLY Testing Tools
 
+## Smoke Test
+
+Comprehensive test suite that validates all rust-client commands against a running F1r3fly node.
+
+### Usage
+
+```bash
+# Basic usage (localhost with default ports)
+./scripts/smoke_test.sh
+
+# Custom host/ports
+./scripts/smoke_test.sh localhost 40402 40403
+
+# Run against a shard with separate observer node
+./scripts/smoke_test.sh localhost 40412 40413 40452
+
+# Run with custom private key
+./scripts/smoke_test.sh localhost 40402 40403 40402 YOUR_PRIVATE_KEY
+```
+
+### Arguments
+
+```bash
+./scripts/smoke_test.sh [host] [grpc_port] [http_port] [observer_grpc_port] [private_key]
+```
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `host` | Node hostname | localhost |
+| `grpc_port` | gRPC port for deploy/propose operations | 40402 |
+| `http_port` | HTTP port for status/query operations | 40403 |
+| `observer_grpc_port` | Observer gRPC port for finalization checks | same as grpc_port |
+| `private_key` | Private key for signing transactions | genesis key |
+
+### What's Tested
+
+The smoke test validates 30+ commands across these categories:
+
+| Category | Commands |
+|----------|----------|
+| **Deploy** | deploy, deploy-and-wait, is-finalized, exploratory-deploy |
+| **Crypto** | generate-public-key, generate-key-pair, generate-rev-address, get-node-id |
+| **Node Inspection** | status, blocks, bonds, active-validators, metrics, last-finalized-block |
+| **gRPC Queries** | show-main-chain, get-blocks-by-height, wallet-balance |
+| **Network** | network-health, bond-status |
+| **Transfer** | transfer, get-deploy |
+| **PoS Queries** | epoch-info, epoch-rewards, validator-status, network-consensus |
+| **Streaming** | watch-blocks (verifies Block Created, Added, and Finalized events) |
+| **Load Testing** | load-test (runs 3 transfers, requires 100% finalization) |
+
+---
+
 ## load-test Command
 
 Native Rust command for testing orphan rates by sending multiple transfers with detailed logging.
