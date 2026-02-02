@@ -45,6 +45,10 @@ inc_skip() { SKIP=$((SKIP + 1)); }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+# Build release binary once before running tests
+echo "Building rust-client (release)..."
+cargo build --release
+
 # Log file for test outputs (single file per run)
 mkdir -p "logs"
 LOG_FILE="logs/smoke_test_$(date +%Y%m%d_%H%M%S).log"
@@ -106,6 +110,23 @@ format_duration() {
         local secs=$((ms / 1000))
         local remainder=$((ms % 1000 / 100))
         echo "${secs}.${remainder}s"
+    fi
+}
+
+# Run a command with a time limit (portable: Linux timeout, macOS gtimeout or shell fallback)
+run_with_timeout() {
+    local secs=$1
+    shift
+    if command -v timeout &>/dev/null; then
+        timeout "${secs}s" "$@"
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout "${secs}s" "$@"
+    else
+        ("$@") &
+        local pid=$!
+        sleep "$secs"
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
     fi
 }
 
@@ -225,13 +246,13 @@ echo -e "${BLUE}--- Deploy Commands ---${NC}"
 # deploy: Deploy Rholang code to a node
 # Expected output: "Deployment successful!" and "Deploy ID: <hex>"
 run_test "deploy" \
-    "cargo run -q -- deploy -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT" \
+    "cargo run -q --release -- deploy -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT" \
     "Deployment successful|Deploy ID:"
 
 # deploy-and-wait: Deploy and wait for block inclusion/finalization
 # Expected output: "Deploy successful" and "Deploy found in block"
 run_test "deploy-and-wait" \
-    "cargo run -q -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 30 --check-interval 2" \
+    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 30 --check-interval 2" \
     "Deploy successful|Deploy found in block"
 
 # is-finalized: Check if a block is finalized
@@ -239,7 +260,7 @@ run_test "deploy-and-wait" \
 BLOCK_HASH=$(curl -s "http://$HOST:$HTTP_PORT/api/blocks/1" 2>/dev/null | grep -oE '"blockHash":"[a-f0-9]{64}"' | head -1 | cut -d'"' -f4 || echo "")
 if [ -n "$BLOCK_HASH" ]; then
     run_test "is-finalized" \
-        "cargo run -q -- is-finalized -b $BLOCK_HASH -H $HOST -p $GRPC_PORT -m 3 -r 2" \
+        "cargo run -q --release -- is-finalized -b $BLOCK_HASH -H $HOST -p $GRPC_PORT -m 3 -r 2" \
         "Block is finalized|finalized"
 else
     skip_test "is-finalized" "could not get block hash"
@@ -249,7 +270,7 @@ fi
 # Must run on observer (read-only) node - validators reject exploratory deploys
 # Expected output: "Execution successful"
 run_test "exploratory-deploy" \
-    "cargo run -q -- exploratory-deploy -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
+    "cargo run -q --release -- exploratory-deploy -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
     "Execution successful"
 
 # ============================================
@@ -260,17 +281,17 @@ echo -e "${BLUE}--- Crypto Commands (offline) ---${NC}"
 
 # generate-public-key: Derive public key from private key
 run_test "generate-public-key" \
-    "cargo run -q -- generate-public-key" \
+    "cargo run -q --release -- generate-public-key" \
     "Public key.*04[a-f0-9]{128}"
 
 # generate-key-pair: Generate new secp256k1 key pair
 run_test "generate-key-pair" \
-    "cargo run -q -- generate-key-pair" \
+    "cargo run -q --release -- generate-key-pair" \
     "Private key.*[a-f0-9]{64}"
 
 # generate-rev-address: Generate REV address from key
 run_test "generate-rev-address" \
-    "cargo run -q -- generate-rev-address" \
+    "cargo run -q --release -- generate-rev-address" \
     "REV address.*1111[a-zA-Z0-9]+"
 
 # ============================================
@@ -281,34 +302,34 @@ echo -e "${BLUE}--- Node Inspection Commands (HTTP) ---${NC}"
 
 # status: Get node status and peer information
 run_test "status" \
-    "cargo run -q -- status -H $HOST -p $HTTP_PORT" \
+    "cargo run -q --release -- status -H $HOST -p $HTTP_PORT" \
     "Node status retrieved successfully|version"
 
 # blocks: Get recent blocks
 run_test "blocks" \
-    "cargo run -q -- blocks -H $HOST -p $HTTP_PORT -n 2" \
+    "cargo run -q --release -- blocks -H $HOST -p $HTTP_PORT -n 2" \
     "Blocks retrieved successfully|blockHash"
 
 # bonds: Get validator bonds from PoS contract
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "bonds" \
-    "cargo run -q -- bonds -H $HOST -p $OBSERVER_HTTP" \
+    "cargo run -q --release -- bonds -H $HOST -p $OBSERVER_HTTP" \
     "Validator bonds retrieved successfully|Bonded Validators"
 
 # active-validators: Get active validators
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "active-validators" \
-    "cargo run -q -- active-validators -H $HOST -p $OBSERVER_HTTP" \
+    "cargo run -q --release -- active-validators -H $HOST -p $OBSERVER_HTTP" \
     "Active validators retrieved successfully|Active Validators"
 
 # metrics: Get node metrics
 run_test "metrics" \
-    "cargo run -q -- metrics -H $HOST -p $HTTP_PORT" \
+    "cargo run -q --release -- metrics -H $HOST -p $HTTP_PORT" \
     "rchain|block|peer|jvm"
 
 # last-finalized-block: Get the last finalized block
 run_test "last-finalized-block" \
-    "cargo run -q -- last-finalized-block -H $HOST -p $HTTP_PORT" \
+    "cargo run -q --release -- last-finalized-block -H $HOST -p $HTTP_PORT" \
     "Last finalized block retrieved successfully|Block Hash"
 
 # ============================================
@@ -319,18 +340,18 @@ echo -e "${BLUE}--- gRPC Query Commands ---${NC}"
 
 # show-main-chain: Get blocks from the main chain
 run_test "show-main-chain" \
-    "cargo run -q -- show-main-chain -H $HOST -p $GRPC_PORT -d 3" \
+    "cargo run -q --release -- show-main-chain -H $HOST -p $GRPC_PORT -d 3" \
     "Main chain blocks retrieved successfully|Found.*blocks"
 
 # get-blocks-by-height: Get blocks in height range
 run_test "get-blocks-by-height" \
-    "cargo run -q -- get-blocks-by-height -H $HOST -p $GRPC_PORT -s 1 -e 3" \
+    "cargo run -q --release -- get-blocks-by-height -H $HOST -p $GRPC_PORT -s 1 -e 3" \
     "Blocks retrieved successfully|Found.*blocks"
 
 # wallet-balance: Check wallet balance for an address
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "wallet-balance" \
-    "cargo run -q -- wallet-balance -H $HOST -p $OBSERVER_GRPC -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g" \
+    "cargo run -q --release -- wallet-balance -H $HOST -p $OBSERVER_GRPC -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g" \
     "Wallet balance retrieved successfully|Balance"
 
 # ============================================
@@ -341,14 +362,14 @@ echo -e "${BLUE}--- Network Commands ---${NC}"
 
 # network-health: Check network health
 run_test "network-health" \
-    "cargo run -q -- network-health -H $HOST --standard-ports false --custom-ports $HTTP_PORT" \
+    "cargo run -q --release -- network-health -H $HOST --standard-ports false --custom-ports $HTTP_PORT" \
     "HEALTHY|Healthy nodes"
 
 # bond-status: Check if a validator is bonded
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 VALIDATOR_PUBKEY="04ffc016579a68050d655d55df4e09f04605164543e257c8e6df10361e6068a5336588e9b355ea859c5ab4285a5ef0efdf62bc28b80320ce99e26bb1607b3ad93d"
 run_test "bond-status" \
-    "cargo run -q -- bond-status -H $HOST -p $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
+    "cargo run -q --release -- bond-status -H $HOST -p $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
     "Bond information retrieved successfully|BONDED|NOT BONDED"
 
 # ============================================
@@ -362,7 +383,7 @@ echo -e "${BLUE}--- Transfer Commands ---${NC}"
 # Capture deploy ID for get-deploy test
 echo -n "Testing transfer... "
 TRANSFER_START=$(date +%s.%N)
-if cargo run -q -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --check-interval 2 > "$OUTPUT" 2>&1; then
+if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --check-interval 2 > "$OUTPUT" 2>&1; then
     TRANSFER_END=$(date +%s.%N)
     TRANSFER_MS=$(echo "($TRANSFER_END - $TRANSFER_START) * 1000" | bc | cut -d. -f1)
     save_log "transfer"
@@ -387,7 +408,7 @@ fi
 # get-deploy: Get deploy information by ID
 if [ -n "${TRANSFER_DEPLOY_ID:-}" ]; then
     run_test "get-deploy" \
-        "cargo run -q -- get-deploy -d $TRANSFER_DEPLOY_ID -H $HOST --http-port $HTTP_PORT" \
+        "cargo run -q --release -- get-deploy -d $TRANSFER_DEPLOY_ID -H $HOST --http-port $HTTP_PORT" \
         "Deploy Information|Status.*Included|Deploy ID"
 else
     skip_test "get-deploy" "no deploy ID from transfer test"
@@ -402,25 +423,25 @@ echo -e "${BLUE}--- PoS Query Commands ---${NC}"
 # epoch-info: Get current epoch information
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "epoch-info" \
-    "cargo run -q -- epoch-info -H $HOST -p $OBSERVER_GRPC" \
+    "cargo run -q --release -- epoch-info -H $HOST -p $OBSERVER_GRPC" \
     "Epoch information retrieved successfully|Current Epoch"
 
 # epoch-rewards: Get current epoch rewards
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "epoch-rewards" \
-    "cargo run -q -- epoch-rewards -H $HOST -p $OBSERVER_GRPC" \
+    "cargo run -q --release -- epoch-rewards -H $HOST -p $OBSERVER_GRPC" \
     "Epoch rewards retrieved successfully|Epoch Rewards"
 
 # validator-status: Check individual validator status
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "validator-status" \
-    "cargo run -q -- validator-status -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
+    "cargo run -q --release -- validator-status -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
     "Validator status retrieved successfully|BONDED|NOT BONDED"
 
 # network-consensus: Get network-wide consensus overview
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "network-consensus" \
-    "cargo run -q -- network-consensus -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
+    "cargo run -q --release -- network-consensus -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
     "Network consensus data retrieved successfully|Consensus Health"
 
 # ============================================
@@ -433,7 +454,7 @@ echo -e "${BLUE}--- Crypto Commands (continued) ---${NC}"
 # Use local test certificate if available
 if [ -f "./test_certs/node.certificate.pem" ]; then
     run_test "get-node-id" \
-        "cargo run -q -- get-node-id --cert-file ./test_certs/node.certificate.pem" \
+        "cargo run -q --release -- get-node-id --cert-file ./test_certs/node.certificate.pem" \
         "Node ID extracted successfully|Node ID:"
 else
     skip_test "get-node-id" "no certificate file found (run: mkdir -p test_certs && copy a .pem file)"
@@ -449,7 +470,7 @@ echo -e "${BLUE}--- Streaming Commands ---${NC}"
 # Run for 10 seconds and check if it connects and receives all event types
 echo -n "Testing watch-blocks... "
 WB_START=$(date +%s.%N)
-timeout 10s cargo run -q -- watch-blocks -H $HOST --http-port $HTTP_PORT > "$OUTPUT" 2>&1 || true
+run_with_timeout 10 cargo run -q --release -- watch-blocks -H $HOST --http-port $HTTP_PORT > "$OUTPUT" 2>&1 || true
 WB_END=$(date +%s.%N)
 WB_MS=$(echo "($WB_END - $WB_START) * 1000" | bc | cut -d. -f1)
 save_log "watch-blocks"
@@ -493,7 +514,7 @@ echo -e "${BLUE}--- Load Test Commands ---${NC}"
 # load-test: Run load test with minimal config (3 tests, short timeouts)
 echo -n "Testing load-test... "
 LT_START=$(date +%s.%N)
-cargo run -q -- load-test \
+cargo run -q --release -- load-test \
   --to-address "$TO_ADDR" \
   --num-tests 3 \
   --amount 1 \
