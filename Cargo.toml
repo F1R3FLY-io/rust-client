@@ -6,9 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
-f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
-f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
+# TODO: Change back to rust/dev once PR is merged into rust/dev on f1r3node
+f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "fix/genesis-validator-race-condition" }
+f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "fix/genesis-validator-race-condition" }
+f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "fix/genesis-validator-race-condition" }
 prost = "0.14"
 tokio = { version = "1", features = ["full"] }
 hex = "0.4.3"

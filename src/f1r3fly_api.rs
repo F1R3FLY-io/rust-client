@@ -77,6 +77,7 @@ impl<'a> F1r3flyApi<'a> {
     /// * `rho_code` - Rholang source code to deploy
     /// * `use_bigger_phlo_price` - Whether to use a larger phlo limit
     /// * `language` - Language of the deploy (typically "rholang")
+    /// * `expiration_timestamp` - Optional expiration timestamp in milliseconds (0 = no expiration)
     ///
     /// # Returns
     ///
@@ -86,6 +87,7 @@ impl<'a> F1r3flyApi<'a> {
         rho_code: &str,
         use_bigger_phlo_price: bool,
         language: &str,
+        expiration_timestamp: i64,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let phlo_limit: i64 = if use_bigger_phlo_price {
             5_000_000_000
@@ -96,9 +98,9 @@ impl<'a> F1r3flyApi<'a> {
         // Get current block number for VABN (solves Block 50 issue)
         let current_block = match self.get_current_block_number().await {
             Ok(block_num) => {
-                println!("🔢 Current block: {}", block_num);
+                println!("Current block: {}", block_num);
                 println!(
-                    "✅ Setting validity window: blocks {} to {} (50-block window)",
+                    "Setting validity window: blocks {} to {} (50-block window)",
                     block_num,
                     block_num + 50
                 );
@@ -106,13 +108,18 @@ impl<'a> F1r3flyApi<'a> {
             }
             Err(e) => {
                 println!(
-                    "⚠️  Warning: Could not get current block number ({}), using VABN=0",
+                    "Warning: Could not get current block number ({}), using VABN=0",
                     e
                 );
-                println!("⚠️  This may cause Block 50 issues if blockchain has > 50 blocks");
+                println!("This may cause Block 50 issues if blockchain has > 50 blocks");
                 0
             }
         };
+
+        // Log expiration info if set
+        if expiration_timestamp > 0 {
+            println!("Deploy expiration timestamp: {} ms", expiration_timestamp);
+        }
 
         // Build and sign the deployment
         let deployment = self.build_deploy_msg(
@@ -120,6 +127,7 @@ impl<'a> F1r3flyApi<'a> {
             phlo_limit,
             language.to_string(),
             current_block,
+            expiration_timestamp,
         );
 
         // Connect to the F1r3fly node
@@ -299,6 +307,7 @@ impl<'a> F1r3flyApi<'a> {
     /// * `rho_code` - Rholang source code to deploy
     /// * `use_bigger_phlo_price` - Whether to use a larger phlo limit
     /// * `language` - Language of the deploy (typically "rholang")
+    /// * `expiration_timestamp` - Optional expiration timestamp in milliseconds (0 = no expiration)
     ///
     /// # Returns
     ///
@@ -308,10 +317,16 @@ impl<'a> F1r3flyApi<'a> {
         rho_code: &str,
         use_bigger_phlo_price: bool,
         language: &str,
+        expiration_timestamp: i64,
     ) -> Result<String, Box<dyn std::error::Error>> {
         // First deploy the code
-        self.deploy(rho_code, use_bigger_phlo_price, language)
-            .await?;
+        self.deploy(
+            rho_code,
+            use_bigger_phlo_price,
+            language,
+            expiration_timestamp,
+        )
+        .await?;
 
         // Then propose a block
         self.propose().await
@@ -590,34 +605,34 @@ impl<'a> F1r3flyApi<'a> {
             (false, None)
         };
 
-                    // Parse the response into DeployInfo
-                    let deploy_info = DeployInfo {
-                        deploy_id: deploy_id.to_string(),
+        // Parse the response into DeployInfo
+        let deploy_info = DeployInfo {
+            deploy_id: deploy_id.to_string(),
             block_hash,
-                        sender: deploy_data
-                            .get("sender")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        seq_num: deploy_data.get("seqNum").and_then(|v| v.as_u64()),
-                        sig: deploy_data
-                            .get("sig")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        sig_algorithm: deploy_data
-                            .get("sigAlgorithm")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        shard_id: deploy_data
-                            .get("shardId")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        version: deploy_data.get("version").and_then(|v| v.as_u64()),
-                        timestamp: deploy_data.get("timestamp").and_then(|v| v.as_u64()),
-                        status: DeployStatus::Included,
+            sender: deploy_data
+                .get("sender")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            seq_num: deploy_data.get("seqNum").and_then(|v| v.as_u64()),
+            sig: deploy_data
+                .get("sig")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            sig_algorithm: deploy_data
+                .get("sigAlgorithm")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            shard_id: deploy_data
+                .get("shardId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            version: deploy_data.get("version").and_then(|v| v.as_u64()),
+            timestamp: deploy_data.get("timestamp").and_then(|v| v.as_u64()),
+            status: DeployStatus::Included,
             errored,
             system_deploy_error,
-                    };
-                    Ok(deploy_info)
+        };
+        Ok(deploy_info)
     }
 
     /// Gets blocks in the main chain
@@ -750,6 +765,7 @@ impl<'a> F1r3flyApi<'a> {
     /// * `phlo_limit` - Maximum amount of phlo to use for execution
     /// * `language` - Language of the deploy (typically "rholang")
     /// * `valid_after_block_number` - Block number after which the deploy is valid
+    /// * `expiration_timestamp` - Expiration timestamp in milliseconds (0 = no expiration)
     ///
     /// # Returns
     ///
@@ -760,6 +776,7 @@ impl<'a> F1r3flyApi<'a> {
         phlo_limit: i64,
         language: String,
         valid_after_block_number: i64,
+        expiration_timestamp: i64,
     ) -> DeployDataProto {
         // Get current timestamp in milliseconds
         let timestamp = SystemTime::now()
@@ -768,7 +785,9 @@ impl<'a> F1r3flyApi<'a> {
             .as_millis() as i64;
 
         // Create a projection with only the fields used for signature calculation
-        // IMPORTANT: The language field is deliberately excluded from signature calculation
+        // IMPORTANT: The language field is deliberately excluded from signature calculation.
+        // expiration_timestamp IS included when set (non-zero).
+        // Proto3 will not serialize 0 values, so 0 = "not set" = backward compatible.
         let projection = DeployDataProto {
             term: code.clone(),
             timestamp,
@@ -780,6 +799,7 @@ impl<'a> F1r3flyApi<'a> {
             sig: ByteString::new(),
             deployer: ByteString::new(),
             sig_algorithm: String::new(),
+            expiration_timestamp, // Included when non-zero (proto3 omits 0 values)
         };
 
         // Serialize the projection for hashing
@@ -812,6 +832,7 @@ impl<'a> F1r3flyApi<'a> {
             sig: ByteString::from(sig_bytes),
             sig_algorithm: "secp256k1".into(),
             deployer: ByteString::from(pub_key_bytes),
+            expiration_timestamp,
         }
     }
 }
