@@ -103,6 +103,9 @@ pub enum Commands {
 
     /// Interactive DAG visualization with real-time updates
     Dag(DagArgs),
+
+    /// Get transfer information from a block's deploys
+    BlockTransfers(BlockTransfersArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -645,6 +648,10 @@ pub struct ValidatorStatusArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+
+    /// HTTP port number for explore-deploy queries
+    #[arg(long = "http-port", default_value_t = 40453)]
+    pub http_port: u16,
 }
 
 /// Arguments for PoS contract query commands (epoch-info, network-consensus, epoch-rewards)
@@ -657,6 +664,10 @@ pub struct PosQueryArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+
+    /// HTTP port number for explore-deploy queries
+    #[arg(long = "http-port", default_value_t = 40453)]
+    pub http_port: u16,
 }
 
 /// Arguments for get-node-id command
@@ -732,4 +743,23 @@ pub struct DagArgs {
     /// Show deploy counts inline
     #[arg(long, default_value_t = true)]
     pub show_deploys: bool,
+}
+
+/// Arguments for block-transfers command
+#[derive(Parser, Debug)]
+pub struct BlockTransfersArgs {
+    /// Block hash to get transfers from
+    pub block_hash: String,
+
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port number
+    #[arg(short, long, default_value_t = 40403)]
+    pub port: u16,
+
+    /// Show all deploys, not just those with transfers
+    #[arg(long = "all-deploys", default_value_t = false)]
+    pub all_deploys: bool,
 }

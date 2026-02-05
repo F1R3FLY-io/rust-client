@@ -2,8 +2,8 @@ use crate::args::*;
 use crate::f1r3fly_api::F1r3flyApi;
 use reqwest;
 use serde_json;
-use std::time::Instant;
 use std::collections::{HashSet, VecDeque};
+use std::time::Instant;
 
 pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 Getting node status from {}:{}", args.host, args.port);
@@ -557,7 +557,10 @@ async fn query_node_status(
                     Ok(status_text) => {
                         if debug {
                             println!("🐛 [DEBUG] Response Body:");
-                            if let Ok(pretty) = serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&status_text).unwrap_or(serde_json::json!({}))) {
+                            if let Ok(pretty) = serde_json::to_string_pretty(
+                                &serde_json::from_str::<serde_json::Value>(&status_text)
+                                    .unwrap_or(serde_json::json!({})),
+                            ) {
                                 for line in pretty.lines() {
                                     println!("   {}", line);
                                 }
@@ -567,7 +570,7 @@ async fn query_node_status(
                             Ok(json) => Ok((json, status_text)),
                             Err(_) => Err("Invalid JSON response".to_string()),
                         }
-                    },
+                    }
                     Err(_) => Err("Failed to read response".to_string()),
                 }
             } else {
@@ -658,7 +661,11 @@ pub async fn network_health_command(
         // Recursive peer discovery mode
         println!(
             "🔍 Starting recursive peer discovery (max peers: {})\n",
-            if args.max_peers <= 0 { "unlimited".to_string() } else { args.max_peers.to_string() }
+            if args.max_peers <= 0 {
+                "unlimited".to_string()
+            } else {
+                args.max_peers.to_string()
+            }
         );
 
         let mut visited = HashSet::new();
@@ -712,11 +719,16 @@ pub async fn network_health_command(
                                 visited.insert(peer_uri);
                                 queue.push_back((peer.host.clone(), peer.protocol_port));
                                 discovered_peers.push(peer.clone());
-                                print!("      Added: {} ({}:{})", peer.node_id, peer.host, peer.protocol_port);
+                                print!(
+                                    "      Added: {} ({}:{})",
+                                    peer.node_id, peer.host, peer.protocol_port
+                                );
                                 if args.verbose {
                                     print!(" [status: {}]", peer.connection_status);
                                 }
-                                if args.max_peers > 0 && discovered_peers.len() >= args.max_peers as usize {
+                                if args.max_peers > 0
+                                    && discovered_peers.len() >= args.max_peers as usize
+                                {
                                     println!(" [LIMIT REACHED]");
                                     break;
                                 }
@@ -818,7 +830,8 @@ pub async fn network_health_command(
         println!("   Average peers per node: {:.1}", avg_peers);
 
         if args.verbose {
-            let mut peer_counts_by_node: Vec<usize> = all_peer_lists.iter().map(|p| p.len()).collect();
+            let mut peer_counts_by_node: Vec<usize> =
+                all_peer_lists.iter().map(|p| p.len()).collect();
             peer_counts_by_node.sort();
             if let Some(min) = peer_counts_by_node.first() {
                 println!("   Minimum peers on a node: {}", min);
@@ -831,10 +844,16 @@ pub async fn network_health_command(
             let connected_peers: usize = all_peer_lists
                 .iter()
                 .flat_map(|peers| peers.iter())
-                .filter(|p| p.connection_status.to_lowercase().contains("connected") || p.connection_status.to_lowercase().contains("active"))
+                .filter(|p| {
+                    p.connection_status.to_lowercase().contains("connected")
+                        || p.connection_status.to_lowercase().contains("active")
+                })
                 .count();
             if connected_peers > 0 {
-                println!("   Connected peers: {}/{}", connected_peers, total_peer_count);
+                println!(
+                    "   Connected peers: {}/{}",
+                    connected_peers, total_peer_count
+                );
             }
         }
 
@@ -1030,7 +1049,7 @@ pub async fn validator_status_command(
 
     // Use HTTP API for PoS contract queries (like bonds/network-consensus commands)
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;
@@ -1353,7 +1372,7 @@ pub async fn network_consensus_command(
 
     // Get all validator info in parallel using HTTP API for PoS queries
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
         rl!(`rho:rchain:pos`, *poSCh) |
@@ -1487,7 +1506,10 @@ pub async fn get_blocks_by_height_command(
         "🔗 Getting blocks by height range from {}:{}",
         args.host, args.port
     );
-    println!("📊 Block range: {} to {}", args.start_block_number, args.end_block_number);
+    println!(
+        "📊 Block range: {} to {}",
+        args.start_block_number, args.end_block_number
+    );
 
     // Validate block range
     if args.start_block_number > args.end_block_number {
@@ -1503,7 +1525,10 @@ pub async fn get_blocks_by_height_command(
 
     let start_time = Instant::now();
 
-    match f1r3fly_api.get_blocks_by_height(args.start_block_number, args.end_block_number).await {
+    match f1r3fly_api
+        .get_blocks_by_height(args.start_block_number, args.end_block_number)
+        .await
+    {
         Ok(blocks) => {
             let duration = start_time.elapsed();
             println!("✅ Blocks retrieved successfully!");
@@ -1549,9 +1574,8 @@ pub async fn get_blocks_by_height_command(
 fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<(), String> {
     match (host, custom_ports) {
         // Remote host without custom ports - ERROR
-        (h, None) if h != "localhost" && h != "127.0.0.1" => {
-            Err(format!(
-                "When using -H with remote host '{}', you must specify --custom-ports\n\
+        (h, None) if h != "localhost" && h != "127.0.0.1" => Err(format!(
+            "When using -H with remote host '{}', you must specify --custom-ports\n\
                 \n\
                 Remote hosts don't use standard F1r3fly ports. Specify the actual ports:\n\
                 \n\
@@ -1562,10 +1586,149 @@ fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<
                 For localhost, standard ports are assumed:\n\
                   cargo run -- network-health -H localhost  (uses standard ports)\n\
                   cargo run -- network-health              (uses localhost + standard ports)",
-                h, h, h
-            ))
-        }
+            h, h, h
+        )),
         // All other combinations are valid
-        _ => Ok(())
+        _ => Ok(()),
     }
+}
+
+pub async fn block_transfers_command(
+    args: &BlockTransfersArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Getting transfers from block: {}", args.block_hash);
+
+    let url = format!(
+        "http://{}:{}/api/block/{}",
+        args.host, args.port, args.block_hash
+    );
+    let client = reqwest::Client::new();
+    let start_time = Instant::now();
+
+    let response = client.get(&url).send().await?;
+    let duration = start_time.elapsed();
+
+    if !response.status().is_success() {
+        println!("Failed to get block: HTTP {}", response.status());
+        return Err(format!("HTTP {}", response.status()).into());
+    }
+
+    let block_json: serde_json::Value = response.json().await?;
+
+    println!("Block retrieved successfully!");
+    println!("Time taken: {:.2?}", duration);
+    println!();
+
+    // Extract block info
+    let block_number = block_json
+        .get("blockInfo")
+        .and_then(|b| b.get("blockNumber"))
+        .and_then(|n| n.as_i64())
+        .unwrap_or(0);
+
+    let block_hash_display = if args.block_hash.len() > 16 {
+        format!("{}...", &args.block_hash[..16])
+    } else {
+        args.block_hash.clone()
+    };
+
+    println!("Block #{} ({})", block_number, block_hash_display);
+    println!();
+
+    // Extract deploys and their transfers
+    let deploys = block_json
+        .get("deploys")
+        .and_then(|d| d.as_array())
+        .map(|a| a.to_vec())
+        .unwrap_or_default();
+
+    let mut total_transfers = 0;
+    let mut deploys_with_transfers = 0;
+    let mut successful_transfers = 0;
+    let mut failed_transfers = 0;
+
+    for (i, deploy) in deploys.iter().enumerate() {
+        let sig = deploy
+            .get("sig")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+
+        let transfers = deploy
+            .get("transfers")
+            .and_then(|t| t.as_array())
+            .map(|a| a.to_vec())
+            .unwrap_or_default();
+
+        if transfers.is_empty() && !args.all_deploys {
+            continue;
+        }
+
+        if !transfers.is_empty() {
+            deploys_with_transfers += 1;
+        }
+
+        let sig_display = if sig.len() > 20 {
+            format!("{}...", &sig[..20])
+        } else {
+            sig.to_string()
+        };
+
+        println!("Deploy #{} (sig: {})", i + 1, sig_display);
+
+        if transfers.is_empty() {
+            println!("   No transfers");
+        } else {
+            for (j, transfer) in transfers.iter().enumerate() {
+                total_transfers += 1;
+                let from = transfer
+                    .get("fromAddr")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let to = transfer
+                    .get("toAddr")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let amount = transfer.get("amount").and_then(|v| v.as_i64()).unwrap_or(0);
+                let success = transfer
+                    .get("success")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let fail_reason = transfer
+                    .get("failReason")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                if success {
+                    successful_transfers += 1;
+                } else {
+                    failed_transfers += 1;
+                }
+
+                let status = if success {
+                    "Success".to_string()
+                } else {
+                    format!("Failed: {}", fail_reason)
+                };
+
+                println!("   Transfer #{}:", j + 1);
+                println!("      From:   {}", from);
+                println!("      To:     {}", to);
+                println!("      Amount: {} REV", amount);
+                println!("      Status: {}", status);
+            }
+        }
+        println!();
+    }
+
+    // Summary
+    println!("Summary:");
+    println!("   Total deploys in block: {}", deploys.len());
+    println!("   Deploys with transfers: {}", deploys_with_transfers);
+    println!("   Total transfers: {}", total_transfers);
+    if total_transfers > 0 {
+        println!("   Successful: {}", successful_transfers);
+        println!("   Failed: {}", failed_transfers);
+    }
+
+    Ok(())
 }
