@@ -1,23 +1,7 @@
 use crate::args::*;
 use crate::f1r3fly_api::F1r3flyApi;
 use std::fs;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
-
-/// Calculates the expiration timestamp from CLI arguments.
-/// Returns 0 if no expiration is specified.
-fn calculate_expiration_timestamp(expiration: Option<i64>, expires_in: Option<u64>) -> i64 {
-    if let Some(exp_ts) = expiration {
-        exp_ts
-    } else if let Some(duration_secs) = expires_in {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get system time")
-            .as_millis() as i64;
-        now + (duration_secs as i64 * 1000)
-    } else {
-        0 // No expiration
-    }
-}
+use std::time::Instant;
 
 pub async fn exploratory_deploy_command(
     args: &ExploratoryDeployArgs,
@@ -80,14 +64,14 @@ pub async fn exploratory_deploy_command(
 
 pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Read the Rholang code from file
-    println!("Reading Rholang from: {}", args.file.display());
+    println!("📄 Reading Rholang from: {}", args.file.display());
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
-    println!("Code size: {} bytes", rholang_code.len());
+    println!("📊 Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
     println!(
-        "Connecting to F1r3fly node at {}:{}",
+        "🔌 Connecting to F1r3fly node at {}:{}",
         args.host, args.port
     );
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
@@ -97,30 +81,24 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
     } else {
         "50,000"
     };
-    println!("Using phlo limit: {}", phlo_limit);
-
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("Deploy expiration: {} ms", expiration_timestamp);
-    }
+    println!("💰 Using phlo limit: {}", phlo_limit);
 
     // Deploy the Rholang code
-    println!("Deploying Rholang code...");
+    println!("🚀 Deploying Rholang code...");
     let start_time = Instant::now();
 
     match f1r3fly_api
-        .deploy(&rholang_code, args.bigger_phlo, "rholang", expiration_timestamp)
+        .deploy(&rholang_code, args.bigger_phlo, "rholang")
         .await
     {
         Ok(deploy_id) => {
             let duration = start_time.elapsed();
-            println!("Deployment successful!");
-            println!("Time taken: {:.2?}", duration);
-            println!("Deploy ID: {}", deploy_id);
+            println!("✅ Deployment successful!");
+            println!("⏱️  Time taken: {:.2?}", duration);
+            println!("🆔 Deploy ID: {}", deploy_id);
         }
         Err(e) => {
-            println!("Deployment failed!");
+            println!("❌ Deployment failed!");
             println!("Error: {}", e);
             return Err(e);
         }
@@ -160,14 +138,14 @@ pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::erro
 
 pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Read the Rholang code from file
-    println!("Reading Rholang from: {}", args.file.display());
+    println!("📄 Reading Rholang from: {}", args.file.display());
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
-    println!("Code size: {} bytes", rholang_code.len());
+    println!("📊 Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
     println!(
-        "Connecting to F1r3fly node at {}:{}",
+        "🔌 Connecting to F1r3fly node at {}:{}",
         args.host, args.port
     );
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
@@ -177,30 +155,24 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
     } else {
         "50,000"
     };
-    println!("Using phlo limit: {}", phlo_limit);
-
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("Deploy expiration: {} ms", expiration_timestamp);
-    }
+    println!("💰 Using phlo limit: {}", phlo_limit);
 
     // Deploy and propose
-    println!("Deploying Rholang code and proposing a block...");
+    println!("🚀 Deploying Rholang code and proposing a block...");
     let start_time = Instant::now();
 
     match f1r3fly_api
-        .full_deploy(&rholang_code, args.bigger_phlo, "rholang", expiration_timestamp)
+        .full_deploy(&rholang_code, args.bigger_phlo, "rholang")
         .await
     {
         Ok(block_hash) => {
             let duration = start_time.elapsed();
-            println!("Deployment and block proposal successful!");
-            println!("Time taken: {:.2?}", duration);
-            println!("Block hash: {}", block_hash);
+            println!("✅ Deployment and block proposal successful!");
+            println!("⏱️  Time taken: {:.2?}", duration);
+            println!("🧱 Block hash: {}", block_hash);
         }
         Err(e) => {
-            println!("Operation failed!");
+            println!("❌ Operation failed!");
             println!("Error: {}", e);
             return Err(e);
         }
@@ -256,8 +228,8 @@ pub async fn is_finalized_command(
 pub async fn bond_validator_command(
     args: &BondValidatorArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Bonding new validator to the network");
-    println!("Stake amount: {} REV", args.stake);
+    println!("🔗 Bonding new validator to the network");
+    println!("💰 Stake amount: {} REV", args.stake);
 
     // Initialize the F1r3fly API client for deploying
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
@@ -280,32 +252,26 @@ pub async fn bond_validator_command(
         args.stake
     );
 
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("Deploy expiration: {} ms", expiration_timestamp);
-    }
-
-    println!("Deploying bonding transaction...");
+    println!("🚀 Deploying bonding transaction...");
     let deploy_start_time = Instant::now();
 
     // Step 1: Deploy the bonding code
-    let deploy_id = match f1r3fly_api.deploy(&bonding_code, true, "rholang", expiration_timestamp).await {
+    let deploy_id = match f1r3fly_api.deploy(&bonding_code, true, "rholang").await {
         Ok(deploy_id) => {
             let deploy_duration = deploy_start_time.elapsed();
-            println!("Bonding deploy successful! Deploy ID: {}", deploy_id);
-            println!("Deploy time: {:.2?}", deploy_duration);
+            println!("✅ Bonding deploy successful! Deploy ID: {}", deploy_id);
+            println!("⏱️  Deploy time: {:.2?}", deploy_duration);
             deploy_id
         }
         Err(e) => {
-            println!("Bonding deploy failed!");
+            println!("❌ Bonding deploy failed!");
             println!("Error: {}", e);
             return Err(e);
         }
     };
 
     // Step 2: Wait for deploy to be included in a block
-    println!("Waiting for bonding deploy to be included in a block...");
+    println!("⏳ Waiting for bonding deploy to be included in a block...");
     let block_wait_start = Instant::now();
     let max_block_wait_attempts = args.max_wait / args.check_interval;
     let mut block_wait_attempts = 0;
@@ -316,7 +282,7 @@ pub async fn bond_validator_command(
         // Show progress every 10 attempts or if we're at the end
         if block_wait_attempts % 10 == 0 || block_wait_attempts >= max_block_wait_attempts {
             println!(
-                "   Checking... ({}/{} attempts)",
+                "   ⏱️  Checking... ({}/{} attempts)",
                 block_wait_attempts, max_block_wait_attempts
             );
         }
@@ -326,21 +292,21 @@ pub async fn bond_validator_command(
             .await
         {
             Ok(Some(hash)) => {
-                println!("Bonding deploy found in block: {}", hash);
+                println!("✅ Bonding deploy found in block: {}", hash);
                 break hash;
             }
             Ok(None) => {
                 // Deploy not in block yet, continue waiting
             }
             Err(e) => {
-                println!("Error checking bonding deploy status: {}", e);
+                println!("❌ Error checking bonding deploy status: {}", e);
                 return Err(e);
             }
         }
 
         if block_wait_attempts >= max_block_wait_attempts {
             println!(
-                "Timeout waiting for bonding deploy to be included in block after {} seconds",
+                "❌ Timeout waiting for bonding deploy to be included in block after {} seconds",
                 args.max_wait
             );
             return Err("Bonding deploy inclusion timeout".into());
@@ -350,10 +316,10 @@ pub async fn bond_validator_command(
     };
 
     let block_wait_duration = block_wait_start.elapsed();
-    println!("Block inclusion time: {:.2?}", block_wait_duration);
+    println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
 
     // Step 3: Wait for block finalization using observer node
-    println!("Waiting for block finalization...");
+    println!("🔍 Waiting for block finalization...");
 
     // Determine observer node settings (fallback to default observer or main node)
     let observer_host = args.observer_host.as_deref().unwrap_or("localhost");
@@ -379,42 +345,42 @@ pub async fn bond_validator_command(
         Ok(true) => {
             let finalization_duration = finalization_start.elapsed();
             let total_duration = deploy_start_time.elapsed();
-            println!("Block finalized! Bonding transaction is complete.");
-            println!("Finalization time: {:.2?}", finalization_duration);
-            println!("Total bonding process time: {:.2?}", total_duration);
+            println!("✅ Block finalized! Bonding transaction is complete.");
+            println!("⏱️  Finalization time: {:.2?}", finalization_duration);
+            println!("🎉 Total bonding process time: {:.2?}", total_duration);
         }
         Ok(false) => {
-            println!("Block not yet finalized after {} attempts, but bonding deploy is in the blockchain.", finalization_max_attempts);
-            println!("The validator bonding is likely successful and will be finalized soon.");
+            println!("⚠️  Block not yet finalized after {} attempts, but bonding deploy is in the blockchain.", finalization_max_attempts);
+            println!("💡 The validator bonding is likely successful and will be finalized soon.");
         }
         Err(e) => {
-            println!("Error checking finalization status: {}", e);
-            println!("Could not verify finalization, but bonding deploy is in the blockchain.");
+            println!("❌ Error checking finalization status: {}", e);
+            println!("⚠️  Could not verify finalization, but bonding deploy is in the blockchain.");
         }
     }
 
     // Handle propose logic if enabled
     if args.propose {
-        println!("Proposing block to help finalize the bonding transaction...");
+        println!("📦 Proposing block to help finalize the bonding transaction...");
         let propose_start = Instant::now();
 
         match f1r3fly_api.propose().await {
             Ok(block_hash) => {
                 let propose_duration = propose_start.elapsed();
-                println!("Block proposed successfully!");
-                println!("Propose time: {:.2?}", propose_duration);
-                println!("Block hash: {}", block_hash);
+                println!("✅ Block proposed successfully!");
+                println!("⏱️  Propose time: {:.2?}", propose_duration);
+                println!("🧱 Block hash: {}", block_hash);
             }
             Err(e) => {
-                println!("Block proposal failed!");
+                println!("❌ Block proposal failed!");
                 println!("Error: {}", e);
                 return Err(e);
             }
         }
     }
 
-    println!("Validator bonding process completed!");
-    println!("Next steps:");
+    println!("🎯 Validator bonding process completed!");
+    println!("📋 Next steps:");
     println!("   1. Verify the validator appears in the bonds list");
     println!("   2. Check that the validator is participating in consensus");
     println!("   3. Monitor for block proposals from the new validator");
@@ -423,17 +389,17 @@ pub async fn bond_validator_command(
 }
 
 pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Initiating REV transfer");
+    println!("💸 Initiating REV transfer");
 
     // Initialize the F1r3fly API client
     println!(
-        "Connecting to F1r3fly node at {}:{}",
+        "🔌 Connecting to F1r3fly node at {}:{}",
         args.host, args.port
     );
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
 
     // Generate from_address from private key using proper crypto utils
-    println!("Deriving sender address from private key...");
+    println!("🔍 Deriving sender address from private key...");
     let from_address = {
         use crate::utils::CryptoUtils;
         let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
@@ -449,7 +415,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     // Convert REV to dust (1 REV = 100,000,000 dust)
     let amount_dust = args.amount * 100_000_000;
 
-    println!("Transfer Details:");
+    println!("📋 Transfer Details:");
     println!("   From: {}", from_address);
     println!("   To: {}", args.to_address);
     println!("   Amount: {} REV ({} dust)", args.amount, amount_dust);
@@ -465,36 +431,30 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     // Generate Rholang transfer contract
     let rholang_code = generate_transfer_contract(&from_address, &args.to_address, amount_dust);
 
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("   Deploy expiration: {} ms", expiration_timestamp);
-    }
-
     // Step 1: Deploy the transfer contract
-    println!("Deploying transfer contract...");
+    println!("🚀 Deploying transfer contract...");
     let deploy_start_time = Instant::now();
 
     let deploy_id = match f1r3fly_api
-        .deploy(&rholang_code, args.bigger_phlo, "rholang", expiration_timestamp)
+        .deploy(&rholang_code, args.bigger_phlo, "rholang")
         .await
     {
         Ok(deploy_id) => {
             let deploy_duration = deploy_start_time.elapsed();
-            println!("Transfer contract deployed successfully!");
-            println!("Deploy time: {:.2?}", deploy_duration);
-            println!("Deploy ID: {}", deploy_id);
+            println!("✅ Transfer contract deployed successfully!");
+            println!("⏱️  Deploy time: {:.2?}", deploy_duration);
+            println!("🆔 Deploy ID: {}", deploy_id);
             deploy_id
         }
         Err(e) => {
-            println!("Transfer deployment failed!");
+            println!("❌ Transfer deployment failed!");
             println!("Error: {}", e);
             return Err(e);
         }
     };
 
     // Step 2: Wait for deploy to be included in a block
-    println!("Waiting for transfer deploy to be included in a block...");
+    println!("⏳ Waiting for transfer deploy to be included in a block...");
     let block_wait_start = Instant::now();
     let max_block_wait_attempts = args.max_wait / args.check_interval;
     let mut block_wait_attempts = 0;
@@ -505,7 +465,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         // Show progress every 10 attempts or if we're at the end
         if block_wait_attempts % 10 == 0 || block_wait_attempts >= max_block_wait_attempts {
             println!(
-                "   Checking... ({}/{} attempts)",
+                "   ⏱️  Checking... ({}/{} attempts)",
                 block_wait_attempts, max_block_wait_attempts
             );
         }
@@ -515,21 +475,21 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
             .await
         {
             Ok(Some(hash)) => {
-                println!("Transfer deploy found in block: {}", hash);
+                println!("✅ Transfer deploy found in block: {}", hash);
                 break hash;
             }
             Ok(None) => {
                 // Deploy not in block yet, continue waiting
             }
             Err(e) => {
-                println!("Error checking transfer deploy status: {}", e);
+                println!("❌ Error checking transfer deploy status: {}", e);
                 return Err(e);
             }
         }
 
         if block_wait_attempts >= max_block_wait_attempts {
             println!(
-                "Timeout waiting for transfer deploy to be included in block after {} seconds",
+                "❌ Timeout waiting for transfer deploy to be included in block after {} seconds",
                 args.max_wait
             );
             return Err("Transfer deploy inclusion timeout".into());
@@ -539,34 +499,34 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     };
 
     let block_wait_duration = block_wait_start.elapsed();
-    println!("Block inclusion time: {:.2?}", block_wait_duration);
+    println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
 
     // Step 2.5: Check deploy execution result for errors
-    println!("Checking deploy execution result...");
+    println!("🔍 Checking deploy execution result...");
     match f1r3fly_api
         .get_deploy_info(&deploy_id, args.http_port)
         .await
     {
         Ok(deploy_info) => {
             if let Some(ref error_msg) = deploy_info.system_deploy_error {
-                println!("Transfer execution failed!");
+                println!("❌ Transfer execution failed!");
                 println!("   Error: {}", error_msg);
                 return Err(format!("Transfer failed: {}", error_msg).into());
             } else if deploy_info.errored {
-                println!("Transfer execution errored!");
+                println!("❌ Transfer execution errored!");
                 return Err("Transfer execution failed with unknown error".into());
             } else {
-                println!("Deploy executed successfully (no system errors)");
+                println!("✅ Deploy executed successfully (no system errors)");
             }
         }
         Err(e) => {
-            println!("Could not verify deploy execution result: {}", e);
+            println!("⚠️  Could not verify deploy execution result: {}", e);
             println!("   Continuing with finalization check...");
         }
     }
 
     // Step 3: Wait for block finalization using observer node
-    println!("Waiting for block finalization...");
+    println!("🔍 Waiting for block finalization...");
 
     // Determine observer node settings (fallback to default observer or main node)
     let observer_host = args.observer_host.as_deref().unwrap_or("localhost");
@@ -592,43 +552,43 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         Ok(true) => {
             let finalization_duration = finalization_start.elapsed();
             let total_duration = deploy_start_time.elapsed();
-            println!("Block finalized! Transfer completed successfully.");
-            println!("Finalization time: {:.2?}", finalization_duration);
-            println!("Total transfer time: {:.2?}", total_duration);
+            println!("✅ Block finalized! Transfer completed successfully.");
+            println!("⏱️  Finalization time: {:.2?}", finalization_duration);
+            println!("🎉 Total transfer time: {:.2?}", total_duration);
         }
         Ok(false) => {
-            println!("Block not yet finalized after {} attempts, but transfer deploy is in the blockchain.", finalization_max_attempts);
-            println!("The transfer is likely successful and will be finalized soon.");
+            println!("⚠️  Block not yet finalized after {} attempts, but transfer deploy is in the blockchain.", finalization_max_attempts);
+            println!("💡 The transfer is likely successful and will be finalized soon.");
         }
         Err(e) => {
-            println!("Error checking finalization status: {}", e);
+            println!("❌ Error checking finalization status: {}", e);
             println!(
-                "Could not verify finalization, but transfer deploy is in the blockchain."
+                "⚠️  Could not verify finalization, but transfer deploy is in the blockchain."
             );
         }
     }
 
     // Handle propose logic if enabled
     if args.propose {
-        println!("Proposing block to help finalize the transfer...");
+        println!("📦 Proposing block to help finalize the transfer...");
         let propose_start = Instant::now();
 
         match f1r3fly_api.propose().await {
             Ok(block_hash) => {
                 let propose_duration = propose_start.elapsed();
-                println!("Block proposed successfully!");
-                println!("Propose time: {:.2?}", propose_duration);
-                println!("Block hash: {}", block_hash);
+                println!("✅ Block proposed successfully!");
+                println!("⏱️  Propose time: {:.2?}", propose_duration);
+                println!("🧱 Block hash: {}", block_hash);
             }
             Err(e) => {
-                println!("Block proposal failed!");
+                println!("❌ Block proposal failed!");
                 println!("Error: {}", e);
                 return Err(e);
             }
         }
     }
 
-    println!("Transfer process completed!");
+    println!("🎯 Transfer process completed!");
 
     Ok(())
 }
@@ -637,14 +597,14 @@ pub async fn deploy_and_wait_command(
     args: &DeployAndWaitArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read the Rholang code from file
-    println!("Reading Rholang from: {}", args.file);
+    println!("📄 Reading Rholang from: {}", args.file);
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
-    println!("Code size: {} bytes", rholang_code.len());
+    println!("📊 Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
     println!(
-        "Connecting to F1r3fly node at {}:{}",
+        "🔌 Connecting to F1r3fly node at {}:{}",
         args.host, args.port
     );
     let private_key = args
@@ -658,37 +618,31 @@ pub async fn deploy_and_wait_command(
     } else {
         "50,000"
     };
-    println!("Using phlo limit: {}", phlo_limit);
-
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("Deploy expiration: {} ms", expiration_timestamp);
-    }
+    println!("💰 Using phlo limit: {}", phlo_limit);
 
     // Step 1: Deploy the Rholang code
-    println!("Deploying Rholang code...");
+    println!("🚀 Deploying Rholang code...");
     let deploy_start_time = Instant::now();
 
     let deploy_id = match f1r3fly_api
-        .deploy(&rholang_code, args.bigger_phlo, "rholang", expiration_timestamp)
+        .deploy(&rholang_code, args.bigger_phlo, "rholang")
         .await
     {
         Ok(deploy_id) => {
             let deploy_duration = deploy_start_time.elapsed();
-            println!("Deploy successful! Deploy ID: {}", deploy_id);
-            println!("Deploy time: {:.2?}", deploy_duration);
+            println!("✅ Deploy successful! Deploy ID: {}", deploy_id);
+            println!("⏱️  Deploy time: {:.2?}", deploy_duration);
             deploy_id
         }
         Err(e) => {
-            println!("Deployment failed!");
+            println!("❌ Deployment failed!");
             println!("Error: {}", e);
             return Err(e);
         }
     };
 
     // Step 2: Wait for deploy to be included in a block
-    println!("Waiting for deploy to be included in a block...");
+    println!("⏳ Waiting for deploy to be included in a block...");
     let block_wait_start = Instant::now();
     let max_block_wait_attempts = args.max_wait / args.check_interval;
     let mut block_wait_attempts = 0;
@@ -699,7 +653,7 @@ pub async fn deploy_and_wait_command(
         // Show progress every 10 attempts or if we're at the end
         if block_wait_attempts % 10 == 0 || block_wait_attempts >= max_block_wait_attempts {
             println!(
-                "   Checking... ({}/{} attempts)",
+                "   ⏱️  Checking... ({}/{} attempts)",
                 block_wait_attempts, max_block_wait_attempts
             );
         }
@@ -709,21 +663,21 @@ pub async fn deploy_and_wait_command(
             .await
         {
             Ok(Some(hash)) => {
-                println!("Deploy found in block: {}", hash);
+                println!("✅ Deploy found in block: {}", hash);
                 break hash;
             }
             Ok(None) => {
                 // Deploy not in block yet, continue waiting
             }
             Err(e) => {
-                println!("Error checking deploy status: {}", e);
+                println!("❌ Error checking deploy status: {}", e);
                 return Err(e);
             }
         }
 
         if block_wait_attempts >= max_block_wait_attempts {
             println!(
-                "Timeout waiting for deploy to be included in block after {} seconds",
+                "❌ Timeout waiting for deploy to be included in block after {} seconds",
                 args.max_wait
             );
             return Err("Deploy inclusion timeout".into());
@@ -733,10 +687,10 @@ pub async fn deploy_and_wait_command(
     };
 
     let block_wait_duration = block_wait_start.elapsed();
-    println!("Block inclusion time: {:.2?}", block_wait_duration);
+    println!("⏱️  Block inclusion time: {:.2?}", block_wait_duration);
 
     // Step 3: Wait for block finalization using observer node
-    println!("Waiting for block finalization...");
+    println!("🔍 Waiting for block finalization...");
 
     // Determine observer node settings (fallback to default observer or main node)
     let observer_host = args.observer_host.as_deref().unwrap_or("localhost");
@@ -767,20 +721,20 @@ pub async fn deploy_and_wait_command(
             let finalization_duration = finalization_start.elapsed();
             let total_duration = deploy_start_time.elapsed();
 
-            println!("Block finalized! Deploy completed successfully.");
-            println!("Finalization time: {:.2?}", finalization_duration);
-            println!("Total time: {:.2?}", total_duration);
+            println!("✅ Block finalized! Deploy completed successfully.");
+            println!("⏱️  Finalization time: {:.2?}", finalization_duration);
+            println!("📊 Total time: {:.2?}", total_duration);
         }
         Ok(false) => {
             println!(
-                "Block not yet finalized after {} attempts, but deploy is in the blockchain.",
+                "⚠️  Block not yet finalized after {} attempts, but deploy is in the blockchain.",
                 finalization_max_attempts
             );
-            println!("The deployment is likely successful and will be finalized soon.");
+            println!("💡 The deployment is likely successful and will be finalized soon.");
         }
         Err(e) => {
-            println!("Error checking finalization status: {}", e);
-            println!("Could not verify finalization, but deploy is in the blockchain.");
+            println!("❌ Error checking finalization status: {}", e);
+            println!("⚠️  Could not verify finalization, but deploy is in the blockchain.");
         }
     }
 
