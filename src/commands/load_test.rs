@@ -106,7 +106,8 @@ async fn run_single_test(
     let deploy_start = Instant::now();
 
     let rholang = generate_transfer_contract(args);
-    let deploy_id = api.deploy(&rholang, true, "rholang").await?.to_string();
+    // Load tests don't use expiration timestamp (0 means no expiration)
+    let deploy_id = api.deploy(&rholang, true, "rholang", 0).await?.to_string();
 
     println!("✅ [{}] Deploy submitted ({}ms)",
         now_timestamp(),

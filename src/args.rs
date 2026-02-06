@@ -149,6 +149,16 @@ pub struct DeployAndWaitArgs {
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
+
+    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+    /// Use 0 or omit for no expiration.
+    #[arg(long)]
+    pub expiration: Option<i64>,
+
+    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+    /// Mutually exclusive with --expiration.
+    #[arg(long, conflicts_with = "expiration")]
+    pub expires_in: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
@@ -199,6 +209,16 @@ pub struct DeployArgs {
     /// Use bigger phlo limit
     #[arg(short, long, default_value_t = false)]
     pub bigger_phlo: bool,
+
+    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+    /// Use 0 or omit for no expiration.
+    #[arg(long)]
+    pub expiration: Option<i64>,
+
+    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+    /// Mutually exclusive with --expiration.
+    #[arg(long, conflicts_with = "expiration")]
+    pub expires_in: Option<u64>,
 }
 
 /// Arguments for propose command
@@ -486,6 +506,16 @@ pub struct BondValidatorArgs {
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
+
+    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+    /// Use 0 or omit for no expiration.
+    #[arg(long)]
+    pub expiration: Option<i64>,
+
+    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+    /// Mutually exclusive with --expiration.
+    #[arg(long, conflicts_with = "expiration")]
+    pub expires_in: Option<u64>,
 }
 
 /// Arguments for network-health command
@@ -573,6 +603,16 @@ pub struct TransferArgs {
     /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
+
+    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+    /// Use 0 or omit for no expiration.
+    #[arg(long)]
+    pub expiration: Option<i64>,
+
+    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+    /// Mutually exclusive with --expiration.
+    #[arg(long, conflicts_with = "expiration")]
+    pub expires_in: Option<u64>,
 }
 
 /// Arguments for load-test command
