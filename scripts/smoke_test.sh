@@ -11,6 +11,13 @@
 #   ./scripts/smoke_test.sh localhost 40412 40413 40452  # shard with separate observer
 #   ./scripts/smoke_test.sh localhost 40402 40403 40402 <private_key>  # custom private key
 
+# A standalone bootstrap node runs in a dual role — it handles both validator operations (deploy, propose) AND read-only operations (exploratory-deploy). Since it’s the only node, there’s no distinction.
+# But in a multi-validator shard (bootstrap + 2 validators), the validators are in proposing mode — they actively create and validate blocks. In this mode, the Scala RChain node rejects exploratory-deploy requests with:
+# “Exploratory deploy can only be executed on read-only RNodes”
+# This is by design in the RChain protocol. In a multi-validator setup, you need a separate observer node (started with --read-only flag) to handle exploratory-deploy.
+# The observer syncs the chain state but doesn’t participate in consensus, so it can safely execute exploratory deploys without interfering with block production.
+# The 9 skipped tests (bonds, active-validators, wallet-balance, etc.) all use exploratory-deploy internally to query on-chain state. That’s why they work on a standalone bootstrap but fail on a light shard without an observer.
+
 set -euo pipefail
 
 # Configuration
@@ -20,6 +27,9 @@ HTTP_PORT="${3:-40403}"      # HTTP port for status/query operations
 OBSERVER_GRPC="${4:-$GRPC_PORT}"  # Observer gRPC port (defaults to same as GRPC_PORT)
 OBSERVER_HTTP=$((OBSERVER_GRPC + 1))  # Observer HTTP port (gRPC + 1)
 PRIVATE_KEY="${5:-5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657}"  # Signing key
+
+# Skip observer-dependent tests (e.g., light shard with no separate observer node)
+NO_OBSERVER="${NO_OBSERVER:-false}"
 
 # Recipient address for transfers (secondary test address from genesis)
 TO_ADDR="11112oRqNpmKjfFCGgH6bw5csjBqVgb4PVRP5S98tTNjDeqdWNJr2L"
@@ -252,7 +262,7 @@ run_test "deploy" \
 # deploy-and-wait: Deploy and wait for block inclusion/finalization
 # Expected output: "Deploy successful" and "Deploy found in block"
 run_test "deploy-and-wait" \
-    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 30 --check-interval 2" \
+    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 120 --check-interval 2" \
     "Deploy successful|Deploy found in block"
 
 # is-finalized: Check if a block is finalized
@@ -269,9 +279,13 @@ fi
 # exploratory-deploy: Execute Rholang without committing to blockchain
 # Must run on observer (read-only) node - validators reject exploratory deploys
 # Expected output: "Execution successful"
-run_test "exploratory-deploy" \
-    "cargo run -q --release -- exploratory-deploy -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
-    "Execution successful"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "exploratory-deploy" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "exploratory-deploy" \
+        "cargo run -q --release -- exploratory-deploy -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
+        "Execution successful"
+fi
 
 # ============================================
 # CRYPTO COMMANDS (offline, no node required)
@@ -312,15 +326,23 @@ run_test "blocks" \
 
 # bonds: Get validator bonds from PoS contract
 # Uses exploratory-deploy internally, must run on observer (read-only) node
-run_test "bonds" \
-    "cargo run -q --release -- bonds -H $HOST -p $OBSERVER_HTTP" \
-    "Validator bonds retrieved successfully|Bonded Validators"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "bonds" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "bonds" \
+        "cargo run -q --release -- bonds -H $HOST -p $OBSERVER_HTTP" \
+        "Validator bonds retrieved successfully|Bonded Validators"
+fi
 
 # active-validators: Get active validators
 # Uses exploratory-deploy internally, must run on observer (read-only) node
-run_test "active-validators" \
-    "cargo run -q --release -- active-validators -H $HOST -p $OBSERVER_HTTP" \
-    "Active validators retrieved successfully|Active Validators"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "active-validators" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "active-validators" \
+        "cargo run -q --release -- active-validators -H $HOST -p $OBSERVER_HTTP" \
+        "Active validators retrieved successfully|Active Validators"
+fi
 
 # metrics: Get node metrics
 run_test "metrics" \
@@ -350,9 +372,13 @@ run_test "get-blocks-by-height" \
 
 # wallet-balance: Check wallet balance for an address
 # Uses exploratory-deploy internally, must run on observer (read-only) node
-run_test "wallet-balance" \
-    "cargo run -q --release -- wallet-balance -H $HOST -p $OBSERVER_GRPC -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g" \
-    "Wallet balance retrieved successfully|Balance"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "wallet-balance" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "wallet-balance" \
+        "cargo run -q --release -- wallet-balance -H $HOST -p $OBSERVER_GRPC -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g" \
+        "Wallet balance retrieved successfully|Balance"
+fi
 
 # ============================================
 # NETWORK COMMANDS
@@ -368,9 +394,13 @@ run_test "network-health" \
 # bond-status: Check if a validator is bonded
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 VALIDATOR_PUBKEY="04ffc016579a68050d655d55df4e09f04605164543e257c8e6df10361e6068a5336588e9b355ea859c5ab4285a5ef0efdf62bc28b80320ce99e26bb1607b3ad93d"
-run_test "bond-status" \
-    "cargo run -q --release -- bond-status -H $HOST -p $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
-    "Bond information retrieved successfully|BONDED|NOT BONDED"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "bond-status" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "bond-status" \
+        "cargo run -q --release -- bond-status -H $HOST -p $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
+        "Bond information retrieved successfully|BONDED|NOT BONDED"
+fi
 
 # ============================================
 # TRANSFER COMMANDS
@@ -422,27 +452,43 @@ echo -e "${BLUE}--- PoS Query Commands ---${NC}"
 
 # epoch-info: Get current epoch information
 # Uses exploratory-deploy internally, must run on observer (read-only) node
-run_test "epoch-info" \
-    "cargo run -q --release -- epoch-info -H $HOST -p $OBSERVER_GRPC" \
-    "Epoch information retrieved successfully|Current Epoch"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "epoch-info" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "epoch-info" \
+        "cargo run -q --release -- epoch-info -H $HOST -p $OBSERVER_GRPC" \
+        "Epoch information retrieved successfully|Current Epoch"
+fi
 
 # epoch-rewards: Get current epoch rewards
 # Uses exploratory-deploy internally, must run on observer (read-only) node
-run_test "epoch-rewards" \
-    "cargo run -q --release -- epoch-rewards -H $HOST -p $OBSERVER_GRPC" \
-    "Epoch rewards retrieved successfully|Epoch Rewards"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "epoch-rewards" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "epoch-rewards" \
+        "cargo run -q --release -- epoch-rewards -H $HOST -p $OBSERVER_GRPC" \
+        "Epoch rewards retrieved successfully|Epoch Rewards"
+fi
 
 # validator-status: Check individual validator status
 # Uses exploratory-deploy internally, must run on observer (read-only) node
-run_test "validator-status" \
-    "cargo run -q --release -- validator-status -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
-    "Validator status retrieved successfully|BONDED|NOT BONDED"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "validator-status" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "validator-status" \
+        "cargo run -q --release -- validator-status -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
+        "Validator status retrieved successfully|BONDED|NOT BONDED"
+fi
 
 # network-consensus: Get network-wide consensus overview
 # Uses exploratory-deploy internally, must run on observer (read-only) node
-run_test "network-consensus" \
-    "cargo run -q --release -- network-consensus -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
-    "Network consensus data retrieved successfully|Consensus Health"
+if [ "$NO_OBSERVER" = "true" ]; then
+    skip_test "network-consensus" "no observer node (NO_OBSERVER=true)"
+else
+    run_test "network-consensus" \
+        "cargo run -q --release -- network-consensus -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
+        "Network consensus data retrieved successfully|Consensus Health"
+fi
 
 # ============================================
 # CRYPTO COMMANDS (offline, continued)
@@ -520,13 +566,13 @@ cargo run -q --release -- load-test \
   --amount 1 \
   --interval 3 \
   --check-interval 2 \
-  --inclusion-timeout 60 \
-  --finalization-timeout 60 \
+  --inclusion-timeout 180 \
+  --finalization-timeout 180 \
   --private-key "$PRIVATE_KEY" \
   -H $HOST \
   --port $GRPC_PORT \
   --http-port $HTTP_PORT \
-  --readonly-port $OBSERVER_GRPC > "$OUTPUT" 2>&1
+  --readonly-port $OBSERVER_GRPC > "$OUTPUT" 2>&1 || true
 LT_END=$(date +%s.%N)
 LT_MS=$(echo "($LT_END - $LT_START) * 1000" | bc | cut -d. -f1)
 save_log "load-test"

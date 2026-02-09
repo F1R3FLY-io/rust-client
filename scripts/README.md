@@ -13,6 +13,9 @@ Comprehensive test suite that validates all rust-client commands against a runni
 # Custom host/ports
 ./scripts/smoke_test.sh localhost 40402 40403
 
+# Run against a light shard (bootstrap + two validators, no separate observer)
+./scripts/smoke_test.sh localhost 40412 40413 40412
+
 # Run against a shard with separate observer node
 ./scripts/smoke_test.sh localhost 40412 40413 40452
 
