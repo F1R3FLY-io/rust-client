@@ -30,8 +30,8 @@ impl Dispatcher {
             Commands::GenerateKeyPair(args) => {
                 generate_key_pair_command(args).map_err(NodeCliError::from)
             }
-            Commands::GenerateRevAddress(args) => {
-                generate_rev_address_command(args).map_err(NodeCliError::from)
+            Commands::GenerateVaultAddress(args) => {
+                generate_vault_address_command(args).map_err(NodeCliError::from)
             }
             Commands::Status(args) => status_command(args).await.map_err(NodeCliError::from),
             Commands::Blocks(args) => blocks_command(args).await.map_err(NodeCliError::from),
@@ -135,7 +135,7 @@ impl Dispatcher {
             Commands::ExploratoryDeploy(_) => "exploratory-deploy",
             Commands::GeneratePublicKey(_) => "generate-public-key",
             Commands::GenerateKeyPair(_) => "generate-key-pair",
-            Commands::GenerateRevAddress(_) => "generate-rev-address",
+            Commands::GenerateVaultAddress(_) => "generate-vault-address",
             Commands::Status(_) => "status",
             Commands::Blocks(_) => "blocks",
             Commands::Bonds(_) => "bonds",

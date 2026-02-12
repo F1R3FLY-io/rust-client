@@ -289,10 +289,10 @@ run_test "generate-key-pair" \
     "cargo run -q --release -- generate-key-pair" \
     "Private key.*[a-f0-9]{64}"
 
-# generate-rev-address: Generate REV address from key
-run_test "generate-rev-address" \
-    "cargo run -q --release -- generate-rev-address" \
-    "REV address.*1111[a-zA-Z0-9]+"
+# generate-vault-address: Generate vault address from key
+run_test "generate-vault-address" \
+    "cargo run -q --release -- generate-vault-address" \
+    "Vault address.*1111[a-zA-Z0-9]+"
 
 # ============================================
 # NODE INSPECTION COMMANDS (HTTP)
@@ -378,7 +378,7 @@ run_test "bond-status" \
 echo ""
 echo -e "${BLUE}--- Transfer Commands ---${NC}"
 
-# transfer: Transfer REV tokens between addresses
+# transfer: Transfer tokens between addresses
 # Uses observer port for finalization check
 # Capture deploy ID for get-deploy test
 echo -n "Testing transfer... "

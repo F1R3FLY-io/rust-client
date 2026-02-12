@@ -257,7 +257,7 @@ pub async fn bond_validator_command(
     args: &BondValidatorArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Bonding new validator to the network");
-    println!("Stake amount: {} REV", args.stake);
+    println!("Stake amount: {}", args.stake);
 
     // Initialize the F1r3fly API client for deploying
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
@@ -266,10 +266,10 @@ pub async fn bond_validator_command(
     let bonding_code = format!(
         r#"new rl(`rho:registry:lookup`), poSCh, retCh, stdout(`rho:io:stdout`) in {{
   stdout!("About to lookup PoS contract...") |
-  rl!(`rho:rchain:pos`, *poSCh) |
+  rl!(`rho:system:pos`, *poSCh) |
   for(@(_, PoS) <- poSCh) {{
     stdout!("About to bond...") |
-    new deployerId(`rho:rchain:deployerId`) in {{
+    new deployerId(`rho:system:deployerId`) in {{
       @PoS!("bond", *deployerId, {}, *retCh) |
       for (@(result, message) <- retCh) {{
         stdout!(("Bond result:", result, "Message:", message))
@@ -423,7 +423,7 @@ pub async fn bond_validator_command(
 }
 
 pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Initiating REV transfer");
+    println!("Initiating token transfer");
 
     // Initialize the F1r3fly API client
     println!(
@@ -439,20 +439,20 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
         let public_key = CryptoUtils::derive_public_key(&secret_key);
         let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-        CryptoUtils::generate_rev_address(&public_key_hex)?
+        CryptoUtils::generate_vault_address(&public_key_hex)?
     };
 
     // Validate addresses format
-    validate_rev_address(&from_address)?;
-    validate_rev_address(&args.to_address)?;
+    validate_vault_address(&from_address)?;
+    validate_vault_address(&args.to_address)?;
 
-    // Convert REV to dust (1 REV = 100,000,000 dust)
+    // Convert tokens to dust (1 token = 100,000,000 dust)
     let amount_dust = args.amount * 100_000_000;
 
     println!("Transfer Details:");
     println!("   From: {}", from_address);
     println!("   To: {}", args.to_address);
-    println!("   Amount: {} REV ({} dust)", args.amount, amount_dust);
+    println!("   Amount: {} ({} dust)", args.amount, amount_dust);
     println!(
         "   Phlo limit: {}",
         if args.bigger_phlo {
@@ -906,13 +906,13 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-fn validate_rev_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn validate_vault_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     if !address.starts_with("1111") {
-        return Err("Invalid REV address format: must start with '1111'".into());
+        return Err("Invalid vault address format: must start with '1111'".into());
     }
 
     if address.len() < 40 {
-        return Err("Invalid REV address format: too short".into());
+        return Err("Invalid vault address format: too short".into());
     }
 
     Ok(())
@@ -921,26 +921,26 @@ fn validate_rev_address(address: &str) -> Result<(), Box<dyn std::error::Error>>
 fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust: u64) -> String {
     format!(
         r#"new 
-    deployerId(`rho:rchain:deployerId`),
+    deployerId(`rho:system:deployerId`),
     stdout(`rho:io:stdout`),
     rl(`rho:registry:lookup`),
-    revVaultCh,
+    systemVaultCh,
     vaultCh,
     toVaultCh,
-    revVaultKeyCh,
+    systemVaultKeyCh,
     resultCh
 in {{
-  rl!(`rho:rchain:revVault`, *revVaultCh) |
-  for (@(_, RevVault) <- revVaultCh) {{
-    @RevVault!("findOrCreate", "{}", *vaultCh) |
-    @RevVault!("findOrCreate", "{}", *toVaultCh) |
-    @RevVault!("deployerAuthKey", *deployerId, *revVaultKeyCh) |
-    for (@(true, vault) <- vaultCh; key <- revVaultKeyCh; @(true, toVault) <- toVaultCh) {{
+  rl!(`rho:system:systemVault`, *systemVaultCh) |
+  for (@(_, SystemVault) <- systemVaultCh) {{
+    @SystemVault!("findOrCreate", "{}", *vaultCh) |
+    @SystemVault!("findOrCreate", "{}", *toVaultCh) |
+    @SystemVault!("deployerAuthKey", *deployerId, *systemVaultKeyCh) |
+    for (@(true, vault) <- vaultCh; key <- systemVaultKeyCh; @(true, toVault) <- toVaultCh) {{
       @vault!("transfer", "{}", {}, *key, *resultCh) |
       for (@result <- resultCh) {{
         match result {{
           (true, Nil) => {{
-            stdout!(("Transfer successful:", {}, "REV"))
+            stdout!(("Transfer successful:", {}, "tokens"))
           }}
           (false, reason) => {{
             stdout!(("Transfer failed:", reason))
