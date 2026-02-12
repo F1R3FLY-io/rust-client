@@ -118,7 +118,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
     let url = format!("http://{}:{}/api/explore-deploy", args.host, args.port);
     let client = reqwest::Client::new();
 
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
+    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:system:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
 
     let body = serde_json::json!({
         "term": rholang_query
@@ -211,7 +211,7 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
     let url = format!("http://{}:{}/api/explore-deploy", args.host, args.port);
     let client = reqwest::Client::new();
 
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getActiveValidators", *return) } }"#;
+    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:system:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getActiveValidators", *return) } }"#;
 
     let body = serde_json::json!({
         "term": rholang_query
@@ -311,10 +311,10 @@ pub async fn wallet_balance_command(
     );
 
     let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), revVaultCh, vaultCh, balanceCh in {{
-            rl!(`rho:rchain:revVault`, *revVaultCh) |
-            for (@(_, RevVault) <- revVaultCh) {{
-                @RevVault!("findOrCreate", "{}", *vaultCh) |
+        r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
+            rl!(`rho:system:systemVault`, *systemVaultCh) |
+            for (@(_, SystemVault) <- systemVaultCh) {{
+                @SystemVault!("findOrCreate", "{}", *vaultCh) |
                 for (@either <- vaultCh) {{
                     match either {{
                         (true, vault) => {{
@@ -343,7 +343,7 @@ pub async fn wallet_balance_command(
             let duration = start_time.elapsed();
             println!("✅ Wallet balance retrieved successfully!");
             println!("⏱️  Time taken: {:.2?}", duration);
-            println!("💰 Balance for {}: {} REV", args.address, result);
+            println!("💰 Balance for {}: {}", args.address, result);
             println!("📊 {}", block_info);
         }
         Err(e) => {
@@ -366,7 +366,7 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
     let client = reqwest::Client::new();
 
     // Get all bonds first, then check if our public key is in there
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
+    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:system:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
 
     let body = serde_json::json!({
         "term": rholang_query
@@ -1025,7 +1025,7 @@ pub async fn validator_status_command(
 
     // Query 1: Get all bonds to check if validator is bonded
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getBonds", *return)
         }
@@ -1033,7 +1033,7 @@ pub async fn validator_status_command(
 
     // Query 2: Get active validators to check if validator is active
     let active_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getActiveValidators", *return)
         }
@@ -1041,7 +1041,7 @@ pub async fn validator_status_command(
 
     // Query 3: Get quarantine length for timing calculations
     let quarantine_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getQuarantineLength", *return)
         }
@@ -1103,7 +1103,7 @@ pub async fn validator_status_command(
                                 if validator == args.public_key {
                                     if let Some(stake) = bond.get("stake").and_then(|s| s.as_i64())
                                     {
-                                        println!("   Stake Amount: {} REV", stake);
+                                        println!("   Stake Amount: {}", stake);
                                     }
                                     break;
                                 }
@@ -1164,14 +1164,14 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
 
     // Query epoch and quarantine lengths from PoS contract
     let epoch_length_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getEpochLength", *return)
         }
     }"#;
 
     let quarantine_length_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getQuarantineLength", *return)
         }
@@ -1289,7 +1289,7 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
     );
 
     let rewards_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getCurrentEpochRewards", *return)
         }
@@ -1375,21 +1375,21 @@ pub async fn network_consensus_command(
     let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getBonds", *return)
         }
     }"#;
 
     let active_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getActiveValidators", *return)
         }
     }"#;
 
     let quarantine_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getQuarantineLength", *return)
         }
@@ -1713,7 +1713,7 @@ pub async fn block_transfers_command(
                 println!("   Transfer #{}:", j + 1);
                 println!("      From:   {}", from);
                 println!("      To:     {}", to);
-                println!("      Amount: {} REV", amount);
+                println!("      Amount: {}", amount);
                 println!("      Status: {}", status);
             }
         }
