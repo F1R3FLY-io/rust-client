@@ -930,7 +930,7 @@ fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust:
     systemVaultKeyCh,
     resultCh
 in {{
-  rl!(`rho:system:systemVault`, *systemVaultCh) |
+  rl!(`rho:vault:system`, *systemVaultCh) |
   for (@(_, SystemVault) <- systemVaultCh) {{
     @SystemVault!("findOrCreate", "{}", *vaultCh) |
     @SystemVault!("findOrCreate", "{}", *toVaultCh) |
