@@ -226,7 +226,7 @@ fn generate_transfer_contract(args: &LoadTestArgs) -> String {
     systemVaultKeyCh,
     resultCh
 in {{
-  rl!(`rho:system:systemVault`, *systemVaultCh) |
+  rl!(`rho:vault:system`, *systemVaultCh) |
   for (@(_, SystemVault) <- systemVaultCh) {{
     @SystemVault!("findOrCreate", "{}", *vaultCh) |
     @SystemVault!("findOrCreate", "{}", *toVaultCh) |
@@ -305,7 +305,7 @@ async fn get_balance_for_address(
     // Build the Rholang query to get wallet balance
     let rholang_query = format!(
         r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
-            rl!(`rho:system:systemVault`, *systemVaultCh) |
+            rl!(`rho:vault:system`, *systemVaultCh) |
             for (@(_, SystemVault) <- systemVaultCh) {{
                 @SystemVault!("findOrCreate", "{}", *vaultCh) |
                 for (@either <- vaultCh) {{
