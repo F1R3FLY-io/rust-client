@@ -1,0 +1,16 @@
+// Test SystemVault lookup
+new
+  lookup(`rho:registry:lookup`),
+  stdout(`rho:io:stdout`),
+  retCh
+in {
+  stdout!("Looking up SystemVault...") |
+  lookup!(`rho:vault:system`, *retCh) |
+  for (@result <- retCh) {
+    match result {
+      Nil => stdout!("ERROR: SystemVault not found in registry!")
+      _ => stdout!(["SystemVault found:", result])
+    } |
+    retCh!(result)
+  }
+}

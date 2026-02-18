@@ -21,7 +21,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
     println!("║  F1R3FLY Load Test                        ║");
     println!("╚═══════════════════════════════════════════╝");
     println!("Tests: {}", args.num_tests);
-    println!("Amount: {} REV", args.amount);
+    println!("Amount: {}", args.amount);
     println!("Interval: {}s", args.interval);
     println!("Check interval: {}s (fast mode)", args.check_interval);
     println!("Target: {}:{}", args.host, args.port);
@@ -31,7 +31,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
     let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
     let public_key = CryptoUtils::derive_public_key(&secret_key);
     let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-    let sender_address = CryptoUtils::generate_rev_address(&public_key_hex)?;
+    let sender_address = CryptoUtils::generate_vault_address(&public_key_hex)?;
 
     // Check initial balances
     println!("💰 Checking initial wallet balances...");
@@ -41,7 +41,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         Ok(balance) => {
             println!("Sender Wallet:");
             println!("  Address: {}", sender_address);
-            println!("  Balance: {} REV", balance);
+            println!("  Balance: {}", balance);
         }
         Err(e) => {
             println!("⚠️  Failed to get sender balance: {}", e);
@@ -53,7 +53,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         Ok(balance) => {
             println!("Recipient Wallet:");
             println!("  Address: {}", args.to_address);
-            println!("  Balance: {} REV", balance);
+            println!("  Balance: {}", balance);
         }
         Err(e) => {
             println!("⚠️  Failed to get recipient balance: {}", e);
@@ -182,7 +182,7 @@ async fn run_single_test(
     println!("💰 [{}] Checking wallet balance...", now_timestamp());
     match get_wallet_balance(api, args).await {
         Ok(balance) => {
-            println!("✅ [{}] Wallet balance: {} REV", now_timestamp(), balance);
+            println!("✅ [{}] Wallet balance: {}", now_timestamp(), balance);
         }
         Err(e) => {
             println!("⚠️  [{}] Failed to get wallet balance: {}", now_timestamp(), e);
@@ -210,33 +210,33 @@ fn generate_transfer_contract(args: &LoadTestArgs) -> String {
         .expect("Invalid private key");
     let public_key = CryptoUtils::derive_public_key(&secret_key);
     let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-    let from_address = CryptoUtils::generate_rev_address(&public_key_hex)
+    let from_address = CryptoUtils::generate_vault_address(&public_key_hex)
         .expect("Failed to generate address");
     
     let amount_dust = args.amount * 100_000_000;
     
     format!(
         r#"new 
-    deployerId(`rho:rchain:deployerId`),
+    deployerId(`rho:system:deployerId`),
     stdout(`rho:io:stdout`),
     rl(`rho:registry:lookup`),
-    asiVaultCh,
+    systemVaultCh,
     vaultCh,
     toVaultCh,
-    asiVaultKeyCh,
+    systemVaultKeyCh,
     resultCh
 in {{
-  rl!(`rho:rchain:asiVault`, *asiVaultCh) |
-  for (@(_, ASIVault) <- asiVaultCh) {{
-    @ASIVault!("findOrCreate", "{}", *vaultCh) |
-    @ASIVault!("findOrCreate", "{}", *toVaultCh) |
-    @ASIVault!("deployerAuthKey", *deployerId, *asiVaultKeyCh) |
-    for (@(true, vault) <- vaultCh; key <- asiVaultKeyCh; @(true, toVault) <- toVaultCh) {{
+  rl!(`rho:vault:system`, *systemVaultCh) |
+  for (@(_, SystemVault) <- systemVaultCh) {{
+    @SystemVault!("findOrCreate", "{}", *vaultCh) |
+    @SystemVault!("findOrCreate", "{}", *toVaultCh) |
+    @SystemVault!("deployerAuthKey", *deployerId, *systemVaultKeyCh) |
+    for (@(true, vault) <- vaultCh; key <- systemVaultKeyCh; @(true, toVault) <- toVaultCh) {{
       @vault!("transfer", "{}", {}, *key, *resultCh) |
       for (@result <- resultCh) {{
         match result {{
           (true, Nil) => {{
-            stdout!(("Transfer successful:", {}, "REV"))
+            stdout!(("Transfer successful:", {}, "tokens"))
           }}
           (false, reason) => {{
             stdout!(("Transfer failed:", reason))
@@ -304,10 +304,10 @@ async fn get_balance_for_address(
 ) -> Result<String, Box<dyn std::error::Error>> {
     // Build the Rholang query to get wallet balance
     let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), revVaultCh, vaultCh, balanceCh in {{
-            rl!(`rho:rchain:revVault`, *revVaultCh) |
-            for (@(_, RevVault) <- revVaultCh) {{
-                @RevVault!("findOrCreate", "{}", *vaultCh) |
+        r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
+            rl!(`rho:vault:system`, *systemVaultCh) |
+            for (@(_, SystemVault) <- systemVaultCh) {{
+                @SystemVault!("findOrCreate", "{}", *vaultCh) |
                 for (@either <- vaultCh) {{
                     match either {{
                         (true, vault) => {{
@@ -346,7 +346,7 @@ async fn get_wallet_balance(
     let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
     let public_key = CryptoUtils::derive_public_key(&secret_key);
     let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-    let sender_address = CryptoUtils::generate_rev_address(&public_key_hex)?;
+    let sender_address = CryptoUtils::generate_vault_address(&public_key_hex)?;
 
     get_balance_for_address(&sender_address, args).await
 }

@@ -35,8 +35,8 @@ pub enum Commands {
     /// Generate a new secp256k1 private/public key pair
     GenerateKeyPair(GenerateKeyPairArgs),
 
-    /// Generate a REV address from a public key
-    GenerateRevAddress(GenerateRevAddressArgs),
+    /// Generate a vault address from a public key
+    GenerateVaultAddress(GenerateVaultAddressArgs),
 
     /// Get node status and peer information
     Status(HttpArgs),
@@ -71,7 +71,7 @@ pub enum Commands {
     /// Get blocks in the main chain
     ShowMainChain(ShowMainChainArgs),
 
-    /// Transfer REV tokens between addresses
+    /// Transfer tokens between addresses
     Transfer(TransferArgs),
 
     /// Run load test by sending multiple transfers and tracking orphan rate
@@ -334,9 +334,9 @@ pub struct GenerateKeyPairArgs {
     pub output_dir: String,
 }
 
-/// Arguments for generate-rev-address command
+/// Arguments for generate-vault-address command
 #[derive(Parser)]
-pub struct GenerateRevAddressArgs {
+pub struct GenerateVaultAddressArgs {
     /// Public key in hex format (uncompressed format preferred)
     #[arg(short, long, conflicts_with = "private_key")]
     pub public_key: Option<String>,
@@ -553,11 +553,11 @@ pub struct NetworkHealthArgs {
 /// Arguments for transfer command
 #[derive(Parser)]
 pub struct TransferArgs {
-    /// Recipient REV address
+    /// Recipient vault address
     #[arg(short, long)]
     pub to_address: String,
 
-    /// Amount in REV to transfer
+    /// Amount to transfer
     #[arg(short, long)]
     pub amount: u64,
 
@@ -618,7 +618,7 @@ pub struct TransferArgs {
 /// Arguments for load-test command
 #[derive(Parser)]
 pub struct LoadTestArgs {
-    /// Recipient REV address
+    /// Recipient vault address
     #[arg(long)]
     pub to_address: String,
 
@@ -626,7 +626,7 @@ pub struct LoadTestArgs {
     #[arg(long, default_value_t = 20)]
     pub num_tests: u32,
 
-    /// Amount in REV per transfer
+    /// Amount per transfer
     #[arg(long, default_value_t = 1)]
     pub amount: u64,
 
