@@ -5,7 +5,7 @@ new
   retCh
 in {
   stdout!("Looking up SystemVault...") |
-  lookup!(`rho:system:systemVault`, *retCh) |
+  lookup!(`rho:vault:system`, *retCh) |
   for (@result <- retCh) {
     match result {
       Nil => stdout!("ERROR: SystemVault not found in registry!")
