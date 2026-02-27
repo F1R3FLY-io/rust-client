@@ -95,6 +95,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
+name = "ar_archive_writer"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7eb93bbb63b9c227414f6eb3a0adfddca591a8ce1e9b60661bb08969b87e340b"
+dependencies = [
+ "object",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -503,6 +512,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc"
+version = "3.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5eb8a2a1cd12ab0d987a5d5e825195d372001a4094a0376319d5a0ad71c1ba0d"
+dependencies = [
+ "crc-catalog",
+]
+
+[[package]]
+name = "crc-catalog"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -570,7 +594,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 [[package]]
 name = "crypto"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=396-remove-hardcoded-rev-references#776a95975275f43850af2530fd0dfdab510e22a5"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1884,7 +1908,7 @@ dependencies = [
 [[package]]
 name = "models"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=396-remove-hardcoded-rev-references#776a95975275f43850af2530fd0dfdab510e22a5"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
 dependencies = [
  "crypto",
  "hex",
@@ -1954,10 +1978,12 @@ dependencies = [
  "bs58",
  "chrono",
  "clap",
+ "crc",
  "crossterm",
  "crypto",
  "futures-util",
  "hex",
+ "log",
  "models",
  "prost",
  "rand 0.8.5",
@@ -1972,6 +1998,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.21.0",
  "typenum",
+ "zbase32",
 ]
 
 [[package]]
@@ -2021,6 +2048,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "object"
+version = "0.37.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff76201f031d8863c38aa7f905eca4f53abbfa15f609db4277d44cd8938f33fe"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -2413,6 +2449,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "psm"
+version = "0.1.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3852766467df634d74f0b2d7819bf8dc483a0eb2e3b0f50f756f9cfe8b0d18d8"
+dependencies = [
+ "ar_archive_writer",
+ "cc",
+]
+
+[[package]]
 name = "pulldown-cmark"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2733,7 +2779,7 @@ dependencies = [
 [[package]]
 name = "rholang"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=396-remove-hardcoded-rev-references#776a95975275f43850af2530fd0dfdab510e22a5"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
 dependencies = [
  "bincode",
  "cc",
@@ -2761,6 +2807,7 @@ dependencies = [
  "serde_json",
  "shared",
  "smallvec",
+ "stacker",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -2827,7 +2874,7 @@ dependencies = [
 [[package]]
 name = "rspace_plus_plus"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=396-remove-hardcoded-rev-references#776a95975275f43850af2530fd0dfdab510e22a5"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
 dependencies = [
  "async-trait",
  "bincode",
@@ -3231,7 +3278,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=396-remove-hardcoded-rev-references#776a95975275f43850af2530fd0dfdab510e22a5"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
 dependencies = [
  "axum",
  "bincode",
@@ -3352,6 +3399,19 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "stacker"
+version = "0.1.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d74a23609d509411d10e2176dc2a4346e3b4aea2e7b1869f19fdedbc71c013"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "psm",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "state"
