@@ -16,6 +16,9 @@ pub struct ConnectionConfig {
     pub grpc_port: u16,
     pub http_port: u16,
     pub signing_key: String,
+    /// Maximum number of 1-second polling attempts when waiting for a deploy
+    /// to be included in a block (default: 180)
+    pub deploy_timeout_secs: u32,
 }
 
 impl ConnectionConfig {
@@ -27,6 +30,7 @@ impl ConnectionConfig {
     /// - `FIREFLY_GRPC_PORT`: gRPC port (default: 40401)
     /// - `FIREFLY_HTTP_PORT`: HTTP port (default: 40403)
     /// - `FIREFLY_PRIVATE_KEY`: Private key for signing (REQUIRED)
+    /// - `FIREFLY_DEPLOY_TIMEOUT`: Max seconds to wait for deploy inclusion in a block (default: 180)
     pub fn from_env() -> Result<Self, ConnectionError> {
         let signing_key =
             env::var("FIREFLY_PRIVATE_KEY").map_err(|_| ConnectionError::MissingPrivateKey)?;
@@ -42,6 +46,10 @@ impl ConnectionConfig {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(40403),
             signing_key,
+            deploy_timeout_secs: env::var("FIREFLY_DEPLOY_TIMEOUT")
+                .ok()
+                .and_then(|t| t.parse().ok())
+                .unwrap_or(180),
         })
     }
 
@@ -52,6 +60,7 @@ impl ConnectionConfig {
             grpc_port,
             http_port,
             signing_key,
+            deploy_timeout_secs: 180,
         }
     }
 }
@@ -270,7 +279,9 @@ impl F1r3flyConnectionManager {
 
         let rholang = build_transfer_rholang(&from_address, to_address, amount_dust);
 
-        let (deploy_id, block_hash) = self.deploy_and_wait(&rholang, 60, 20).await?;
+        let (deploy_id, block_hash) = self
+            .deploy_and_wait(&rholang, self.config.deploy_timeout_secs, 20)
+            .await?;
 
         log::info!(
             "Transfer complete: {} dust to {} (deploy: {})",

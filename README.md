@@ -85,7 +85,21 @@ The CLI is enabled by default. Build and run with:
 cargo build
 ```
 
-## Usage
+## Library Usage
+
+This crate can be used as a library (`node_cli`) for programmatic access to F1r3fly nodes. The `ConnectionConfig::from_env()` method reads configuration from environment variables:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `FIREFLY_PRIVATE_KEY` | Yes | — | Private key for signing deploys (64 hex chars) |
+| `FIREFLY_HOST` | No | `localhost` | Node hostname |
+| `FIREFLY_GRPC_PORT` | No | `40401` | gRPC port for deploy/propose |
+| `FIREFLY_HTTP_PORT` | No | `40403` | HTTP port for status/query |
+| `FIREFLY_DEPLOY_TIMEOUT` | No | `180` | Max seconds to wait for deploy inclusion in a block |
+
+See [`.env.example`](.env.example) for a template.
+
+## CLI Usage
 
 The CLI provides the following commands for interacting with F1r3fly nodes:
 
