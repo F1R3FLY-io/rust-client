@@ -8,7 +8,7 @@ Add `node_cli` as a dependency with `default-features = false` to avoid pulling 
 
 ```toml
 [dependencies]
-node_cli = { git = "https://github.com/F1R3FLY-io/rust-client.git", branch = "feat/lib-crate", default-features = false }
+node_cli = { git = "https://github.com/F1R3FLY-io/rust-client.git", default-features = false }
 ```
 
 ### Library Modules
