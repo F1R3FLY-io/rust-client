@@ -59,6 +59,7 @@ impl Dispatcher {
                 .await
                 .map_err(NodeCliError::from),
             Commands::Transfer(args) => transfer_command(args).await.map_err(NodeCliError::from),
+            Commands::LoadTest(args) => load_test_command(args).await.map_err(NodeCliError::from),
             Commands::GetDeploy(args) => get_deploy_command(args).await.map_err(NodeCliError::from),
             Commands::EpochInfo(args) => epoch_info_command(args).await.map_err(NodeCliError::from),
             Commands::ValidatorStatus(args) => validator_status_command(args)
@@ -75,6 +76,10 @@ impl Dispatcher {
                 .map_err(NodeCliError::from),
             Commands::GetNodeId(args) => get_node_id_command(args).map_err(NodeCliError::from),
             Commands::WatchBlocks(args) => watch_blocks_command(args)
+                .await
+                .map_err(NodeCliError::from),
+            Commands::Dag(args) => run_dag(args).await,
+            Commands::BlockTransfers(args) => block_transfers_command(args)
                 .await
                 .map_err(NodeCliError::from),
         };
@@ -143,6 +148,7 @@ impl Dispatcher {
             Commands::LastFinalizedBlock(_) => "last-finalized-block",
             Commands::ShowMainChain(_) => "show-main-chain",
             Commands::Transfer(_) => "transfer",
+            Commands::LoadTest(_) => "load-test",
             Commands::GetDeploy(_) => "get-deploy",
             Commands::EpochInfo(_) => "epoch-info",
             Commands::ValidatorStatus(_) => "validator-status",
@@ -151,6 +157,8 @@ impl Dispatcher {
             Commands::GetBlocksByHeight(_) => "get-blocks-by-height",
             Commands::GetNodeId(_) => "get-node-id",
             Commands::WatchBlocks(_) => "watch-blocks",
+            Commands::Dag(_) => "dag",
+            Commands::BlockTransfers(_) => "block-transfers",
         }
     }
 }

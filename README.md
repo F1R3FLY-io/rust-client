@@ -177,18 +177,25 @@ cargo run -- generate-rev-address --public-key YOUR_PUBLIC_KEY
 
 ### Get Node ID
 
-Extract the F1R3FLY node ID from a TLS private key file. The node ID is a 40-character hexadecimal string derived from the Keccak-256 hash of the TLS public key (removing the '04' prefix).
+Extract the F1R3FLY node ID from a TLS private key file or certificate file. The node ID is a 40-character hexadecimal string derived from the Keccak-256 hash of the TLS public key (removing the '04' prefix).
 
 ```bash
-# Extract node ID from TLS key file (hex format)
+# Extract node ID from TLS private key file (hex format)
 cargo run -- get-node-id --key-file /path/to/node.key.pem
 
+# Extract node ID from TLS certificate file (hex format) - recommended for distribution
+cargo run -- get-node-id --cert-file /path/to/node.certificate.pem
+
 # Extract node ID and generate RNode URL format
-cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url
+cargo run -- get-node-id --cert-file /path/to/node.certificate.pem --format rnode-url
 
 # Generate RNode URL with custom host and ports
-cargo run -- get-node-id --key-file /path/to/node.key.pem --format rnode-url --host mynode.com --protocol-port 40400 --discovery-port 40404
+cargo run -- get-node-id --cert-file /path/to/node.certificate.pem --format rnode-url --host mynode.com --protocol-port 40400 --discovery-port 40404
 ```
+
+**Input options:**
+- `--key-file`: Path to TLS private key file (node.key.pem)
+- `--cert-file`: Path to TLS certificate file (node.certificate.pem) - use this when distributing to clients
 
 **Output formats:**
 - `hex` (default): Returns just the 40-character node ID
@@ -291,6 +298,21 @@ cargo run -- blocks --block-hash BLOCK_HASH_HERE
 
 # Get blocks from custom node
 cargo run -- blocks -H node.example.com -p 40413 -n 3
+```
+
+### Block Transfers
+
+Get transfer information from a specific block. This command extracts and displays all native REV transfers that were executed within a block's deploys.
+
+```bash
+# Get transfers from a specific block
+cargo run -- block-transfers BLOCK_HASH
+
+# Show all deploys (including those without transfers)
+cargo run -- block-transfers BLOCK_HASH --all-deploys
+
+# From a custom node
+cargo run -- block-transfers BLOCK_HASH -H node.example.com -p 40403
 ```
 
 ### Bonds
@@ -455,7 +477,7 @@ cargo run -- transfer --to-address RECIPIENT_ADDRESS --amount 1000 -H node.examp
 
 ### Network Health
 
-Check the health and connectivity of multiple nodes in your F1r3fly shard.
+Check the health and connectivity of multiple nodes in your F1r3fly shard. Supports recursive peer discovery to map network topology and detailed peer information.
 
 **Local Development (Single Host):**
 ```bash
@@ -472,6 +494,27 @@ cargo run -- network-health --custom-ports "60503"
 cargo run -- network-health --standard-ports false --custom-ports "60503,70503"
 ```
 
+**Recursive Peer Discovery:**
+```bash
+# Recursively discover all peers in the network (max 20 unique peers by default)
+cargo run -- network-health -H localhost --recursive
+
+# Discover all peers with no limit
+cargo run -- network-health -H localhost --recursive --max-peers -1
+
+# Discover up to 50 unique peers
+cargo run -- network-health -H localhost --recursive --max-peers 50
+
+# Recursive discovery with verbose output (detailed peer information)
+cargo run -- network-health -H localhost --recursive --verbose
+
+# Show HTTP requests and responses for debugging
+cargo run -- network-health -H localhost --recursive --debug
+
+# Combine all options for comprehensive network analysis
+cargo run -- network-health -H localhost --recursive --max-peers 100 --verbose --debug
+```
+
 **Multi-Host / Remote Networks:**
 ```bash
 # For remote hosts, you MUST specify --custom-ports (no standard port assumptions)
@@ -480,11 +523,27 @@ cargo run -- network-health -H testnet.example.com --custom-ports "8001,8002,944
 # Single remote node
 cargo run -- network-health -H validator.net --custom-ports "7890"
 
+# Recursive discovery on remote network
+cargo run -- network-health -H validator.net --custom-ports "7890" --recursive --max-peers 50
+
 # Different hosts require separate commands
 cargo run -- network-health -H host1.com --custom-ports "8001"
-cargo run -- network-health -H host2.com --custom-ports "8002" 
+cargo run -- network-health -H host2.com --custom-ports "8002"
 cargo run -- network-health -H host3.com --custom-ports "9443"
 ```
+
+**Features:**
+- **Standard Mode**: Queries specified nodes and displays basic health status
+- **Recursive Mode**: Automatically discovers peers from each node and adds them to discovery queue (BFS traversal)
+- **Verbose Output**: Shows detailed peer information including connection status and network statistics
+- **Debug Mode**: Displays HTTP requests and responses for troubleshooting
+
+**Peer Statistics (Recursive Mode):**
+- Total healthy nodes discovered
+- Total peer count
+- Average peers per node
+- Min/max peers (with `--verbose`)
+- Connected peer ratio (with `--verbose`)
 
 **Note:** Remote hosts don't use standard F1r3fly ports (40403, 40413, etc.). You must explicitly specify the actual ports in use with `--custom-ports` to avoid connection failures.
 
@@ -509,7 +568,10 @@ Check the detailed status of a specific validator (bonded, active, or quarantine
 cargo run -- validator-status -k 04d26c6103d7269773b943d7a9c456f9eb227e0d8b1fe30bccee4fca963f4446e3385d99f6386317f2c1ad36b9e6b0d5f97bb0a0041f05781c60a5ebca124a251d
 
 # Check validator status on custom node
-cargo run -- validator-status -k YOUR_VALIDATOR_PUBLIC_KEY -H node.example.com -p 40452
+cargo run -- validator-status -k YOUR_VALIDATOR_PUBLIC_KEY -H node.example.com -p 40452 --http-port 40453
+
+# For standalone node (same port for gRPC and HTTP)
+cargo run -- validator-status -k YOUR_VALIDATOR_PUBLIC_KEY -p 40402 --http-port 40403
 ```
 
 ### Epoch Rewards
@@ -533,8 +595,18 @@ Get network-wide consensus health overview including validator participation rat
 cargo run -- network-consensus
 
 # Get consensus overview from custom node
-cargo run -- network-consensus -H node.example.com -p 40452
+cargo run -- network-consensus -H node.example.com -p 40452 --http-port 40453
+
+# For standalone node (same port for gRPC and HTTP)
+cargo run -- network-consensus -p 40402 --http-port 40403
 ```
+
+## Testing
+
+See [scripts/README.md](scripts/README.md) for documentation on:
+- **Smoke Tests** - Comprehensive test suite validating 30+ CLI commands
+- **Load Tests** - Performance testing with transfer finalization tracking
+- **Important notes** on consensus issues with repeated test runs
 
 ## Command Line Options
 
@@ -602,11 +674,14 @@ cargo run -- network-consensus -H node.example.com -p 40452
 
 ### Get-Node-ID Command
 
-- `-k, --key-file <KEY_FILE>`: Path to the TLS private key file (node.key.pem) (required)
+- `-k, --key-file <KEY_FILE>`: Path to the TLS private key file (node.key.pem) (mutually exclusive with --cert-file)
+- `-c, --cert-file <CERT_FILE>`: Path to the TLS certificate file (node.certificate.pem) (mutually exclusive with --key-file)
 - `-f, --format <FORMAT>`: Output format: "hex" (default) or "rnode-url"
 - `-H, --host <HOST>`: Node hostname for rnode-url format (default: "localhost")
 - `--protocol-port <PROTOCOL_PORT>`: Protocol port for rnode-url format (default: 40400)
 - `--discovery-port <DISCOVERY_PORT>`: Discovery port for rnode-url format (default: 40404)
+
+**Note:** Either `--key-file` or `--cert-file` must be provided. Use `--cert-file` when distributing to clients to avoid exposing private keys.
 
 ### Status Command
 
@@ -619,6 +694,13 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-p, --port <PORT>`: HTTP port number (default: 40413)
 - `-n, --number <NUMBER>`: Number of recent blocks to fetch (default: 5)
 - `-b, --block-hash <BLOCK_HASH>`: Specific block hash to fetch (optional)
+
+### Block-Transfers Command
+
+- `-b, --block-hash <BLOCK_HASH>`: Block hash to get transfers from (required)
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: HTTP port number (default: 40403)
+- `--all-deploys`: Show all deploys, not just those with transfers (default: false)
 
 ### Bonds Command
 
@@ -683,6 +765,10 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `-H, --host <HOST>`: Host address (default: "localhost")
 - `-s, --standard-ports <STANDARD_PORTS>`: Check standard F1r3fly shard ports (default: true)
 - `-c, --custom-ports <CUSTOM_PORTS>`: Additional custom ports to check (comma-separated)
+- `-r, --recursive`: Enable recursive peer discovery to find all peers in the network (default: false)
+- `-n, --max-peers <MAX_PEERS>`: Maximum number of unique peers to discover; -1 or 0 means no limit (default: 20)
+- `-v, --verbose`: Print more details about the results, including peer statistics and min/max values (default: false)
+- `--debug`: Print underlying HTTP requests and responses for troubleshooting (default: false)
 
 ### Transfer Command
 
@@ -696,3 +782,28 @@ cargo run -- network-consensus -H node.example.com -p 40452
 - `--propose <PROPOSE>`: Also propose a block after transfer (default: false)
 - `--max-wait <MAX_WAIT>`: Maximum total wait time in seconds for deploy finalization (default: 300)
 - `--check-interval <CHECK_INTERVAL>`: Check interval in seconds for deploy status (default: 5)
+
+### Epoch-Info Command
+
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
+- `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)
+
+### Epoch-Rewards Command
+
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
+- `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)
+
+### Validator-Status Command
+
+- `-k, --public-key <PUBLIC_KEY>`: Validator public key to check (hex format, required)
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
+- `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)
+
+### Network-Consensus Command
+
+- `-H, --host <HOST>`: Host address (default: "localhost")
+- `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
+- `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)

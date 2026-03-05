@@ -3,3 +3,6 @@ target/
 .env
 
 .vscode
+
+# Smoke test logs
+logs/

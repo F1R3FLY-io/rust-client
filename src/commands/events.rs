@@ -36,9 +36,18 @@ pub struct BlockEventPayload {
     pub block_hash: String,
     pub parent_hashes: Vec<String>,
     pub justification_hashes: Vec<(String, String)>,
-    pub deploy_ids: Vec<String>,
+    pub deploys: Vec<BlockEventDeploy>,
     pub creator: String,
     pub seq_num: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct BlockEventDeploy {
+    pub id: String,
+    pub cost: u64,
+    pub deployer: String,
+    pub errored: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,20 +243,19 @@ fn display_pretty(event: &RChainEvent) {
             println!("├─ Seq Num:  {}", payload.seq_num);
             println!("├─ Parents:  {}", payload.parent_hashes.len());
 
-            if !payload.deploy_ids.is_empty() {
+            if !payload.deploys.is_empty() {
                 println!(
                     "└─ Deploys:  {} [{}]",
-                    payload.deploy_ids.len(),
+                    payload.deploys.len(),
                     payload
-                        .deploy_ids
+                        .deploys
                         .iter()
-                        .take(3)
-                        .map(|d| d.as_str())
+                        .map(|d| d.id.clone())
                         .collect::<Vec<_>>()
                         .join(", ")
                 );
             } else {
-                println!("└─ Deploys:  {}", payload.deploy_ids.len());
+                println!("└─ Deploys:  {}", payload.deploys.len());
             }
             println!();
         }
@@ -258,20 +266,19 @@ fn display_pretty(event: &RChainEvent) {
             println!("├─ Seq Num:  {}", payload.seq_num);
             println!("├─ Parents:  {}", payload.parent_hashes.len());
 
-            if !payload.deploy_ids.is_empty() {
+            if !payload.deploys.is_empty() {
                 println!(
                     "└─ Deploys:  {} [{}]",
-                    payload.deploy_ids.len(),
+                    payload.deploys.len(),
                     payload
-                        .deploy_ids
+                        .deploys
                         .iter()
-                        .take(3)
-                        .map(|d| d.as_str())
+                        .map(|d| d.id.clone())
                         .collect::<Vec<_>>()
                         .join(", ")
                 );
             } else {
-                println!("└─ Deploys:  {}", payload.deploy_ids.len());
+                println!("└─ Deploys:  {}", payload.deploys.len());
             }
             println!();
         }

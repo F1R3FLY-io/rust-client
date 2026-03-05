@@ -74,6 +74,9 @@ pub enum Commands {
     /// Transfer REV tokens between addresses
     Transfer(TransferArgs),
 
+    /// Run load test by sending multiple transfers and tracking orphan rate
+    LoadTest(LoadTestArgs),
+
     /// Get a specific deploy by ID
     GetDeploy(GetDeployArgs),
 
@@ -97,6 +100,12 @@ pub enum Commands {
 
     /// Watch real-time block events via WebSocket
     WatchBlocks(WatchBlocksArgs),
+
+    /// Interactive DAG visualization with real-time updates
+    Dag(DagArgs),
+
+    /// Get transfer information from a block's deploys
+    BlockTransfers(BlockTransfersArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -493,6 +502,22 @@ pub struct NetworkHealthArgs {
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
+
+    /// Enable recursive peer discovery to find all peers in the network
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// Maximum number of unique peers to discover (-1 or 0 means no limit)
+    #[arg(short = 'n', long, default_value = "20")]
+    pub max_peers: i32,
+
+    /// Print more details about the results
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    /// Print underlying HTTP requests and responses
+    #[arg(long)]
+    pub debug: bool,
 }
 
 /// Arguments for transfer command
@@ -550,6 +575,65 @@ pub struct TransferArgs {
     pub observer_port: Option<u16>,
 }
 
+/// Arguments for load-test command
+#[derive(Parser)]
+pub struct LoadTestArgs {
+    /// Recipient REV address
+    #[arg(long)]
+    pub to_address: String,
+
+    /// Number of transfers to send
+    #[arg(long, default_value_t = 20)]
+    pub num_tests: u32,
+
+    /// Amount in REV per transfer
+    #[arg(long, default_value_t = 1)]
+    pub amount: u64,
+
+    /// Seconds between tests
+    #[arg(long, default_value_t = 10)]
+    pub interval: u64,
+
+    /// Private key for signing (hex format)
+    #[arg(
+        long,
+        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+    )]
+    pub private_key: String,
+
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// gRPC port number
+    #[arg(short, long, default_value_t = 40412)]
+    pub port: u16,
+
+    /// HTTP port for status queries
+    #[arg(long = "http-port", default_value_t = 40413)]
+    pub http_port: u16,
+
+    /// Check interval in seconds for deploy status (fast mode)
+    #[arg(long = "check-interval", default_value_t = 1)]
+    pub check_interval: u64,
+
+    /// Max depth to check main chain for orphan detection
+    #[arg(long = "chain-depth", default_value_t = 200)]
+    pub chain_depth: u32,
+
+    /// Read-only gRPC port for balance queries (requires read-only node)
+    #[arg(long = "readonly-port", default_value_t = 40452)]
+    pub readonly_port: u16,
+
+    /// Maximum time in seconds to wait for block inclusion
+    #[arg(long = "inclusion-timeout", default_value_t = 120)]
+    pub inclusion_timeout: u64,
+
+    /// Maximum time in seconds to wait for block finalization
+    #[arg(long = "finalization-timeout", default_value_t = 120)]
+    pub finalization_timeout: u64,
+}
+
 /// Arguments for validator-status command
 #[derive(Parser)]
 pub struct ValidatorStatusArgs {
@@ -564,6 +648,10 @@ pub struct ValidatorStatusArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+
+    /// HTTP port number for explore-deploy queries
+    #[arg(long = "http-port", default_value_t = 40453)]
+    pub http_port: u16,
 }
 
 /// Arguments for PoS contract query commands (epoch-info, network-consensus, epoch-rewards)
@@ -576,17 +664,25 @@ pub struct PosQueryArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+
+    /// HTTP port number for explore-deploy queries
+    #[arg(long = "http-port", default_value_t = 40453)]
+    pub http_port: u16,
 }
 
 /// Arguments for get-node-id command
 #[derive(Parser, Debug)]
 pub struct GetNodeIdArgs {
     /// Path to the TLS private key file (node.key.pem)
-    #[arg(short, long)]
-    pub key_file: String,
+    #[arg(short = 'k', long, conflicts_with = "cert_file")]
+    pub key_file: Option<String>,
+
+    /// Path to the TLS certificate file (node.certificate.pem)
+    #[arg(short = 'c', long, conflicts_with = "key_file")]
+    pub cert_file: Option<String>,
 
     /// Output format (hex, rnode-url)
-    #[arg(short, long, default_value = "hex")]
+    #[arg(short = 'f', long, default_value = "hex")]
     pub format: String,
 
     /// Node hostname for rnode-url format
@@ -620,4 +716,50 @@ pub struct WatchBlocksArgs {
     /// Retry reconnection indefinitely until manually killed (Ctrl+C)
     #[arg(long, default_value_t = false)]
     pub retry_forever: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct DagArgs {
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port for block queries
+    #[arg(long, default_value_t = 40413)]
+    pub http_port: u16,
+
+    /// WebSocket port for real-time events
+    #[arg(long, default_value_t = 40403)]
+    pub ws_port: u16,
+
+    /// Initial number of blocks to load
+    #[arg(short, long, default_value_t = 50)]
+    pub depth: usize,
+
+    /// Disable real-time updates (static view)
+    #[arg(long, default_value_t = false)]
+    pub no_live: bool,
+
+    /// Show deploy counts inline
+    #[arg(long, default_value_t = true)]
+    pub show_deploys: bool,
+}
+
+/// Arguments for block-transfers command
+#[derive(Parser, Debug)]
+pub struct BlockTransfersArgs {
+    /// Block hash to get transfers from
+    pub block_hash: String,
+
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port number
+    #[arg(short, long, default_value_t = 40403)]
+    pub port: u16,
+
+    /// Show all deploys, not just those with transfers
+    #[arg(long = "all-deploys", default_value_t = false)]
+    pub all_deploys: bool,
 }

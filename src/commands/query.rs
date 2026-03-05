@@ -2,6 +2,7 @@ use crate::args::*;
 use crate::f1r3fly_api::F1r3flyApi;
 use reqwest;
 use serde_json;
+use std::collections::{HashSet, VecDeque};
 use std::time::Instant;
 
 pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -494,6 +495,124 @@ pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+// Helper struct for discovered peers
+#[derive(Debug, Clone)]
+struct DiscoveredPeer {
+    address: String,
+    node_id: String,
+    host: String,
+    protocol_port: u16,
+    discovery_port: u16,
+    connection_status: String,
+}
+
+impl DiscoveredPeer {
+    fn from_json(json: &serde_json::Value) -> Option<Self> {
+        Some(DiscoveredPeer {
+            address: json.get("address")?.as_str()?.to_string(),
+            node_id: json.get("nodeId")?.as_str()?.to_string(),
+            host: json.get("host")?.as_str()?.to_string(),
+            protocol_port: json.get("protocolPort")?.as_u64()? as u16,
+            discovery_port: json.get("discoveryPort")?.as_u64()? as u16,
+            connection_status: json
+                .get("connectionStatus")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+        })
+    }
+
+    fn uri_key(&self) -> String {
+        format!("{}:{}", self.host, self.protocol_port)
+    }
+}
+
+// Helper function to query a node's status and return full JSON response
+async fn query_node_status(
+    client: &reqwest::Client,
+    host: &str,
+    port: u16,
+    debug: bool,
+) -> Result<(serde_json::Value, String), String> {
+    let url = format!("http://{}:{}/status", host, port);
+
+    if debug {
+        println!("\n🐛 [DEBUG] HTTP Request:");
+        println!("   Method: GET");
+        println!("   URL: {}", url);
+    }
+
+    match client.get(&url).send().await {
+        Ok(response) => {
+            let status_code = response.status();
+
+            if debug {
+                println!("🐛 [DEBUG] HTTP Response:");
+                println!("   Status: {}", status_code);
+                println!("   Headers: {:#?}", response.headers());
+            }
+
+            if status_code.is_success() {
+                match response.text().await {
+                    Ok(status_text) => {
+                        if debug {
+                            println!("🐛 [DEBUG] Response Body:");
+                            if let Ok(pretty) = serde_json::to_string_pretty(
+                                &serde_json::from_str::<serde_json::Value>(&status_text)
+                                    .unwrap_or(serde_json::json!({})),
+                            ) {
+                                for line in pretty.lines() {
+                                    println!("   {}", line);
+                                }
+                            }
+                        }
+                        match serde_json::from_str::<serde_json::Value>(&status_text) {
+                            Ok(json) => Ok((json, status_text)),
+                            Err(_) => Err("Invalid JSON response".to_string()),
+                        }
+                    }
+                    Err(_) => Err("Failed to read response".to_string()),
+                }
+            } else {
+                Err(format!("HTTP {}", status_code))
+            }
+        }
+        Err(e) => {
+            if debug {
+                println!("🐛 [DEBUG] Error: {}", e);
+            }
+            Err("Connection failed".to_string())
+        }
+    }
+}
+
+// Helper function to extract peer list from status JSON
+fn extract_peers(status_json: &serde_json::Value) -> Vec<DiscoveredPeer> {
+    let mut peers = Vec::new();
+
+    if let Some(peer_list) = status_json.get("peerList") {
+        if let Some(peer_array) = peer_list.as_array() {
+            for peer_json in peer_array {
+                if let Some(peer) = DiscoveredPeer::from_json(peer_json) {
+                    peers.push(peer);
+                }
+            }
+        }
+    }
+
+    peers
+}
+
+// Display peer details in a formatted way
+fn display_peer_info(peer: &DiscoveredPeer, indent: &str) {
+    println!("{}├─ 🔗 Address: {}", indent, peer.address);
+    println!("{}├─ 📍 Node ID: {}", indent, peer.node_id);
+    println!("{}├─ 🏠 Host: {}", indent, peer.host);
+    println!("{}├─ 🔌 Protocol Port: {}", indent, peer.protocol_port);
+    println!("{}├─ 🔍 Discovery Port: {}", indent, peer.discovery_port);
+    println!("{}└─ 📡 Status: {}", indent, peer.connection_status);
+}
+
 pub async fn network_health_command(
     args: &NetworkHealthArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -535,68 +654,215 @@ pub async fn network_health_command(
     let client = reqwest::Client::new();
     let mut healthy_nodes = 0;
     let mut total_nodes = 0;
-    let mut all_peers = Vec::new();
+    let mut all_peer_lists: Vec<Vec<DiscoveredPeer>> = Vec::new();
+    let mut node_status_map: Vec<(String, bool, serde_json::Value)> = Vec::new();
 
-    println!("🔍 Checking {} nodes...\n", ports_to_check.len());
+    if args.recursive {
+        // Recursive peer discovery mode
+        println!(
+            "🔍 Starting recursive peer discovery (max peers: {})\n",
+            if args.max_peers <= 0 {
+                "unlimited".to_string()
+            } else {
+                args.max_peers.to_string()
+            }
+        );
 
-    for (port, node_type) in ports_to_check {
-        total_nodes += 1;
-        let url = format!("http://{}:{}/status", args.host, port);
+        let mut visited = HashSet::new();
+        let mut queue: VecDeque<(String, u16)> = VecDeque::new();
+        let mut discovered_peers = Vec::new();
 
-        print!("📊 {} ({}:{}): ", node_type, args.host, port);
+        // Initialize queue with specified ports
+        for (port, _) in &ports_to_check {
+            let uri_key = format!("{}:{}", args.host, port);
+            queue.push_back((args.host.clone(), *port));
+            visited.insert(uri_key);
+        }
 
-        match client.get(&url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    match response.text().await {
-                        Ok(status_text) => {
-                            match serde_json::from_str::<serde_json::Value>(&status_text) {
-                                Ok(status_json) => {
-                                    healthy_nodes += 1;
+        // Process discovery queue
+        while !queue.is_empty() {
+            // Check if we've reached the peer limit
+            if args.max_peers > 0 && discovered_peers.len() >= args.max_peers as usize {
+                println!("\n⚠️  Reached maximum peer limit of {}", args.max_peers);
+                break;
+            }
 
-                                    let peers = status_json
-                                        .get("peers")
-                                        .and_then(|p| p.as_u64())
-                                        .unwrap_or(0);
+            if let Some((host, port)) = queue.pop_front() {
+                total_nodes += 1;
+                let uri_key = format!("{}:{}", host, port);
 
-                                    all_peers.push(peers);
+                print!("📊 Querying {}:{}: ", host, port);
 
-                                    println!("✅ HEALTHY ({} peers)", peers);
+                match query_node_status(&client, &host, port, args.debug).await {
+                    Ok((status_json, _raw_response)) => {
+                        healthy_nodes += 1;
+                        println!("✅ HEALTHY");
+
+                        // Display full response including peer list
+                        node_status_map.push((uri_key.clone(), true, status_json.clone()));
+
+                        // Extract peers from this node
+                        let peers = extract_peers(&status_json);
+                        all_peer_lists.push(peers.clone());
+
+                        if args.verbose {
+                            println!("   📊 Peer count: {}", peers.len());
+                        }
+
+                        println!("   👥 Peers from this node:");
+                        for peer in &peers {
+                            let peer_uri = peer.uri_key();
+                            if !visited.contains(&peer_uri)
+                                && (args.max_peers <= 0
+                                    || discovered_peers.len() < args.max_peers as usize)
+                            {
+                                visited.insert(peer_uri);
+                                queue.push_back((peer.host.clone(), peer.protocol_port));
+                                discovered_peers.push(peer.clone());
+                                print!(
+                                    "      Added: {} ({}:{})",
+                                    peer.node_id, peer.host, peer.protocol_port
+                                );
+                                if args.verbose {
+                                    print!(" [status: {}]", peer.connection_status);
                                 }
-                                Err(_) => println!("❌ Invalid JSON response"),
+                                if args.max_peers > 0
+                                    && discovered_peers.len() >= args.max_peers as usize
+                                {
+                                    println!(" [LIMIT REACHED]");
+                                    break;
+                                }
+                                println!();
                             }
                         }
-                        Err(_) => println!("❌ Failed to read response"),
                     }
-                } else {
-                    println!("❌ HTTP {}", response.status());
+                    Err(e) => {
+                        println!("❌ {}", e);
+                        node_status_map.push((uri_key, false, serde_json::json!({})));
+                    }
                 }
             }
-            Err(_) => println!("❌ Connection failed"),
+        }
+
+        println!("\n📈 Recursive Discovery Summary:");
+        println!("✅ Healthy nodes: {}/{}", healthy_nodes, total_nodes);
+        println!("🔗 Total discovered peers: {}", discovered_peers.len());
+    } else {
+        // Standard mode: just query specified ports
+        println!("🔍 Checking {} nodes...\n", ports_to_check.len());
+
+        for (port, node_type) in ports_to_check {
+            total_nodes += 1;
+            let uri_key = format!("{}:{}", args.host, port);
+
+            print!("📊 {} ({}:{}): ", node_type, args.host, port);
+
+            match query_node_status(&client, &args.host, port, args.debug).await {
+                Ok((status_json, _raw_response)) => {
+                    healthy_nodes += 1;
+                    let peer_count = status_json
+                        .get("peers")
+                        .and_then(|p| p.as_u64())
+                        .unwrap_or(0);
+
+                    println!("✅ HEALTHY ({} peers)", peer_count);
+
+                    // Store the status and peer list
+                    node_status_map.push((uri_key, true, status_json.clone()));
+                    let peers = extract_peers(&status_json);
+                    all_peer_lists.push(peers);
+
+                    if args.verbose {
+                        if let Some(peers_from_endpoint) = status_json.get("peers") {
+                            println!("   📊 Peers count from endpoint: {}", peers_from_endpoint);
+                        }
+                        if let Some(version) = status_json.get("version") {
+                            println!("   🔖 Version: {}", version);
+                        }
+                        if let Some(uptime) = status_json.get("uptime") {
+                            println!("   ⏱️  Uptime: {}", uptime);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("❌ {}", e);
+                    node_status_map.push((uri_key, false, serde_json::json!({})));
+                }
+            }
+        }
+
+        println!("\n📈 Network Health Summary:");
+        println!("✅ Healthy nodes: {}/{}", healthy_nodes, total_nodes);
+    }
+
+    // Display detailed peer information for each node
+    if !node_status_map.is_empty() && healthy_nodes > 0 {
+        if args.verbose {
+            println!("\n🔍 Detailed Peer Information:\n");
+            for (uri, is_healthy, status_json) in &node_status_map {
+                if *is_healthy {
+                    println!("📍 Node {}:", uri);
+                    let peers = extract_peers(status_json);
+                    if peers.is_empty() {
+                        println!("   └─ No peers discovered");
+                    } else {
+                        for (i, peer) in peers.iter().enumerate() {
+                            println!("   Peer {}:", i + 1);
+                            display_peer_info(peer, "      ");
+                            if i < peers.len() - 1 {
+                                println!();
+                            }
+                        }
+                    }
+                    println!();
+                }
+            }
         }
     }
 
-    println!("\n📈 Network Health Summary:");
-    println!("✅ Healthy nodes: {}/{}", healthy_nodes, total_nodes);
+    // Summary statistics
+    if healthy_nodes > 0 && !all_peer_lists.is_empty() {
+        let total_peer_count: usize = all_peer_lists.iter().map(|p| p.len()).sum();
+        let avg_peers = total_peer_count as f64 / all_peer_lists.len() as f64;
 
-    if healthy_nodes > 0 {
-        let avg_peers = all_peers.iter().sum::<u64>() as f64 / all_peers.len() as f64;
-        let min_peers = all_peers.iter().min().unwrap_or(&0);
-        let max_peers = all_peers.iter().max().unwrap_or(&0);
+        println!("📊 Peer Statistics:");
+        println!("   Total peer entries: {}", total_peer_count);
+        println!("   Average peers per node: {:.1}", avg_peers);
 
-        println!(
-            "👥 Peer connections: avg={:.1}, min={}, max={}",
-            avg_peers, min_peers, max_peers
-        );
+        if args.verbose {
+            let mut peer_counts_by_node: Vec<usize> =
+                all_peer_lists.iter().map(|p| p.len()).collect();
+            peer_counts_by_node.sort();
+            if let Some(min) = peer_counts_by_node.first() {
+                println!("   Minimum peers on a node: {}", min);
+            }
+            if let Some(max) = peer_counts_by_node.last() {
+                println!("   Maximum peers on a node: {}", max);
+            }
 
-        if healthy_nodes == total_nodes && *min_peers >= (total_nodes as u64 - 1) {
-            println!("🎉 Network is FULLY CONNECTED and HEALTHY!");
-        } else if healthy_nodes == total_nodes {
-            println!("⚠️  All nodes healthy but some peer connections may be missing");
+            // Count peer connectivity status
+            let connected_peers: usize = all_peer_lists
+                .iter()
+                .flat_map(|peers| peers.iter())
+                .filter(|p| {
+                    p.connection_status.to_lowercase().contains("connected")
+                        || p.connection_status.to_lowercase().contains("active")
+                })
+                .count();
+            if connected_peers > 0 {
+                println!(
+                    "   Connected peers: {}/{}",
+                    connected_peers, total_peer_count
+                );
+            }
+        }
+
+        if healthy_nodes == total_nodes {
+            println!("🎉 All queried nodes are HEALTHY!");
         } else {
             println!("⚠️  Some nodes are unhealthy - check individual node logs");
         }
-    } else {
+    } else if healthy_nodes == 0 {
         println!("❌ No healthy nodes found - check if network is running");
     }
 
@@ -783,7 +1049,7 @@ pub async fn validator_status_command(
 
     // Use HTTP API for PoS contract queries (like bonds/network-consensus commands)
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     // Get main chain tip first to ensure consistent state reference
     let main_chain = f1r3fly_api.show_main_chain(1).await?;
@@ -1106,7 +1372,7 @@ pub async fn network_consensus_command(
 
     // Get all validator info in parallel using HTTP API for PoS queries
     let client = reqwest::Client::new();
-    let http_url = format!("http://{}:40453/api/explore-deploy", args.host); // Use HTTP port
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
         rl!(`rho:rchain:pos`, *poSCh) |
@@ -1240,7 +1506,10 @@ pub async fn get_blocks_by_height_command(
         "🔗 Getting blocks by height range from {}:{}",
         args.host, args.port
     );
-    println!("📊 Block range: {} to {}", args.start_block_number, args.end_block_number);
+    println!(
+        "📊 Block range: {} to {}",
+        args.start_block_number, args.end_block_number
+    );
 
     // Validate block range
     if args.start_block_number > args.end_block_number {
@@ -1256,7 +1525,10 @@ pub async fn get_blocks_by_height_command(
 
     let start_time = Instant::now();
 
-    match f1r3fly_api.get_blocks_by_height(args.start_block_number, args.end_block_number).await {
+    match f1r3fly_api
+        .get_blocks_by_height(args.start_block_number, args.end_block_number)
+        .await
+    {
         Ok(blocks) => {
             let duration = start_time.elapsed();
             println!("✅ Blocks retrieved successfully!");
@@ -1302,9 +1574,8 @@ pub async fn get_blocks_by_height_command(
 fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<(), String> {
     match (host, custom_ports) {
         // Remote host without custom ports - ERROR
-        (h, None) if h != "localhost" && h != "127.0.0.1" => {
-            Err(format!(
-                "When using -H with remote host '{}', you must specify --custom-ports\n\
+        (h, None) if h != "localhost" && h != "127.0.0.1" => Err(format!(
+            "When using -H with remote host '{}', you must specify --custom-ports\n\
                 \n\
                 Remote hosts don't use standard F1r3fly ports. Specify the actual ports:\n\
                 \n\
@@ -1315,10 +1586,149 @@ fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<
                 For localhost, standard ports are assumed:\n\
                   cargo run -- network-health -H localhost  (uses standard ports)\n\
                   cargo run -- network-health              (uses localhost + standard ports)",
-                h, h, h
-            ))
-        }
+            h, h, h
+        )),
         // All other combinations are valid
-        _ => Ok(())
+        _ => Ok(()),
     }
+}
+
+pub async fn block_transfers_command(
+    args: &BlockTransfersArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Getting transfers from block: {}", args.block_hash);
+
+    let url = format!(
+        "http://{}:{}/api/block/{}",
+        args.host, args.port, args.block_hash
+    );
+    let client = reqwest::Client::new();
+    let start_time = Instant::now();
+
+    let response = client.get(&url).send().await?;
+    let duration = start_time.elapsed();
+
+    if !response.status().is_success() {
+        println!("Failed to get block: HTTP {}", response.status());
+        return Err(format!("HTTP {}", response.status()).into());
+    }
+
+    let block_json: serde_json::Value = response.json().await?;
+
+    println!("Block retrieved successfully!");
+    println!("Time taken: {:.2?}", duration);
+    println!();
+
+    // Extract block info
+    let block_number = block_json
+        .get("blockInfo")
+        .and_then(|b| b.get("blockNumber"))
+        .and_then(|n| n.as_i64())
+        .unwrap_or(0);
+
+    let block_hash_display = if args.block_hash.len() > 16 {
+        format!("{}...", &args.block_hash[..16])
+    } else {
+        args.block_hash.clone()
+    };
+
+    println!("Block #{} ({})", block_number, block_hash_display);
+    println!();
+
+    // Extract deploys and their transfers
+    let deploys = block_json
+        .get("deploys")
+        .and_then(|d| d.as_array())
+        .map(|a| a.to_vec())
+        .unwrap_or_default();
+
+    let mut total_transfers = 0;
+    let mut deploys_with_transfers = 0;
+    let mut successful_transfers = 0;
+    let mut failed_transfers = 0;
+
+    for (i, deploy) in deploys.iter().enumerate() {
+        let sig = deploy
+            .get("sig")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+
+        let transfers = deploy
+            .get("transfers")
+            .and_then(|t| t.as_array())
+            .map(|a| a.to_vec())
+            .unwrap_or_default();
+
+        if transfers.is_empty() && !args.all_deploys {
+            continue;
+        }
+
+        if !transfers.is_empty() {
+            deploys_with_transfers += 1;
+        }
+
+        let sig_display = if sig.len() > 20 {
+            format!("{}...", &sig[..20])
+        } else {
+            sig.to_string()
+        };
+
+        println!("Deploy #{} (sig: {})", i + 1, sig_display);
+
+        if transfers.is_empty() {
+            println!("   No transfers");
+        } else {
+            for (j, transfer) in transfers.iter().enumerate() {
+                total_transfers += 1;
+                let from = transfer
+                    .get("fromAddr")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let to = transfer
+                    .get("toAddr")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let amount = transfer.get("amount").and_then(|v| v.as_i64()).unwrap_or(0);
+                let success = transfer
+                    .get("success")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let fail_reason = transfer
+                    .get("failReason")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                if success {
+                    successful_transfers += 1;
+                } else {
+                    failed_transfers += 1;
+                }
+
+                let status = if success {
+                    "Success".to_string()
+                } else {
+                    format!("Failed: {}", fail_reason)
+                };
+
+                println!("   Transfer #{}:", j + 1);
+                println!("      From:   {}", from);
+                println!("      To:     {}", to);
+                println!("      Amount: {} REV", amount);
+                println!("      Status: {}", status);
+            }
+        }
+        println!();
+    }
+
+    // Summary
+    println!("Summary:");
+    println!("   Total deploys in block: {}", deploys.len());
+    println!("   Deploys with transfers: {}", deploys_with_transfers);
+    println!("   Total transfers: {}", total_transfers);
+    if total_transfers > 0 {
+        println!("   Successful: {}", successful_transfers);
+        println!("   Failed: {}", failed_transfers);
+    }
+
+    Ok(())
 }
