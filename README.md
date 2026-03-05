@@ -19,7 +19,7 @@ node_cli = { git = "https://github.com/F1R3FLY-io/rust-client.git", default-feat
 | `vault` | Native token transfer and balance operations (`transfer()`, `get_address()`) |
 | `registry` | Cryptographic functions for `rho:registry:insertSigned:secp256k1` |
 | `rholang_helpers` | Parsing Rholang expression responses into plain JSON |
-| `signing` | Deploy data signing (Blake2b-512 + secp256k1 ECDSA) |
+| `signing` | Deploy data signing (Blake2b-256 + secp256k1 ECDSA) |
 | `http_client` | HTTP-based client for F1r3node API endpoints |
 | `f1r3fly_api` | Low-level gRPC client (deploy, propose, exploratory-deploy, is-finalized) |
 | `utils` | Cryptographic utilities (key derivation, vault address generation) |

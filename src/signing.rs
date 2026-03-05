@@ -2,13 +2,16 @@
 //
 // This module provides signing functions used by both gRPC and HTTP clients.
 
-use blake2::{Blake2b512, Digest};
+use blake2::{Blake2b, Digest};
 use secp256k1::{Message as Secp256k1Message, Secp256k1, SecretKey};
+use typenum::U32;
 
 /// Sign deploy data using secp256k1
 ///
-/// Creates a signature over the deploy data using Blake2b-512 hash
-/// and secp256k1 ECDSA signing.
+/// Creates a signature over the deploy data using Blake2b-256 hash
+/// and secp256k1 ECDSA signing. Uses Blake2b-256 (not 512) to produce
+/// a native 32-byte digest as required by secp256k1, consistent with
+/// the gRPC deploy signing in `f1r3fly_api`.
 ///
 /// # Arguments
 ///
@@ -24,13 +27,13 @@ pub fn sign_deploy_data(
     timestamp: i64,
     private_key: &SecretKey,
 ) -> Result<Vec<u8>, SigningError> {
-    let mut hasher = Blake2b512::new();
+    let mut hasher = Blake2b::<U32>::new();
     hasher.update(data);
     hasher.update(&timestamp.to_le_bytes());
     let hash = hasher.finalize();
 
     let mut digest = [0u8; 32];
-    digest.copy_from_slice(&hash[..32]);
+    digest.copy_from_slice(&hash);
 
     let secp = Secp256k1::new();
     let message = Secp256k1Message::from_digest(digest);

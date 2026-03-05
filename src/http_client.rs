@@ -11,6 +11,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::connection_manager::ConnectionConfig;
 use crate::signing::sign_deploy_data;
 
+/// Default HTTP request timeout in seconds
+pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
+
+/// Default phlo limit for deploys
+pub const DEFAULT_PHLO_LIMIT: i64 = 1_000_000;
+
 /// HTTP client for F1r3node operations
 #[derive(Clone, Debug)]
 pub struct F1r3nodeHttpClient {
@@ -99,6 +105,14 @@ impl From<serde_json::Error> for HttpError {
 impl F1r3nodeHttpClient {
     /// Create a new HTTP client from connection configuration
     pub fn from_config(config: &ConnectionConfig) -> Result<Self, HttpError> {
+        Self::from_config_with_timeout(config, DEFAULT_TIMEOUT_SECS)
+    }
+
+    /// Create a new HTTP client from connection configuration with custom timeout
+    pub fn from_config_with_timeout(
+        config: &ConnectionConfig,
+        timeout_secs: u64,
+    ) -> Result<Self, HttpError> {
         let base_url = format!("http://{}:{}", config.node_host, config.http_port);
 
         let key_bytes = hex::decode(&config.signing_key)
@@ -106,13 +120,22 @@ impl F1r3nodeHttpClient {
         let private_key = SecretKey::from_slice(&key_bytes)
             .map_err(|e| HttpError::Config(format!("Invalid secp256k1 key: {}", e)))?;
 
-        Self::new(base_url, private_key)
+        Self::with_timeout(base_url, private_key, timeout_secs)
     }
 
-    /// Create a new HTTP client with explicit parameters
+    /// Create a new HTTP client with explicit parameters and default timeout
     pub fn new(base_url: String, private_key: SecretKey) -> Result<Self, HttpError> {
+        Self::with_timeout(base_url, private_key, DEFAULT_TIMEOUT_SECS)
+    }
+
+    /// Create a new HTTP client with explicit parameters and custom timeout
+    pub fn with_timeout(
+        base_url: String,
+        private_key: SecretKey,
+        timeout_secs: u64,
+    ) -> Result<Self, HttpError> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(timeout_secs))
             .build()
             .map_err(|e| HttpError::Config(format!("Failed to create HTTP client: {}", e)))?;
 
@@ -123,9 +146,28 @@ impl F1r3nodeHttpClient {
         })
     }
 
-    /// Deploy Rholang code to F1r3node
+    /// Get the current block number from the node
+    ///
+    /// Uses `last_finalized_block()` to determine the current chain height.
+    /// This is used to set `valid_after_block_number` for deploys.
+    pub async fn get_current_block_number(&self) -> Result<i64, HttpError> {
+        let block = self.last_finalized_block().await?;
+        Ok(block.block_number)
+    }
+
+    /// Deploy Rholang code to F1r3node with default phlo limit
     pub async fn deploy(&self, term: &str) -> Result<String, HttpError> {
-        let request = self.create_deploy_request(term)?;
+        self.deploy_with_options(term, DEFAULT_PHLO_LIMIT).await
+    }
+
+    /// Deploy Rholang code to F1r3node with custom phlo limit
+    pub async fn deploy_with_options(
+        &self,
+        term: &str,
+        phlo_limit: i64,
+    ) -> Result<String, HttpError> {
+        let valid_after = self.get_current_block_number().await.unwrap_or(0);
+        let request = self.create_deploy_request(term, phlo_limit, valid_after)?;
 
         let response = self
             .client
@@ -212,7 +254,8 @@ impl F1r3nodeHttpClient {
 
     /// Exploratory deploy (read-only execution)
     pub async fn explore_deploy(&self, term: &str) -> Result<RhoDataResponse, HttpError> {
-        let request = self.create_deploy_request(term)?;
+        let valid_after = self.get_current_block_number().await.unwrap_or(0);
+        let request = self.create_deploy_request(term, DEFAULT_PHLO_LIMIT, valid_after)?;
 
         let response = self
             .client
@@ -276,15 +319,18 @@ impl F1r3nodeHttpClient {
         )))
     }
 
-    fn create_deploy_request(&self, term: &str) -> Result<DeployRequest, HttpError> {
+    fn create_deploy_request(
+        &self,
+        term: &str,
+        phlo_limit: i64,
+        valid_after_block_number: i64,
+    ) -> Result<DeployRequest, HttpError> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| HttpError::Config(format!("System time error: {}", e)))?
             .as_millis() as i64;
 
-        let phlo_limit = 1_000_000;
         let phlo_price = 1;
-        let valid_after_block_number = -1;
 
         let secp = Secp256k1::new();
         let public_key = PublicKey::from_secret_key(&secp, &self.private_key);
@@ -331,12 +377,14 @@ mod tests {
         )
         .unwrap();
 
-        let request = client.create_deploy_request("new x in { x!(1) }").unwrap();
+        let request = client
+            .create_deploy_request("new x in { x!(1) }", 500_000, 42)
+            .unwrap();
 
         assert_eq!(request.term, "new x in { x!(1) }");
-        assert_eq!(request.phlo_limit, 1_000_000);
+        assert_eq!(request.phlo_limit, 500_000);
         assert_eq!(request.phlo_price, 1);
-        assert_eq!(request.valid_after_block_number, -1);
+        assert_eq!(request.valid_after_block_number, 42);
         assert_eq!(request.sig_algorithm, "secp256k1");
         assert!(!request.signature.is_empty());
         assert!(!request.signer_public_key.is_empty());
