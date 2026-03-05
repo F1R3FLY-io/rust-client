@@ -1,6 +1,77 @@
 # F1r3fly Node CLI
 
-A command-line interface for interacting with F1r3fly nodes.
+A Rust crate for interacting with F1r3fly nodes — usable as both a **library** and a **CLI tool**.
+
+## Using as a Library
+
+Add `node_cli` as a dependency with `default-features = false` to avoid pulling in CLI dependencies (`clap`, `ratatui`, `crossterm`):
+
+```toml
+[dependencies]
+node_cli = { git = "https://github.com/F1R3FLY-io/rust-client.git", default-features = false }
+```
+
+### Library Modules
+
+| Module | Description |
+|--------|-------------|
+| `connection_manager` | High-level async API for deploying Rholang code, querying state, and managing node connections |
+| `vault` | Native token transfer and balance operations (`transfer()`, `get_address()`) |
+| `registry` | Cryptographic functions for `rho:registry:insertSigned:secp256k1` |
+| `rholang_helpers` | Parsing Rholang expression responses into plain JSON |
+| `signing` | Deploy data signing (Blake2b-256 + secp256k1 ECDSA) |
+| `http_client` | HTTP-based client for F1r3node API endpoints |
+| `f1r3fly_api` | Low-level gRPC client (deploy, propose, exploratory-deploy, is-finalized) |
+| `utils` | Cryptographic utilities (key derivation, vault address generation) |
+
+### Quick Start
+
+```rust
+use node_cli::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Configure from environment variables (FIREFLY_HOST, FIREFLY_GRPC_PORT,
+    // FIREFLY_HTTP_PORT, FIREFLY_PRIVATE_KEY)
+    let manager = F1r3flyConnectionManager::from_env()?;
+
+    // Or configure explicitly
+    let config = ConnectionConfig::new(
+        "localhost".to_string(),
+        40401,
+        40403,
+        "your_private_key_hex".to_string(),
+    );
+    let manager = F1r3flyConnectionManager::new(config);
+
+    // Read-only query
+    let result = manager.query(r#"new x in { x!(1 + 1) }"#).await?;
+
+    // Deploy and wait for finalization
+    let (deploy_id, block_hash) = manager
+        .deploy_and_wait(r#"new x in { x!("hello") }"#, 60, 20)
+        .await?;
+
+    // Transfer native tokens (amount in dust; 1 token = 100,000,000 dust)
+    let transfer = manager
+        .transfer("1111recipient_address_here", 100_000_000)
+        .await?;
+
+    Ok(())
+}
+```
+
+### Re-exports
+
+The crate re-exports commonly used types at the root:
+
+```rust
+use node_cli::{ConnectionConfig, ConnectionError, F1r3flyConnectionManager, TransferResult, DUST_FACTOR};
+```
+
+## CLI Usage
+
+The CLI is enabled by default. Build and run with:
 
 ### Prerequisites
 
@@ -14,7 +85,21 @@ A command-line interface for interacting with F1r3fly nodes.
 cargo build
 ```
 
-## Usage
+## Library Usage
+
+This crate can be used as a library (`node_cli`) for programmatic access to F1r3fly nodes. The `ConnectionConfig::from_env()` method reads configuration from environment variables:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `FIREFLY_PRIVATE_KEY` | Yes | — | Private key for signing deploys (64 hex chars) |
+| `FIREFLY_HOST` | No | `localhost` | Node hostname |
+| `FIREFLY_GRPC_PORT` | No | `40401` | gRPC port for deploy/propose |
+| `FIREFLY_HTTP_PORT` | No | `40403` | HTTP port for status/query |
+| `FIREFLY_DEPLOY_TIMEOUT` | No | `180` | Max seconds to wait for deploy inclusion in a block |
+
+See [`.env.example`](.env.example) for a template.
+
+## CLI Usage
 
 The CLI provides the following commands for interacting with F1r3fly nodes:
 
@@ -807,3 +892,16 @@ See [scripts/README.md](scripts/README.md) for documentation on:
 - `-H, --host <HOST>`: Host address (default: "localhost")
 - `-p, --port <PORT>`: gRPC port number (default: 40452 for observer node)
 - `--http-port <HTTP_PORT>`: HTTP port for explore-deploy queries (default: 40453)
+
+## Feature Flags
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `cli` | Yes | Enables CLI binary and dependencies (`clap`, `ratatui`, `crossterm`) |
+
+To build library-only (no CLI dependencies):
+
+```bash
+cargo check --no-default-features
+cargo test --no-default-features --lib
+```

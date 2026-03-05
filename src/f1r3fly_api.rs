@@ -128,6 +128,7 @@ impl<'a> F1r3flyApi<'a> {
             language.to_string(),
             current_block,
             expiration_timestamp,
+            None,
         );
 
         // Connect to the F1r3fly node
@@ -757,6 +758,96 @@ impl<'a> F1r3flyApi<'a> {
         }
     }
 
+    /// Deploy Rholang code with a specific phlo limit
+    ///
+    /// Unlike `deploy()` which uses a fixed phlo limit based on a boolean flag,
+    /// this method allows specifying an exact phlo limit.
+    pub async fn deploy_with_phlo_limit(
+        &self,
+        rho_code: &str,
+        phlo_limit: i64,
+        language: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.deploy_internal(rho_code, phlo_limit, language, 0, None)
+            .await
+    }
+
+    /// Deploy Rholang code with a specific timestamp and phlo limit
+    ///
+    /// Required for `insertSigned` compatibility where the deploy timestamp
+    /// must match the signature timestamp.
+    pub async fn deploy_with_timestamp_and_phlo_limit(
+        &self,
+        rho_code: &str,
+        language: &str,
+        timestamp_millis: Option<i64>,
+        phlo_limit: i64,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.deploy_internal(rho_code, phlo_limit, language, 0, timestamp_millis)
+            .await
+    }
+
+    /// Internal deploy implementation with all parameters
+    async fn deploy_internal(
+        &self,
+        rho_code: &str,
+        phlo_limit: i64,
+        language: &str,
+        expiration_timestamp: i64,
+        timestamp_override: Option<i64>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let current_block = match self.get_current_block_number().await {
+            Ok(block_num) => block_num,
+            Err(_) => 0,
+        };
+
+        let deployment = self.build_deploy_msg(
+            rho_code.to_string(),
+            phlo_limit,
+            language.to_string(),
+            current_block,
+            expiration_timestamp,
+            timestamp_override,
+        );
+
+        let mut deploy_service_client =
+            DeployServiceClient::connect(format!("http://{}:{}/", self.node_host, self.grpc_port))
+                .await?;
+
+        let deploy_response = deploy_service_client.do_deploy(deployment).await?;
+
+        let deploy_message = deploy_response
+            .get_ref()
+            .message
+            .as_ref()
+            .ok_or("Deploy result not found")?;
+
+        match deploy_message {
+            DeployResponseMessage::Error(service_error) => Err(service_error.clone().into()),
+            DeployResponseMessage::Result(result) => {
+                let cleaned_result = result.trim();
+                if let Some(deploy_id) = cleaned_result.strip_prefix("Success! DeployId is: ") {
+                    Ok(deploy_id.trim().to_string())
+                } else if let Some(deploy_id) =
+                    cleaned_result.strip_prefix("Success!\nDeployId is: ")
+                {
+                    Ok(deploy_id.trim().to_string())
+                } else if cleaned_result.starts_with("Success!") {
+                    let lines: Vec<&str> = cleaned_result.lines().collect();
+                    for line in lines {
+                        let trimmed = line.trim();
+                        if trimmed.len() > 64 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                            return Ok(trimmed.to_string());
+                        }
+                    }
+                    Err(format!("Could not extract deploy ID from response: {}", result).into())
+                } else {
+                    Ok(cleaned_result.to_string())
+                }
+            }
+        }
+    }
+
     /// Builds and signs a deploy message
     ///
     /// # Arguments
@@ -777,12 +868,14 @@ impl<'a> F1r3flyApi<'a> {
         language: String,
         valid_after_block_number: i64,
         expiration_timestamp: i64,
+        timestamp_override: Option<i64>,
     ) -> DeployDataProto {
-        // Get current timestamp in milliseconds
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get system time")
-            .as_millis() as i64;
+        let timestamp = timestamp_override.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Failed to get system time")
+                .as_millis() as i64
+        });
 
         // Create a projection with only the fields used for signature calculation
         // IMPORTANT: The language field is deliberately excluded from signature calculation.
