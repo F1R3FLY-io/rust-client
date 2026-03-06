@@ -397,6 +397,7 @@ mod tests {
             http_port: 40403,
             grpc_port: 40402,
             signing_key: test_private_key_hex(),
+            deploy_timeout_secs: 180,
         };
 
         let client = F1r3nodeHttpClient::from_config(&config).unwrap();

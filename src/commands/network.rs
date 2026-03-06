@@ -144,9 +144,13 @@ pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::erro
     match f1r3fly_api.propose().await {
         Ok(block_hash) => {
             let duration = start_time.elapsed();
-            println!("✅ Block proposed successfully!");
+            if block_hash.starts_with("SKIPPED: ") {
+                println!("⚠️ Proposal was skipped: {}", block_hash.trim_start_matches("SKIPPED: "));
+            } else {
+                println!("✅ Block proposed successfully!");
+                println!("🧱 Block hash: {}", block_hash);
+            }
             println!("⏱️  Time taken: {:.2?}", duration);
-            println!("🧱 Block hash: {}", block_hash);
         }
         Err(e) => {
             println!("❌ Block proposal failed!");
