@@ -14,31 +14,19 @@ use f1r3fly_models::ByteString;
 use prost::Message;
 use secp256k1::{Message as Secp256k1Message, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicI64, Ordering},
+    Arc,
+};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use typenum::U32;
 
 const DEPLOY_VALIDITY_WINDOW_BLOCKS: i64 = 50;
 const BLOCK_SAMPLE_DEPTH: u32 = 8;
-const BLOCK_FAST_SAMPLE_ATTEMPTS: usize = 2;
-const BLOCK_FAST_SAMPLE_TIMEOUT_SECS: u64 = 1;
-const BLOCK_FAST_SAMPLE_DELAY_MS: u64 = 25;
-const BLOCK_SAMPLE_ATTEMPTS: usize = 5;
-const BLOCK_SAMPLE_TIMEOUT_SECS: u64 = 4;
-const BLOCK_SAMPLE_DELAY_MS: u64 = 150;
-const TIP_CACHE_MAX_AGE_SECS: u64 = 2 * 60;
-const TIP_CACHE_MAX_REGRESSION_BLOCKS: i64 = DEPLOY_VALIDITY_WINDOW_BLOCKS;
-const TIP_CACHE_RESET_GUARD_MIN_CACHED_TIP: i64 = 512;
-const TIP_CACHE_RESET_GUARD_MAX_SAMPLED_TIP: i64 = 128;
-
-#[derive(Debug, Clone, Copy)]
-struct TipSampleSummary {
-    best_tip: i64,
-    min_tip: i64,
-    max_tip: i64,
-    successful_samples: usize,
-}
+const TIP_SAMPLE_ATTEMPTS: usize = 2;
+const TIP_SAMPLE_TIMEOUT_SECS: u64 = 2;
+const TIP_SAMPLE_DELAY_MS: u64 = 50;
+const TIP_FLOOR_UNSET: i64 = -1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployInfo {
@@ -66,11 +54,18 @@ pub enum DeployStatus {
     Error(String), // Error occurred
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProposeResult {
+    Proposed(String),
+    Skipped(String),
+}
+
 /// Client for interacting with the F1r3fly API
 pub struct F1r3flyApi<'a> {
     signing_key: SecretKey,
     node_host: &'a str,
     grpc_port: u16,
+    tip_floor: Arc<AtomicI64>,
 }
 
 impl<'a> F1r3flyApi<'a> {
@@ -90,6 +85,7 @@ impl<'a> F1r3flyApi<'a> {
             signing_key: SecretKey::from_slice(&hex::decode(signing_key).unwrap()).unwrap(),
             node_host,
             grpc_port,
+            tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
         }
     }
 
@@ -301,8 +297,8 @@ impl<'a> F1r3flyApi<'a> {
     ///
     /// # Returns
     ///
-    /// The block hash of the proposed block if successful, otherwise an error
-    pub async fn propose(&self) -> Result<String, Box<dyn std::error::Error>> {
+    /// A typed proposal outcome if successful, otherwise an error
+    pub async fn propose(&self) -> Result<ProposeResult, Box<dyn std::error::Error>> {
         // Connect to the F1r3fly node's propose service
         let mut propose_client =
             ProposeServiceClient::connect(format!("http://{}:{}/", self.node_host, self.grpc_port))
@@ -324,19 +320,17 @@ impl<'a> F1r3flyApi<'a> {
                     .strip_prefix("Success! Block ")
                     .and_then(|s| s.strip_suffix(" created and added."))
                 {
-                    Ok(hash.to_string())
+                    Ok(ProposeResult::Proposed(hash.to_string()))
+                } else if Self::is_recoverable_propose_error(&block_hash) {
+                    Ok(ProposeResult::Skipped(block_hash))
                 } else {
-                    if Self::is_recoverable_propose_error(&block_hash) {
-                        Ok(format!("SKIPPED: {}", block_hash))
-                    } else {
-                        Ok(block_hash) // Return the full message if we can't extract the hash
-                    }
+                    Ok(ProposeResult::Proposed(block_hash))
                 }
             }
             ProposeResponseMessage::Error(error) => {
                 let error_message = error.messages.join("; ");
                 if Self::is_recoverable_propose_error(&error_message) {
-                    Ok(format!("SKIPPED: {}", error_message))
+                    Ok(ProposeResult::Skipped(error_message))
                 } else {
                     Err(format!("Propose error: {:?}", error).into())
                 }
@@ -371,14 +365,14 @@ impl<'a> F1r3flyApi<'a> {
     ///
     /// # Returns
     ///
-    /// The block hash if successful, otherwise an error
+    /// The proposal result if successful, otherwise an error
     pub async fn full_deploy(
         &self,
         rho_code: &str,
         use_bigger_phlo_price: bool,
         language: &str,
         expiration_timestamp: i64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<ProposeResult, Box<dyn std::error::Error>> {
         // First deploy the code
         self.deploy(
             rho_code,
@@ -746,122 +740,32 @@ impl<'a> F1r3flyApi<'a> {
         Ok(blocks)
     }
 
-    fn tip_cache_path(&self) -> PathBuf {
-        let safe_host: String = self
-            .node_host
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-            .collect();
-        std::env::temp_dir().join(format!(
-            "f1r3fly_tip_floor_{}_{}.txt",
-            safe_host, self.grpc_port
-        ))
-    }
-
-    fn read_cached_tip(&self) -> Option<i64> {
-        let path = self.tip_cache_path();
-        let metadata = fs::metadata(&path).ok()?;
-        let modified = metadata.modified().ok()?;
-        let age_secs = SystemTime::now().duration_since(modified).ok()?.as_secs();
-        if age_secs > TIP_CACHE_MAX_AGE_SECS {
-            return None;
-        }
-        let raw = fs::read_to_string(path).ok()?;
-        raw.trim().parse::<i64>().ok()
-    }
-
-    fn write_cached_tip(&self, tip: i64) {
-        let _ = fs::write(self.tip_cache_path(), tip.to_string());
-    }
-
-    async fn get_current_block_number_monotonic(
-        &self,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
-        let cached_tip = self.read_cached_tip();
-        let sampled_tip = match self.get_current_block_number_fast().await {
-            Ok(summary) => {
-                let spread = summary.max_tip - summary.min_tip;
-                let cold_start_needs_robust = cached_tip.is_none()
-                    && (summary.successful_samples < BLOCK_FAST_SAMPLE_ATTEMPTS
-                        || spread > DEPLOY_VALIDITY_WINDOW_BLOCKS);
-
-                if cold_start_needs_robust {
-                    println!(
-                        "⚠️  Cold-start fast sampling insufficient (samples={}, spread={} blocks). Falling back to robust sampling.",
-                        summary.successful_samples, spread
-                    );
-                    self.get_current_block_number_robust().await?
-                } else {
-                    summary.best_tip
-                }
-            }
-            Err(err) => {
-                println!(
-                    "⚠️  Fast tip sampling failed ({}). Falling back to robust sampling.",
-                    err
-                );
-                self.get_current_block_number_robust().await?
-            }
-        };
-
-        let selected_tip = if let Some(cached_tip) = cached_tip {
-            if sampled_tip < cached_tip {
-                let tip_drop = cached_tip - sampled_tip;
-                // If tip regresses by more than one validity window, stale cache floor is harmful:
-                // it can push validAfterBlockNumber far into the future and trigger empty-block churn.
-                if tip_drop > TIP_CACHE_MAX_REGRESSION_BLOCKS {
-                    println!(
-                        "♻️  Detected stale tip floor: sampled tip {} is {} blocks behind cached {} (> {}). Resetting tip floor.",
-                        sampled_tip, tip_drop, cached_tip, TIP_CACHE_MAX_REGRESSION_BLOCKS
-                    );
-                    sampled_tip
-                // If the sampled tip is very low while cached tip is high, this is most likely
-                // a local chain reset/restart, so stale cache floor must be ignored.
-                } else
-                // If the sampled tip is very low while cached tip is high, this is most likely
-                // a local chain reset/restart, so stale cache floor must be ignored.
-                if cached_tip >= TIP_CACHE_RESET_GUARD_MIN_CACHED_TIP
-                    && sampled_tip <= TIP_CACHE_RESET_GUARD_MAX_SAMPLED_TIP
-                    && tip_drop > 0
-                {
-                    println!(
-                        "♻️  Detected probable chain reset: sampled tip {} (cached {}). Resetting tip floor.",
-                        sampled_tip, cached_tip
-                    );
-                    sampled_tip
-                } else {
-                    println!(
-                        "⚠️  Tip sample regressed from cached {} to {}. Using cached tip.",
-                        cached_tip, sampled_tip
-                    );
-                    cached_tip
-                }
-            } else {
-                sampled_tip
-            }
+    async fn get_current_block_number_monotonic(&self) -> Result<i64, Box<dyn std::error::Error>> {
+        let sampled_tip = self.get_current_block_number_sampled().await?;
+        let cached_tip = self.tip_floor.load(Ordering::Relaxed);
+        let selected_tip = if cached_tip != TIP_FLOOR_UNSET && sampled_tip < cached_tip {
+            println!(
+                "⚠️  Tip sample regressed from in-memory floor {} to {}. Using cached floor.",
+                cached_tip, sampled_tip
+            );
+            cached_tip
         } else {
             sampled_tip
         };
-
-        self.write_cached_tip(selected_tip);
+        self.tip_floor.store(selected_tip, Ordering::Relaxed);
         Ok(selected_tip)
     }
 
-    /// Gets a low-latency estimate of the current block number.
-    ///
-    /// This is the common fast path and is designed to avoid adding
-    /// significant overhead to every deploy while still sampling more than once.
-    async fn get_current_block_number_fast(
-        &self,
-    ) -> Result<TipSampleSummary, Box<dyn std::error::Error>> {
+    /// Samples the current block number a small number of times and takes the max.
+    async fn get_current_block_number_sampled(&self) -> Result<i64, Box<dyn std::error::Error>> {
         let mut best_tip: Option<i64> = None;
         let mut min_tip: Option<i64> = None;
         let mut max_tip: Option<i64> = None;
         let mut successful_samples: usize = 0;
 
-        for attempt in 1..=BLOCK_FAST_SAMPLE_ATTEMPTS {
+        for attempt in 1..=TIP_SAMPLE_ATTEMPTS {
             let sampled_tip = match tokio::time::timeout(
-                tokio::time::Duration::from_secs(BLOCK_FAST_SAMPLE_TIMEOUT_SECS),
+                tokio::time::Duration::from_secs(TIP_SAMPLE_TIMEOUT_SECS),
                 self.show_main_chain(BLOCK_SAMPLE_DEPTH),
             )
             .await
@@ -869,15 +773,15 @@ impl<'a> F1r3flyApi<'a> {
                 Ok(Ok(blocks)) => blocks.iter().map(|b| b.block_number).max(),
                 Ok(Err(err)) => {
                     println!(
-                        "⚠️  Fast tip sample {}/{} failed: {}",
-                        attempt, BLOCK_FAST_SAMPLE_ATTEMPTS, err
+                        "⚠️  Tip sample {}/{} failed: {}",
+                        attempt, TIP_SAMPLE_ATTEMPTS, err
                     );
                     None
                 }
                 Err(_) => {
                     println!(
-                        "⚠️  Fast tip sample {}/{} timed out after {}s",
-                        attempt, BLOCK_FAST_SAMPLE_ATTEMPTS, BLOCK_FAST_SAMPLE_TIMEOUT_SECS
+                        "⚠️  Tip sample {}/{} timed out after {}s",
+                        attempt, TIP_SAMPLE_ATTEMPTS, TIP_SAMPLE_TIMEOUT_SECS
                     );
                     None
                 }
@@ -890,9 +794,8 @@ impl<'a> F1r3flyApi<'a> {
                 max_tip = Some(max_tip.map_or(tip, |prev| prev.max(tip)));
             }
 
-            if attempt < BLOCK_FAST_SAMPLE_ATTEMPTS {
-                tokio::time::sleep(tokio::time::Duration::from_millis(BLOCK_FAST_SAMPLE_DELAY_MS))
-                    .await;
+            if attempt < TIP_SAMPLE_ATTEMPTS {
+                tokio::time::sleep(tokio::time::Duration::from_millis(TIP_SAMPLE_DELAY_MS)).await;
             }
         }
 
@@ -901,16 +804,11 @@ impl<'a> F1r3flyApi<'a> {
             let max_tip = max_tip.unwrap_or(best_tip);
             if successful_samples > 1 {
                 println!(
-                    "⚡ Fast tip sampling: {} successful samples, range {}..{}, selected {}",
+                    "📈 Tip sampling: {} successful samples, range {}..{}, selected {}",
                     successful_samples, min_tip, max_tip, best_tip
                 );
             }
-            Ok(TipSampleSummary {
-                best_tip,
-                min_tip,
-                max_tip,
-                successful_samples,
-            })
+            Ok(best_tip)
         } else {
             Err("Failed to sample current block number from main chain".into())
         }
@@ -1074,63 +972,6 @@ impl<'a> F1r3flyApi<'a> {
                     Ok(cleaned_result.to_string())
                 }
             }
-        }
-    }
-
-    /// Gets a robust estimate of the current block number by sampling multiple tips.
-    ///
-    /// This mitigates intermittent stale-tip responses by:
-    /// - sampling multiple times,
-    /// - using a deeper chain view than depth=1,
-    /// - taking the maximum observed tip.
-    pub async fn get_current_block_number_robust(
-        &self,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
-        let mut best_tip: Option<i64> = None;
-        let mut successful_samples: usize = 0;
-
-        for attempt in 1..=BLOCK_SAMPLE_ATTEMPTS {
-            let sampled_tip = match tokio::time::timeout(
-                tokio::time::Duration::from_secs(BLOCK_SAMPLE_TIMEOUT_SECS),
-                self.show_main_chain(BLOCK_SAMPLE_DEPTH),
-            )
-            .await
-            {
-                Ok(Ok(blocks)) => blocks.iter().map(|b| b.block_number).max(),
-                Ok(Err(err)) => {
-                    println!("⚠️  Tip sample {}/{} failed: {}", attempt, BLOCK_SAMPLE_ATTEMPTS, err);
-                    None
-                }
-                Err(_) => {
-                    println!(
-                        "⚠️  Tip sample {}/{} timed out after {}s",
-                        attempt, BLOCK_SAMPLE_ATTEMPTS, BLOCK_SAMPLE_TIMEOUT_SECS
-                    );
-                    None
-                }
-            };
-
-            if let Some(tip) = sampled_tip {
-                successful_samples += 1;
-                best_tip = Some(best_tip.map_or(tip, |prev| prev.max(tip)));
-            }
-
-            if attempt < BLOCK_SAMPLE_ATTEMPTS {
-                tokio::time::sleep(tokio::time::Duration::from_millis(BLOCK_SAMPLE_DELAY_MS))
-                    .await;
-            }
-        }
-
-        if let Some(tip) = best_tip {
-            if successful_samples > 1 {
-                println!(
-                    "📈 Tip sampling: {} successful samples, selected max tip {}",
-                    successful_samples, tip
-                );
-            }
-            Ok(tip)
-        } else {
-            Err("Failed to sample current block number from main chain".into())
         }
     }
 

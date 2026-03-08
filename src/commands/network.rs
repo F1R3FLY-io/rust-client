@@ -1,5 +1,5 @@
 use crate::args::*;
-use crate::f1r3fly_api::F1r3flyApi;
+use crate::f1r3fly_api::{F1r3flyApi, ProposeResult};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -86,10 +86,7 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
     println!("Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
-    println!(
-        "Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
-    );
+    println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
 
     let phlo_limit = if args.bigger_phlo {
@@ -110,7 +107,12 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
     let start_time = Instant::now();
 
     match f1r3fly_api
-        .deploy(&rholang_code, args.bigger_phlo, "rholang", expiration_timestamp)
+        .deploy(
+            &rholang_code,
+            args.bigger_phlo,
+            "rholang",
+            expiration_timestamp,
+        )
         .await
     {
         Ok(deploy_id) => {
@@ -142,14 +144,15 @@ pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::erro
     let start_time = Instant::now();
 
     match f1r3fly_api.propose().await {
-        Ok(block_hash) => {
+        Ok(ProposeResult::Proposed(block_hash)) => {
             let duration = start_time.elapsed();
-            if block_hash.starts_with("SKIPPED: ") {
-                println!("⚠️ Proposal was skipped: {}", block_hash.trim_start_matches("SKIPPED: "));
-            } else {
-                println!("✅ Block proposed successfully!");
-                println!("🧱 Block hash: {}", block_hash);
-            }
+            println!("✅ Block proposed successfully!");
+            println!("🧱 Block hash: {}", block_hash);
+            println!("⏱️  Time taken: {:.2?}", duration);
+        }
+        Ok(ProposeResult::Skipped(reason)) => {
+            let duration = start_time.elapsed();
+            println!("⚠️ Proposal was skipped: {}", reason);
             println!("⏱️  Time taken: {:.2?}", duration);
         }
         Err(e) => {
@@ -170,10 +173,7 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
     println!("Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
-    println!(
-        "Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
-    );
+    println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
 
     let phlo_limit = if args.bigger_phlo {
@@ -194,14 +194,25 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
     let start_time = Instant::now();
 
     match f1r3fly_api
-        .full_deploy(&rholang_code, args.bigger_phlo, "rholang", expiration_timestamp)
+        .full_deploy(
+            &rholang_code,
+            args.bigger_phlo,
+            "rholang",
+            expiration_timestamp,
+        )
         .await
     {
-        Ok(block_hash) => {
+        Ok(ProposeResult::Proposed(block_hash)) => {
             let duration = start_time.elapsed();
             println!("Deployment and block proposal successful!");
             println!("Time taken: {:.2?}", duration);
             println!("Block hash: {}", block_hash);
+        }
+        Ok(ProposeResult::Skipped(reason)) => {
+            let duration = start_time.elapsed();
+            println!("Deployment successful, but proposal was skipped.");
+            println!("Time taken: {:.2?}", duration);
+            println!("Skip reason: {}", reason);
         }
         Err(e) => {
             println!("Operation failed!");
@@ -294,7 +305,10 @@ pub async fn bond_validator_command(
     let deploy_start_time = Instant::now();
 
     // Step 1: Deploy the bonding code
-    let deploy_id = match f1r3fly_api.deploy(&bonding_code, true, "rholang", expiration_timestamp).await {
+    let deploy_id = match f1r3fly_api
+        .deploy(&bonding_code, true, "rholang", expiration_timestamp)
+        .await
+    {
         Ok(deploy_id) => {
             let deploy_duration = deploy_start_time.elapsed();
             println!("Bonding deploy successful! Deploy ID: {}", deploy_id);
@@ -403,11 +417,16 @@ pub async fn bond_validator_command(
         let propose_start = Instant::now();
 
         match f1r3fly_api.propose().await {
-            Ok(block_hash) => {
+            Ok(ProposeResult::Proposed(block_hash)) => {
                 let propose_duration = propose_start.elapsed();
                 println!("Block proposed successfully!");
                 println!("Propose time: {:.2?}", propose_duration);
                 println!("Block hash: {}", block_hash);
+            }
+            Ok(ProposeResult::Skipped(reason)) => {
+                let propose_duration = propose_start.elapsed();
+                println!("Block proposal skipped: {}", reason);
+                println!("Propose time: {:.2?}", propose_duration);
             }
             Err(e) => {
                 println!("Block proposal failed!");
@@ -430,10 +449,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     println!("Initiating token transfer");
 
     // Initialize the F1r3fly API client
-    println!(
-        "Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
-    );
+    println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
     let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
 
     // Generate from_address from private key using proper crypto utils
@@ -480,7 +496,12 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     let deploy_start_time = Instant::now();
 
     let deploy_id = match f1r3fly_api
-        .deploy(&rholang_code, args.bigger_phlo, "rholang", expiration_timestamp)
+        .deploy(
+            &rholang_code,
+            args.bigger_phlo,
+            "rholang",
+            expiration_timestamp,
+        )
         .await
     {
         Ok(deploy_id) => {
@@ -606,9 +627,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         }
         Err(e) => {
             println!("Error checking finalization status: {}", e);
-            println!(
-                "Could not verify finalization, but transfer deploy is in the blockchain."
-            );
+            println!("Could not verify finalization, but transfer deploy is in the blockchain.");
         }
     }
 
@@ -618,11 +637,16 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         let propose_start = Instant::now();
 
         match f1r3fly_api.propose().await {
-            Ok(block_hash) => {
+            Ok(ProposeResult::Proposed(block_hash)) => {
                 let propose_duration = propose_start.elapsed();
                 println!("Block proposed successfully!");
                 println!("Propose time: {:.2?}", propose_duration);
                 println!("Block hash: {}", block_hash);
+            }
+            Ok(ProposeResult::Skipped(reason)) => {
+                let propose_duration = propose_start.elapsed();
+                println!("Block proposal skipped: {}", reason);
+                println!("Propose time: {:.2?}", propose_duration);
             }
             Err(e) => {
                 println!("Block proposal failed!");
@@ -647,10 +671,7 @@ pub async fn deploy_and_wait_command(
     println!("Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
-    println!(
-        "Connecting to F1r3fly node at {}:{}",
-        args.host, args.port
-    );
+    println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
     let private_key = args
         .private_key
         .as_deref()
@@ -675,7 +696,12 @@ pub async fn deploy_and_wait_command(
     let deploy_start_time = Instant::now();
 
     let deploy_id = match f1r3fly_api
-        .deploy(&rholang_code, args.bigger_phlo, "rholang", expiration_timestamp)
+        .deploy(
+            &rholang_code,
+            args.bigger_phlo,
+            "rholang",
+            expiration_timestamp,
+        )
         .await
     {
         Ok(deploy_id) => {
