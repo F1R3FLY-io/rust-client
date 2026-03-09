@@ -14,8 +14,19 @@ use f1r3fly_models::ByteString;
 use prost::Message;
 use secp256k1::{Message as Secp256k1Message, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{
+    atomic::{AtomicI64, Ordering},
+    Arc,
+};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use typenum::U32;
+
+const DEPLOY_VALIDITY_WINDOW_BLOCKS: i64 = 50;
+const BLOCK_SAMPLE_DEPTH: u32 = 8;
+const TIP_SAMPLE_ATTEMPTS: usize = 2;
+const TIP_SAMPLE_TIMEOUT_SECS: u64 = 2;
+const TIP_SAMPLE_DELAY_MS: u64 = 50;
+const TIP_FLOOR_UNSET: i64 = -1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployInfo {
@@ -43,11 +54,18 @@ pub enum DeployStatus {
     Error(String), // Error occurred
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProposeResult {
+    Proposed(String),
+    Skipped(String),
+}
+
 /// Client for interacting with the F1r3fly API
 pub struct F1r3flyApi<'a> {
     signing_key: SecretKey,
     node_host: &'a str,
     grpc_port: u16,
+    tip_floor: Arc<AtomicI64>,
 }
 
 impl<'a> F1r3flyApi<'a> {
@@ -67,6 +85,7 @@ impl<'a> F1r3flyApi<'a> {
             signing_key: SecretKey::from_slice(&hex::decode(signing_key).unwrap()).unwrap(),
             node_host,
             grpc_port,
+            tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
         }
     }
 
@@ -95,14 +114,17 @@ impl<'a> F1r3flyApi<'a> {
             50_000
         };
 
-        // Get current block number for VABN (solves Block 50 issue)
-        let current_block = match self.get_current_block_number().await {
+        // Get current block number for VABN (solves Block 50 issue).
+        // Use robust multi-sampling because some nodes can briefly return stale chain tips.
+        let tip_lookup_start = Instant::now();
+        let current_block = match self.get_current_block_number_monotonic().await {
             Ok(block_num) => {
                 println!("Current block: {}", block_num);
                 println!(
-                    "Setting validity window: blocks {} to {} (50-block window)",
+                    "✅ Setting validity window: blocks {} to {} ({}-block window)",
                     block_num,
-                    block_num + 50
+                    block_num + DEPLOY_VALIDITY_WINDOW_BLOCKS,
+                    DEPLOY_VALIDITY_WINDOW_BLOCKS
                 );
                 block_num
             }
@@ -115,6 +137,10 @@ impl<'a> F1r3flyApi<'a> {
                 0
             }
         };
+        println!(
+            "⏱️  Phase tip selection: {:.2?}",
+            tip_lookup_start.elapsed()
+        );
 
         // Log expiration info if set
         if expiration_timestamp > 0 {
@@ -132,12 +158,16 @@ impl<'a> F1r3flyApi<'a> {
         );
 
         // Connect to the F1r3fly node
+        let connect_start = Instant::now();
         let mut deploy_service_client =
             DeployServiceClient::connect(format!("http://{}:{}/", self.node_host, self.grpc_port))
                 .await?;
+        println!("⏱️  Phase grpc connect: {:.2?}", connect_start.elapsed());
 
         // Send the deploy
+        let do_deploy_start = Instant::now();
         let deploy_response = deploy_service_client.do_deploy(deployment).await?;
+        println!("⏱️  Phase do_deploy rpc: {:.2?}", do_deploy_start.elapsed());
 
         // Process the response
         let deploy_message = deploy_response
@@ -267,8 +297,8 @@ impl<'a> F1r3flyApi<'a> {
     ///
     /// # Returns
     ///
-    /// The block hash of the proposed block if successful, otherwise an error
-    pub async fn propose(&self) -> Result<String, Box<dyn std::error::Error>> {
+    /// A typed proposal outcome if successful, otherwise an error
+    pub async fn propose(&self) -> Result<ProposeResult, Box<dyn std::error::Error>> {
         // Connect to the F1r3fly node's propose service
         let mut propose_client =
             ProposeServiceClient::connect(format!("http://{}:{}/", self.node_host, self.grpc_port))
@@ -290,15 +320,38 @@ impl<'a> F1r3flyApi<'a> {
                     .strip_prefix("Success! Block ")
                     .and_then(|s| s.strip_suffix(" created and added."))
                 {
-                    Ok(hash.to_string())
+                    Ok(ProposeResult::Proposed(hash.to_string()))
+                } else if Self::is_recoverable_propose_error(&block_hash) {
+                    Ok(ProposeResult::Skipped(block_hash))
                 } else {
-                    Ok(block_hash) // Return the full message if we can't extract the hash
+                    Ok(ProposeResult::Proposed(block_hash))
                 }
             }
             ProposeResponseMessage::Error(error) => {
-                Err(format!("Propose error: {:?}", error).into())
+                let error_message = error.messages.join("; ");
+                if Self::is_recoverable_propose_error(&error_message) {
+                    Ok(ProposeResult::Skipped(error_message))
+                } else {
+                    Err(format!("Propose error: {:?}", error).into())
+                }
             }
         }
+    }
+
+    fn is_recoverable_propose_error(error_message: &str) -> bool {
+        let normalized = error_message.to_ascii_lowercase();
+        const RECOVERABLE_PATTERNS: [&str; 6] = [
+            "must wait for more blocks from other validators",
+            "no new blocks from peers yet; synchronize with network first",
+            "no new deploys to propose",
+            "propose skipped due to transient proposal race",
+            "must wait for more blocks",
+            "not enough new blocks",
+        ];
+
+        RECOVERABLE_PATTERNS
+            .iter()
+            .any(|pattern| normalized.contains(pattern))
     }
 
     /// Performs a full deployment cycle: deploy and propose
@@ -312,14 +365,14 @@ impl<'a> F1r3flyApi<'a> {
     ///
     /// # Returns
     ///
-    /// The block hash if successful, otherwise an error
+    /// The proposal result if successful, otherwise an error
     pub async fn full_deploy(
         &self,
         rho_code: &str,
         use_bigger_phlo_price: bool,
         language: &str,
         expiration_timestamp: i64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<ProposeResult, Box<dyn std::error::Error>> {
         // First deploy the code
         self.deploy(
             rho_code,
@@ -685,6 +738,80 @@ impl<'a> F1r3flyApi<'a> {
         }
 
         Ok(blocks)
+    }
+
+    async fn get_current_block_number_monotonic(&self) -> Result<i64, Box<dyn std::error::Error>> {
+        let sampled_tip = self.get_current_block_number_sampled().await?;
+        let cached_tip = self.tip_floor.load(Ordering::Relaxed);
+        let selected_tip = if cached_tip != TIP_FLOOR_UNSET && sampled_tip < cached_tip {
+            println!(
+                "⚠️  Tip sample regressed from in-memory floor {} to {}. Using cached floor.",
+                cached_tip, sampled_tip
+            );
+            cached_tip
+        } else {
+            sampled_tip
+        };
+        self.tip_floor.store(selected_tip, Ordering::Relaxed);
+        Ok(selected_tip)
+    }
+
+    /// Samples the current block number a small number of times and takes the max.
+    async fn get_current_block_number_sampled(&self) -> Result<i64, Box<dyn std::error::Error>> {
+        let mut best_tip: Option<i64> = None;
+        let mut min_tip: Option<i64> = None;
+        let mut max_tip: Option<i64> = None;
+        let mut successful_samples: usize = 0;
+
+        for attempt in 1..=TIP_SAMPLE_ATTEMPTS {
+            let sampled_tip = match tokio::time::timeout(
+                tokio::time::Duration::from_secs(TIP_SAMPLE_TIMEOUT_SECS),
+                self.show_main_chain(BLOCK_SAMPLE_DEPTH),
+            )
+            .await
+            {
+                Ok(Ok(blocks)) => blocks.iter().map(|b| b.block_number).max(),
+                Ok(Err(err)) => {
+                    println!(
+                        "⚠️  Tip sample {}/{} failed: {}",
+                        attempt, TIP_SAMPLE_ATTEMPTS, err
+                    );
+                    None
+                }
+                Err(_) => {
+                    println!(
+                        "⚠️  Tip sample {}/{} timed out after {}s",
+                        attempt, TIP_SAMPLE_ATTEMPTS, TIP_SAMPLE_TIMEOUT_SECS
+                    );
+                    None
+                }
+            };
+
+            if let Some(tip) = sampled_tip {
+                successful_samples += 1;
+                best_tip = Some(best_tip.map_or(tip, |prev| prev.max(tip)));
+                min_tip = Some(min_tip.map_or(tip, |prev| prev.min(tip)));
+                max_tip = Some(max_tip.map_or(tip, |prev| prev.max(tip)));
+            }
+
+            if attempt < TIP_SAMPLE_ATTEMPTS {
+                tokio::time::sleep(tokio::time::Duration::from_millis(TIP_SAMPLE_DELAY_MS)).await;
+            }
+        }
+
+        if let Some(best_tip) = best_tip {
+            let min_tip = min_tip.unwrap_or(best_tip);
+            let max_tip = max_tip.unwrap_or(best_tip);
+            if successful_samples > 1 {
+                println!(
+                    "📈 Tip sampling: {} successful samples, range {}..{}, selected {}",
+                    successful_samples, min_tip, max_tip, best_tip
+                );
+            }
+            Ok(best_tip)
+        } else {
+            Err("Failed to sample current block number from main chain".into())
+        }
     }
 
     /// Gets blocks by height range from the blockchain
