@@ -427,10 +427,10 @@ run_test "epoch-info" \
     "Epoch information retrieved successfully|Current Epoch"
 
 # epoch-rewards: Get current epoch rewards
-# Uses exploratory-deploy internally, must run on observer (read-only) node
+# Uses HTTP explore-deploy internally, must run on observer (read-only) node
 run_test "epoch-rewards" \
-    "cargo run -q --release -- epoch-rewards -H $HOST -p $OBSERVER_GRPC" \
-    "Epoch rewards retrieved successfully|Epoch Rewards"
+    "cargo run -q --release -- epoch-rewards -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
+    "Epoch rewards retrieved successfully|validators"
 
 # validator-status: Check individual validator status
 # Uses exploratory-deploy internally, must run on observer (read-only) node

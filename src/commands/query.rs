@@ -1279,13 +1279,7 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
 pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔍 Getting current epoch rewards from {}:{}",
-        args.host, args.port
-    );
-
-    let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
-        &args.host,
-        args.port,
+        args.host, args.http_port
     );
 
     let rewards_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
@@ -1295,25 +1289,82 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
         }
     }"#;
 
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
+
     let start_time = Instant::now();
 
-    match f1r3fly_api
-        .exploratory_deploy(rewards_query, None, false)
-        .await
-    {
-        Ok((result, block_info)) => {
-            let duration = start_time.elapsed();
-            println!("✅ Epoch rewards retrieved successfully!");
-            println!("⏱️  Time taken: {:.2?}", duration);
+    let body = serde_json::json!({ "term": rewards_query });
+    let response = client
+        .post(&http_url)
+        .json(&body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        println!("❌ Failed to get epoch rewards!");
+        println!("Error: HTTP {} — {}", status, body);
+        return Err(format!("HTTP error: {}", status).into());
+    }
+
+    let response_json: serde_json::Value = response.json().await?;
+    let duration = start_time.elapsed();
+
+    println!("✅ Epoch rewards retrieved successfully!");
+    println!("⏱️  Time taken: {:.2?}", duration);
+
+    // Extract block info
+    if let Some(block) = response_json.get("block") {
+        let block_hash = block.get("blockHash").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let block_number = block.get("blockNumber").and_then(|v| v.as_i64()).unwrap_or(0);
+        println!(
+            "📊 Block hash: {}, Block number: {}",
+            block_hash, block_number
+        );
+    }
+
+    // Parse rewards from ExprMap: { validator_pubkey: ExprInt { data: reward } }
+    println!();
+    if let Some(expr) = response_json.get("expr").and_then(|e| e.as_array()) {
+        if let Some(expr_map) = expr.first().and_then(|e| e.get("ExprMap")).and_then(|m| m.get("data")).and_then(|d| d.as_object()) {
+            println!("💰 Current Epoch Rewards ({} validators):", expr_map.len());
+            println!();
+
+            let mut entries: Vec<(&String, i64)> = expr_map
+                .iter()
+                .map(|(key, val)| {
+                    let reward = val
+                        .get("ExprInt")
+                        .and_then(|e| e.get("data"))
+                        .and_then(|d| d.as_i64())
+                        .unwrap_or(0);
+                    (key, reward)
+                })
+                .collect();
+            let total_rewards: i64 = entries.iter().map(|(_, r)| r).sum();
+            entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+            for (key, reward) in &entries {
+                let short_key = if key.len() > 16 {
+                    format!("{}...{}", &key[..8], &key[key.len() - 8..])
+                } else {
+                    key.to_string()
+                };
+                println!("   {} : {}", short_key, reward);
+            }
+
+            println!();
+            println!("   Total: {}", total_rewards);
+        } else {
             println!("💰 Current Epoch Rewards:");
-            println!("{}", result);
-            println!("📊 {}", block_info);
+            println!("{}", serde_json::to_string_pretty(&response_json["expr"])?);
         }
-        Err(e) => {
-            println!("❌ Failed to get epoch rewards!");
-            println!("Error: {}", e);
-            return Err(e.into());
-        }
+    } else {
+        println!("No reward data returned");
     }
 
     Ok(())
