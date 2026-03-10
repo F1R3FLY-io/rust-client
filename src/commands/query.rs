@@ -1289,7 +1289,9 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
         }
     }"#;
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
     let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     let start_time = Instant::now();
@@ -1297,15 +1299,15 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
     let body = serde_json::json!({ "term": rewards_query });
     let response = client
         .post(&http_url)
-        .header("Content-Type", "application/json")
         .json(&body)
         .send()
         .await?;
 
     if !response.status().is_success() {
         let status = response.status();
+        let body = response.text().await.unwrap_or_default();
         println!("❌ Failed to get epoch rewards!");
-        println!("Error: HTTP {}", status);
+        println!("Error: HTTP {} — {}", status, body);
         return Err(format!("HTTP error: {}", status).into());
     }
 
@@ -1332,7 +1334,6 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
             println!("💰 Current Epoch Rewards ({} validators):", expr_map.len());
             println!();
 
-            let mut total_rewards: i64 = 0;
             let mut entries: Vec<(&String, i64)> = expr_map
                 .iter()
                 .map(|(key, val)| {
@@ -1341,10 +1342,10 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
                         .and_then(|e| e.get("data"))
                         .and_then(|d| d.as_i64())
                         .unwrap_or(0);
-                    total_rewards += reward;
                     (key, reward)
                 })
                 .collect();
+            let total_rewards: i64 = entries.iter().map(|(_, r)| r).sum();
             entries.sort_by(|a, b| b.1.cmp(&a.1));
 
             for (key, reward) in &entries {
