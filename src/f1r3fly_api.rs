@@ -14,8 +14,19 @@ use f1r3fly_models::ByteString;
 use prost::Message;
 use secp256k1::{Message as Secp256k1Message, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{
+    atomic::{AtomicI64, Ordering},
+    Arc,
+};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use typenum::U32;
+
+const DEPLOY_VALIDITY_WINDOW_BLOCKS: i64 = 50;
+const BLOCK_SAMPLE_DEPTH: u32 = 8;
+const TIP_SAMPLE_ATTEMPTS: usize = 2;
+const TIP_SAMPLE_TIMEOUT_SECS: u64 = 2;
+const TIP_SAMPLE_DELAY_MS: u64 = 50;
+const TIP_FLOOR_UNSET: i64 = -1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployInfo {
@@ -43,11 +54,18 @@ pub enum DeployStatus {
     Error(String), // Error occurred
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProposeResult {
+    Proposed(String),
+    Skipped(String),
+}
+
 /// Client for interacting with the F1r3fly API
 pub struct F1r3flyApi<'a> {
     signing_key: SecretKey,
     node_host: &'a str,
     grpc_port: u16,
+    tip_floor: Arc<AtomicI64>,
 }
 
 impl<'a> F1r3flyApi<'a> {
@@ -67,6 +85,7 @@ impl<'a> F1r3flyApi<'a> {
             signing_key: SecretKey::from_slice(&hex::decode(signing_key).unwrap()).unwrap(),
             node_host,
             grpc_port,
+            tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
         }
     }
 
@@ -77,6 +96,7 @@ impl<'a> F1r3flyApi<'a> {
     /// * `rho_code` - Rholang source code to deploy
     /// * `use_bigger_phlo_price` - Whether to use a larger phlo limit
     /// * `language` - Language of the deploy (typically "rholang")
+    /// * `expiration_timestamp` - Optional expiration timestamp in milliseconds (0 = no expiration)
     ///
     /// # Returns
     ///
@@ -86,6 +106,7 @@ impl<'a> F1r3flyApi<'a> {
         rho_code: &str,
         use_bigger_phlo_price: bool,
         language: &str,
+        expiration_timestamp: i64,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let phlo_limit: i64 = if use_bigger_phlo_price {
             5_000_000_000
@@ -93,26 +114,38 @@ impl<'a> F1r3flyApi<'a> {
             50_000
         };
 
-        // Get current block number for VABN (solves Block 50 issue)
-        let current_block = match self.get_current_block_number().await {
+        // Get current block number for VABN (solves Block 50 issue).
+        // Use robust multi-sampling because some nodes can briefly return stale chain tips.
+        let tip_lookup_start = Instant::now();
+        let current_block = match self.get_current_block_number_monotonic().await {
             Ok(block_num) => {
-                println!("🔢 Current block: {}", block_num);
+                println!("Current block: {}", block_num);
                 println!(
-                    "✅ Setting validity window: blocks {} to {} (50-block window)",
+                    "✅ Setting validity window: blocks {} to {} ({}-block window)",
                     block_num,
-                    block_num + 50
+                    block_num + DEPLOY_VALIDITY_WINDOW_BLOCKS,
+                    DEPLOY_VALIDITY_WINDOW_BLOCKS
                 );
                 block_num
             }
             Err(e) => {
                 println!(
-                    "⚠️  Warning: Could not get current block number ({}), using VABN=0",
+                    "Warning: Could not get current block number ({}), using VABN=0",
                     e
                 );
-                println!("⚠️  This may cause Block 50 issues if blockchain has > 50 blocks");
+                println!("This may cause Block 50 issues if blockchain has > 50 blocks");
                 0
             }
         };
+        println!(
+            "⏱️  Phase tip selection: {:.2?}",
+            tip_lookup_start.elapsed()
+        );
+
+        // Log expiration info if set
+        if expiration_timestamp > 0 {
+            println!("Deploy expiration timestamp: {} ms", expiration_timestamp);
+        }
 
         // Build and sign the deployment
         let deployment = self.build_deploy_msg(
@@ -120,15 +153,21 @@ impl<'a> F1r3flyApi<'a> {
             phlo_limit,
             language.to_string(),
             current_block,
+            expiration_timestamp,
+            None,
         );
 
         // Connect to the F1r3fly node
+        let connect_start = Instant::now();
         let mut deploy_service_client =
             DeployServiceClient::connect(format!("http://{}:{}/", self.node_host, self.grpc_port))
                 .await?;
+        println!("⏱️  Phase grpc connect: {:.2?}", connect_start.elapsed());
 
         // Send the deploy
+        let do_deploy_start = Instant::now();
         let deploy_response = deploy_service_client.do_deploy(deployment).await?;
+        println!("⏱️  Phase do_deploy rpc: {:.2?}", do_deploy_start.elapsed());
 
         // Process the response
         let deploy_message = deploy_response
@@ -258,8 +297,8 @@ impl<'a> F1r3flyApi<'a> {
     ///
     /// # Returns
     ///
-    /// The block hash of the proposed block if successful, otherwise an error
-    pub async fn propose(&self) -> Result<String, Box<dyn std::error::Error>> {
+    /// A typed proposal outcome if successful, otherwise an error
+    pub async fn propose(&self) -> Result<ProposeResult, Box<dyn std::error::Error>> {
         // Connect to the F1r3fly node's propose service
         let mut propose_client =
             ProposeServiceClient::connect(format!("http://{}:{}/", self.node_host, self.grpc_port))
@@ -281,15 +320,38 @@ impl<'a> F1r3flyApi<'a> {
                     .strip_prefix("Success! Block ")
                     .and_then(|s| s.strip_suffix(" created and added."))
                 {
-                    Ok(hash.to_string())
+                    Ok(ProposeResult::Proposed(hash.to_string()))
+                } else if Self::is_recoverable_propose_error(&block_hash) {
+                    Ok(ProposeResult::Skipped(block_hash))
                 } else {
-                    Ok(block_hash) // Return the full message if we can't extract the hash
+                    Ok(ProposeResult::Proposed(block_hash))
                 }
             }
             ProposeResponseMessage::Error(error) => {
-                Err(format!("Propose error: {:?}", error).into())
+                let error_message = error.messages.join("; ");
+                if Self::is_recoverable_propose_error(&error_message) {
+                    Ok(ProposeResult::Skipped(error_message))
+                } else {
+                    Err(format!("Propose error: {:?}", error).into())
+                }
             }
         }
+    }
+
+    fn is_recoverable_propose_error(error_message: &str) -> bool {
+        let normalized = error_message.to_ascii_lowercase();
+        const RECOVERABLE_PATTERNS: [&str; 6] = [
+            "must wait for more blocks from other validators",
+            "no new blocks from peers yet; synchronize with network first",
+            "no new deploys to propose",
+            "propose skipped due to transient proposal race",
+            "must wait for more blocks",
+            "not enough new blocks",
+        ];
+
+        RECOVERABLE_PATTERNS
+            .iter()
+            .any(|pattern| normalized.contains(pattern))
     }
 
     /// Performs a full deployment cycle: deploy and propose
@@ -299,19 +361,26 @@ impl<'a> F1r3flyApi<'a> {
     /// * `rho_code` - Rholang source code to deploy
     /// * `use_bigger_phlo_price` - Whether to use a larger phlo limit
     /// * `language` - Language of the deploy (typically "rholang")
+    /// * `expiration_timestamp` - Optional expiration timestamp in milliseconds (0 = no expiration)
     ///
     /// # Returns
     ///
-    /// The block hash if successful, otherwise an error
+    /// The proposal result if successful, otherwise an error
     pub async fn full_deploy(
         &self,
         rho_code: &str,
         use_bigger_phlo_price: bool,
         language: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+        expiration_timestamp: i64,
+    ) -> Result<ProposeResult, Box<dyn std::error::Error>> {
         // First deploy the code
-        self.deploy(rho_code, use_bigger_phlo_price, language)
-            .await?;
+        self.deploy(
+            rho_code,
+            use_bigger_phlo_price,
+            language,
+            expiration_timestamp,
+        )
+        .await?;
 
         // Then propose a block
         self.propose().await
@@ -590,34 +659,34 @@ impl<'a> F1r3flyApi<'a> {
             (false, None)
         };
 
-                    // Parse the response into DeployInfo
-                    let deploy_info = DeployInfo {
-                        deploy_id: deploy_id.to_string(),
+        // Parse the response into DeployInfo
+        let deploy_info = DeployInfo {
+            deploy_id: deploy_id.to_string(),
             block_hash,
-                        sender: deploy_data
-                            .get("sender")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        seq_num: deploy_data.get("seqNum").and_then(|v| v.as_u64()),
-                        sig: deploy_data
-                            .get("sig")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        sig_algorithm: deploy_data
-                            .get("sigAlgorithm")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        shard_id: deploy_data
-                            .get("shardId")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                        version: deploy_data.get("version").and_then(|v| v.as_u64()),
-                        timestamp: deploy_data.get("timestamp").and_then(|v| v.as_u64()),
-                        status: DeployStatus::Included,
+            sender: deploy_data
+                .get("sender")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            seq_num: deploy_data.get("seqNum").and_then(|v| v.as_u64()),
+            sig: deploy_data
+                .get("sig")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            sig_algorithm: deploy_data
+                .get("sigAlgorithm")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            shard_id: deploy_data
+                .get("shardId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            version: deploy_data.get("version").and_then(|v| v.as_u64()),
+            timestamp: deploy_data.get("timestamp").and_then(|v| v.as_u64()),
+            status: DeployStatus::Included,
             errored,
             system_deploy_error,
-                    };
-                    Ok(deploy_info)
+        };
+        Ok(deploy_info)
     }
 
     /// Gets blocks in the main chain
@@ -669,6 +738,80 @@ impl<'a> F1r3flyApi<'a> {
         }
 
         Ok(blocks)
+    }
+
+    async fn get_current_block_number_monotonic(&self) -> Result<i64, Box<dyn std::error::Error>> {
+        let sampled_tip = self.get_current_block_number_sampled().await?;
+        let cached_tip = self.tip_floor.load(Ordering::Relaxed);
+        let selected_tip = if cached_tip != TIP_FLOOR_UNSET && sampled_tip < cached_tip {
+            println!(
+                "⚠️  Tip sample regressed from in-memory floor {} to {}. Using cached floor.",
+                cached_tip, sampled_tip
+            );
+            cached_tip
+        } else {
+            sampled_tip
+        };
+        self.tip_floor.store(selected_tip, Ordering::Relaxed);
+        Ok(selected_tip)
+    }
+
+    /// Samples the current block number a small number of times and takes the max.
+    async fn get_current_block_number_sampled(&self) -> Result<i64, Box<dyn std::error::Error>> {
+        let mut best_tip: Option<i64> = None;
+        let mut min_tip: Option<i64> = None;
+        let mut max_tip: Option<i64> = None;
+        let mut successful_samples: usize = 0;
+
+        for attempt in 1..=TIP_SAMPLE_ATTEMPTS {
+            let sampled_tip = match tokio::time::timeout(
+                tokio::time::Duration::from_secs(TIP_SAMPLE_TIMEOUT_SECS),
+                self.show_main_chain(BLOCK_SAMPLE_DEPTH),
+            )
+            .await
+            {
+                Ok(Ok(blocks)) => blocks.iter().map(|b| b.block_number).max(),
+                Ok(Err(err)) => {
+                    println!(
+                        "⚠️  Tip sample {}/{} failed: {}",
+                        attempt, TIP_SAMPLE_ATTEMPTS, err
+                    );
+                    None
+                }
+                Err(_) => {
+                    println!(
+                        "⚠️  Tip sample {}/{} timed out after {}s",
+                        attempt, TIP_SAMPLE_ATTEMPTS, TIP_SAMPLE_TIMEOUT_SECS
+                    );
+                    None
+                }
+            };
+
+            if let Some(tip) = sampled_tip {
+                successful_samples += 1;
+                best_tip = Some(best_tip.map_or(tip, |prev| prev.max(tip)));
+                min_tip = Some(min_tip.map_or(tip, |prev| prev.min(tip)));
+                max_tip = Some(max_tip.map_or(tip, |prev| prev.max(tip)));
+            }
+
+            if attempt < TIP_SAMPLE_ATTEMPTS {
+                tokio::time::sleep(tokio::time::Duration::from_millis(TIP_SAMPLE_DELAY_MS)).await;
+            }
+        }
+
+        if let Some(best_tip) = best_tip {
+            let min_tip = min_tip.unwrap_or(best_tip);
+            let max_tip = max_tip.unwrap_or(best_tip);
+            if successful_samples > 1 {
+                println!(
+                    "📈 Tip sampling: {} successful samples, range {}..{}, selected {}",
+                    successful_samples, min_tip, max_tip, best_tip
+                );
+            }
+            Ok(best_tip)
+        } else {
+            Err("Failed to sample current block number from main chain".into())
+        }
     }
 
     /// Gets blocks by height range from the blockchain
@@ -742,6 +885,96 @@ impl<'a> F1r3flyApi<'a> {
         }
     }
 
+    /// Deploy Rholang code with a specific phlo limit
+    ///
+    /// Unlike `deploy()` which uses a fixed phlo limit based on a boolean flag,
+    /// this method allows specifying an exact phlo limit.
+    pub async fn deploy_with_phlo_limit(
+        &self,
+        rho_code: &str,
+        phlo_limit: i64,
+        language: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.deploy_internal(rho_code, phlo_limit, language, 0, None)
+            .await
+    }
+
+    /// Deploy Rholang code with a specific timestamp and phlo limit
+    ///
+    /// Required for `insertSigned` compatibility where the deploy timestamp
+    /// must match the signature timestamp.
+    pub async fn deploy_with_timestamp_and_phlo_limit(
+        &self,
+        rho_code: &str,
+        language: &str,
+        timestamp_millis: Option<i64>,
+        phlo_limit: i64,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.deploy_internal(rho_code, phlo_limit, language, 0, timestamp_millis)
+            .await
+    }
+
+    /// Internal deploy implementation with all parameters
+    async fn deploy_internal(
+        &self,
+        rho_code: &str,
+        phlo_limit: i64,
+        language: &str,
+        expiration_timestamp: i64,
+        timestamp_override: Option<i64>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let current_block = match self.get_current_block_number().await {
+            Ok(block_num) => block_num,
+            Err(_) => 0,
+        };
+
+        let deployment = self.build_deploy_msg(
+            rho_code.to_string(),
+            phlo_limit,
+            language.to_string(),
+            current_block,
+            expiration_timestamp,
+            timestamp_override,
+        );
+
+        let mut deploy_service_client =
+            DeployServiceClient::connect(format!("http://{}:{}/", self.node_host, self.grpc_port))
+                .await?;
+
+        let deploy_response = deploy_service_client.do_deploy(deployment).await?;
+
+        let deploy_message = deploy_response
+            .get_ref()
+            .message
+            .as_ref()
+            .ok_or("Deploy result not found")?;
+
+        match deploy_message {
+            DeployResponseMessage::Error(service_error) => Err(service_error.clone().into()),
+            DeployResponseMessage::Result(result) => {
+                let cleaned_result = result.trim();
+                if let Some(deploy_id) = cleaned_result.strip_prefix("Success! DeployId is: ") {
+                    Ok(deploy_id.trim().to_string())
+                } else if let Some(deploy_id) =
+                    cleaned_result.strip_prefix("Success!\nDeployId is: ")
+                {
+                    Ok(deploy_id.trim().to_string())
+                } else if cleaned_result.starts_with("Success!") {
+                    let lines: Vec<&str> = cleaned_result.lines().collect();
+                    for line in lines {
+                        let trimmed = line.trim();
+                        if trimmed.len() > 64 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                            return Ok(trimmed.to_string());
+                        }
+                    }
+                    Err(format!("Could not extract deploy ID from response: {}", result).into())
+                } else {
+                    Ok(cleaned_result.to_string())
+                }
+            }
+        }
+    }
+
     /// Builds and signs a deploy message
     ///
     /// # Arguments
@@ -750,6 +983,7 @@ impl<'a> F1r3flyApi<'a> {
     /// * `phlo_limit` - Maximum amount of phlo to use for execution
     /// * `language` - Language of the deploy (typically "rholang")
     /// * `valid_after_block_number` - Block number after which the deploy is valid
+    /// * `expiration_timestamp` - Expiration timestamp in milliseconds (0 = no expiration)
     ///
     /// # Returns
     ///
@@ -760,15 +994,20 @@ impl<'a> F1r3flyApi<'a> {
         phlo_limit: i64,
         language: String,
         valid_after_block_number: i64,
+        expiration_timestamp: i64,
+        timestamp_override: Option<i64>,
     ) -> DeployDataProto {
-        // Get current timestamp in milliseconds
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get system time")
-            .as_millis() as i64;
+        let timestamp = timestamp_override.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Failed to get system time")
+                .as_millis() as i64
+        });
 
         // Create a projection with only the fields used for signature calculation
-        // IMPORTANT: The language field is deliberately excluded from signature calculation
+        // IMPORTANT: The language field is deliberately excluded from signature calculation.
+        // expiration_timestamp IS included when set (non-zero).
+        // Proto3 will not serialize 0 values, so 0 = "not set" = backward compatible.
         let projection = DeployDataProto {
             term: code.clone(),
             timestamp,
@@ -780,6 +1019,7 @@ impl<'a> F1r3flyApi<'a> {
             sig: ByteString::new(),
             deployer: ByteString::new(),
             sig_algorithm: String::new(),
+            expiration_timestamp, // Included when non-zero (proto3 omits 0 values)
         };
 
         // Serialize the projection for hashing
@@ -812,6 +1052,7 @@ impl<'a> F1r3flyApi<'a> {
             sig: ByteString::from(sig_bytes),
             sig_algorithm: "secp256k1".into(),
             deployer: ByteString::from(pub_key_bytes),
+            expiration_timestamp,
         }
     }
 }

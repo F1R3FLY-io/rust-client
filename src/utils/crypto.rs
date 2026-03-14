@@ -2,7 +2,7 @@ use crate::error::{NodeCliError, Result};
 use f1r3fly_crypto::rust::public_key::PublicKey;
 use hex;
 use rand::rngs::OsRng;
-use f1r3fly_rholang::rust::interpreter::util::rev_address::RevAddress;
+use f1r3fly_rholang::rust::interpreter::util::vault_address::VaultAddress;
 use secp256k1::{PublicKey as Secp256k1PublicKey, Secp256k1, SecretKey};
 use std::fs;
 use std::path::Path;
@@ -47,16 +47,16 @@ impl CryptoUtils {
         hex::encode(private_key.secret_bytes())
     }
 
-    /// Generate REV address from public key
-    pub fn generate_rev_address(public_key_hex: &str) -> Result<String> {
+    /// Generate vault address from public key
+    pub fn generate_vault_address(public_key_hex: &str) -> Result<String> {
         let public_key_bytes = hex::decode(public_key_hex)?;
 
         let public_key = PublicKey::from_bytes(&public_key_bytes);
 
-        match RevAddress::from_public_key(&public_key) {
-            Some(rev_address) => Ok(rev_address.to_base58()),
+        match VaultAddress::from_public_key(&public_key) {
+            Some(vault_address) => Ok(vault_address.to_base58()),
             None => Err(NodeCliError::crypto_invalid_public_key(
-                "Failed to generate REV address from public key",
+                "Failed to generate vault address from public key",
             )),
         }
     }

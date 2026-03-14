@@ -118,7 +118,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
     let url = format!("http://{}:{}/api/explore-deploy", args.host, args.port);
     let client = reqwest::Client::new();
 
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
+    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:system:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
 
     let body = serde_json::json!({
         "term": rholang_query
@@ -211,7 +211,7 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
     let url = format!("http://{}:{}/api/explore-deploy", args.host, args.port);
     let client = reqwest::Client::new();
 
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getActiveValidators", *return) } }"#;
+    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:system:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getActiveValidators", *return) } }"#;
 
     let body = serde_json::json!({
         "term": rholang_query
@@ -311,10 +311,10 @@ pub async fn wallet_balance_command(
     );
 
     let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), revVaultCh, vaultCh, balanceCh in {{
-            rl!(`rho:rchain:revVault`, *revVaultCh) |
-            for (@(_, RevVault) <- revVaultCh) {{
-                @RevVault!("findOrCreate", "{}", *vaultCh) |
+        r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
+            rl!(`rho:vault:system`, *systemVaultCh) |
+            for (@(_, SystemVault) <- systemVaultCh) {{
+                @SystemVault!("findOrCreate", "{}", *vaultCh) |
                 for (@either <- vaultCh) {{
                     match either {{
                         (true, vault) => {{
@@ -343,7 +343,7 @@ pub async fn wallet_balance_command(
             let duration = start_time.elapsed();
             println!("✅ Wallet balance retrieved successfully!");
             println!("⏱️  Time taken: {:.2?}", duration);
-            println!("💰 Balance for {}: {} REV", args.address, result);
+            println!("💰 Balance for {}: {}", args.address, result);
             println!("📊 {}", block_info);
         }
         Err(e) => {
@@ -366,7 +366,7 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
     let client = reqwest::Client::new();
 
     // Get all bonds first, then check if our public key is in there
-    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:rchain:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
+    let rholang_query = r#"new return, rl(`rho:registry:lookup`), poSCh in { rl!(`rho:system:pos`, *poSCh) | for(@(_, PoS) <- poSCh) { @PoS!("getBonds", *return) } }"#;
 
     let body = serde_json::json!({
         "term": rholang_query
@@ -1025,7 +1025,7 @@ pub async fn validator_status_command(
 
     // Query 1: Get all bonds to check if validator is bonded
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getBonds", *return)
         }
@@ -1033,7 +1033,7 @@ pub async fn validator_status_command(
 
     // Query 2: Get active validators to check if validator is active
     let active_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getActiveValidators", *return)
         }
@@ -1041,7 +1041,7 @@ pub async fn validator_status_command(
 
     // Query 3: Get quarantine length for timing calculations
     let quarantine_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getQuarantineLength", *return)
         }
@@ -1103,7 +1103,7 @@ pub async fn validator_status_command(
                                 if validator == args.public_key {
                                     if let Some(stake) = bond.get("stake").and_then(|s| s.as_i64())
                                     {
-                                        println!("   Stake Amount: {} REV", stake);
+                                        println!("   Stake Amount: {}", stake);
                                     }
                                     break;
                                 }
@@ -1164,14 +1164,14 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
 
     // Query epoch and quarantine lengths from PoS contract
     let epoch_length_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getEpochLength", *return)
         }
     }"#;
 
     let quarantine_length_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getQuarantineLength", *return)
         }
@@ -1279,41 +1279,92 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
 pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "🔍 Getting current epoch rewards from {}:{}",
-        args.host, args.port
-    );
-
-    let f1r3fly_api = F1r3flyApi::new(
-        "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
-        &args.host,
-        args.port,
+        args.host, args.http_port
     );
 
     let rewards_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getCurrentEpochRewards", *return)
         }
     }"#;
 
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
+
     let start_time = Instant::now();
 
-    match f1r3fly_api
-        .exploratory_deploy(rewards_query, None, false)
-        .await
-    {
-        Ok((result, block_info)) => {
-            let duration = start_time.elapsed();
-            println!("✅ Epoch rewards retrieved successfully!");
-            println!("⏱️  Time taken: {:.2?}", duration);
+    let body = serde_json::json!({ "term": rewards_query });
+    let response = client
+        .post(&http_url)
+        .json(&body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        println!("❌ Failed to get epoch rewards!");
+        println!("Error: HTTP {} — {}", status, body);
+        return Err(format!("HTTP error: {}", status).into());
+    }
+
+    let response_json: serde_json::Value = response.json().await?;
+    let duration = start_time.elapsed();
+
+    println!("✅ Epoch rewards retrieved successfully!");
+    println!("⏱️  Time taken: {:.2?}", duration);
+
+    // Extract block info
+    if let Some(block) = response_json.get("block") {
+        let block_hash = block.get("blockHash").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let block_number = block.get("blockNumber").and_then(|v| v.as_i64()).unwrap_or(0);
+        println!(
+            "📊 Block hash: {}, Block number: {}",
+            block_hash, block_number
+        );
+    }
+
+    // Parse rewards from ExprMap: { validator_pubkey: ExprInt { data: reward } }
+    println!();
+    if let Some(expr) = response_json.get("expr").and_then(|e| e.as_array()) {
+        if let Some(expr_map) = expr.first().and_then(|e| e.get("ExprMap")).and_then(|m| m.get("data")).and_then(|d| d.as_object()) {
+            println!("💰 Current Epoch Rewards ({} validators):", expr_map.len());
+            println!();
+
+            let mut entries: Vec<(&String, i64)> = expr_map
+                .iter()
+                .map(|(key, val)| {
+                    let reward = val
+                        .get("ExprInt")
+                        .and_then(|e| e.get("data"))
+                        .and_then(|d| d.as_i64())
+                        .unwrap_or(0);
+                    (key, reward)
+                })
+                .collect();
+            let total_rewards: i64 = entries.iter().map(|(_, r)| r).sum();
+            entries.sort_by(|a, b| b.1.cmp(&a.1));
+
+            for (key, reward) in &entries {
+                let short_key = if key.len() > 16 {
+                    format!("{}...{}", &key[..8], &key[key.len() - 8..])
+                } else {
+                    key.to_string()
+                };
+                println!("   {} : {}", short_key, reward);
+            }
+
+            println!();
+            println!("   Total: {}", total_rewards);
+        } else {
             println!("💰 Current Epoch Rewards:");
-            println!("{}", result);
-            println!("📊 {}", block_info);
+            println!("{}", serde_json::to_string_pretty(&response_json["expr"])?);
         }
-        Err(e) => {
-            println!("❌ Failed to get epoch rewards!");
-            println!("Error: {}", e);
-            return Err(e.into());
-        }
+    } else {
+        println!("No reward data returned");
     }
 
     Ok(())
@@ -1375,21 +1426,21 @@ pub async fn network_consensus_command(
     let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
 
     let bonds_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getBonds", *return)
         }
     }"#;
 
     let active_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getActiveValidators", *return)
         }
     }"#;
 
     let quarantine_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
-        rl!(`rho:rchain:pos`, *poSCh) |
+        rl!(`rho:system:pos`, *poSCh) |
         for(@(_, PoS) <- poSCh) {
             @PoS!("getQuarantineLength", *return)
         }
@@ -1713,7 +1764,7 @@ pub async fn block_transfers_command(
                 println!("   Transfer #{}:", j + 1);
                 println!("      From:   {}", from);
                 println!("      To:     {}", to);
-                println!("      Amount: {} REV", amount);
+                println!("      Amount: {}", amount);
                 println!("      Status: {}", status);
             }
         }
