@@ -594,7 +594,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 [[package]]
 name = "crypto"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#e545187212ef7c47a87b1899688b927bd50b8339"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1908,7 +1908,7 @@ dependencies = [
 [[package]]
 name = "models"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#e545187212ef7c47a87b1899688b927bd50b8339"
 dependencies = [
  "crypto",
  "hex",
@@ -1925,6 +1925,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "tracing",
  "utoipa",
  "uuid",
 ]
@@ -2412,7 +2413,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "petgraph",
@@ -2433,7 +2434,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn",
@@ -2779,7 +2780,7 @@ dependencies = [
 [[package]]
 name = "rholang"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#e545187212ef7c47a87b1899688b927bd50b8339"
 dependencies = [
  "bincode",
  "cc",
@@ -2874,7 +2875,7 @@ dependencies = [
 [[package]]
 name = "rspace_plus_plus"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#e545187212ef7c47a87b1899688b927bd50b8339"
 dependencies = [
  "async-trait",
  "bincode",
@@ -3278,7 +3279,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#da4db4e26791a5074619a00a009f1b5de1e5d630"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#e545187212ef7c47a87b1899688b927bd50b8339"
 dependencies = [
  "axum",
  "bincode",
