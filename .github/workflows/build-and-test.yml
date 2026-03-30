@@ -102,8 +102,12 @@ jobs:
         include:
           - runner: ubuntu-latest
             arch: amd64
+            rustflags: "-C target-feature=+aes,+sse2"
           - runner: ubuntu-24.04-arm
             arch: arm64
+            rustflags: "-C target-feature=+aes,+neon"
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - name: Clone Repository
         uses: actions/checkout@v4
@@ -150,8 +154,12 @@ jobs:
         include:
           - runner: ubuntu-latest
             arch: amd64
+            rustflags: "-C target-feature=+aes,+sse2"
           - runner: ubuntu-24.04-arm
             arch: arm64
+            rustflags: "-C target-feature=+aes,+neon"
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - name: Clone Repository
         uses: actions/checkout@v4
@@ -204,11 +212,13 @@ jobs:
       fail-fast: false
       matrix:
         arch:
-          - { runner: ubuntu-latest, name: amd64 }
-          - { runner: ubuntu-24.04-arm, name: arm64 }
+          - { runner: ubuntu-latest, name: amd64, rustflags: "-C target-feature=+aes,+sse2" }
+          - { runner: ubuntu-24.04-arm, name: arm64, rustflags: "-C target-feature=+aes,+neon" }
         node:
           - rust
           - scala
+    env:
+      RUSTFLAGS: ${{ matrix.arch.rustflags }}
     steps:
       - name: Clone Repository
         uses: actions/checkout@v4
