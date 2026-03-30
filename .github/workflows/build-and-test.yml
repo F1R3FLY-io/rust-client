@@ -1,0 +1,375 @@
+name: Build and Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - dev
+    tags: "v**"
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  # Build base: version discovery and worktree packing.
+  # Skip release commits on branch pushes — the tag push handles the release build.
+  build_base:
+    name: Build Base
+    runs-on: ubuntu-latest
+    if: >-
+      !startsWith(github.event.head_commit.message, 'chore(release)')
+      || startsWith(github.ref, 'refs/tags/')
+    outputs:
+      VERSION: ${{ env.VERSION }}
+      BRANCH: ${{ env.BRANCH }}
+      IMAGE_TAG: ${{ env.IMAGE_TAG }}
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-06-15
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Tool versions
+        shell: bash -ex {0}
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Initialize Environment
+        shell: bash -exu -o pipefail {0}
+        run: |
+          git fetch origin
+          git fetch origin --tags --force
+
+          # Version from Git repository (tag-commit)
+          VERSION="$(git describe --tags --always)"
+          # Strip tag prefix for clean version string
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+          # Find related HEAD branch
+          BRANCH=""
+          if [[ $GITHUB_REF =~ ^refs/tags/ ]]; then
+            # For tag pushes, determine release type from tag name
+            # patch .0 = main release, patch > 0 = dev release
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            TAG_VERSION="${TAG_NAME#v}"
+            PATCH=$(echo "$TAG_VERSION" | cut -d. -f3)
+            if [ "$PATCH" = "0" ]; then
+              BRANCH="main"
+            else
+              BRANCH="dev"
+            fi
+          elif [[ $GITHUB_REF =~ ^refs/heads/ ]]; then
+            BRANCH=${GITHUB_REF#refs/*/}
+          else
+            BRANCH=$GITHUB_HEAD_REF
+          fi
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+
+          # Determine f1r3node Docker image tag based on branch
+          if [ "$BRANCH" = "main" ]; then
+            echo "IMAGE_TAG=latest" >> $GITHUB_ENV
+          else
+            echo "IMAGE_TAG=dev" >> $GITHUB_ENV
+          fi
+
+      - name: Pack Working Tree
+        shell: bash -ex {0}
+        run: tar -H posix -czf /tmp/rust-client-worktree.tar.gz .
+
+      - name: Save Working Tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-client-worktree
+          path: /tmp/rust-client-worktree.tar.gz
+
+  # Build on both architectures. Verifies CLI and library compilation.
+  build:
+    name: Build (${{ matrix.arch }})
+    needs: build_base
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-06-15
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Load Working Tree
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-client-worktree
+          path: /tmp
+
+      - name: Restore Working Tree
+        shell: bash -ex {0}
+        run: tar -H posix -xzf /tmp/rust-client-worktree.tar.gz
+
+      - name: Build CLI
+        shell: bash -ex {0}
+        run: cargo build --release
+
+      - name: Build Library (no default features)
+        shell: bash -ex {0}
+        run: cargo build --release --no-default-features
+
+      - name: Upload Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-client-binary-${{ matrix.arch }}
+          path: target/release/node_cli
+
+  # Unit tests (offline — no node required).
+  unit_tests:
+    name: Unit Tests (${{ matrix.arch }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-06-15
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Load Working Tree
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-client-worktree
+          path: /tmp
+
+      - name: Restore Working Tree
+        shell: bash -ex {0}
+        run: tar -H posix -xzf /tmp/rust-client-worktree.tar.gz
+
+      - name: Run Unit Tests
+        shell: bash -ex {0}
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          mkdir -p /tmp/test-logs
+          cargo test --release 2>&1 | tee /tmp/test-logs/unit-test-output.txt
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          exit $TEST_EXIT_CODE
+
+      - name: Upload Test Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-logs-${{ matrix.arch }}
+          path: /tmp/test-logs/
+          retention-days: 7
+
+  # Smoke tests against standalone f1r3node (Rust and Scala implementations).
+  # Pulls pre-built f1r3node Docker images from Docker Hub.
+  smoke_tests:
+    name: Smoke Tests (${{ matrix.arch.name }}/${{ matrix.node }})
+    needs:
+      - build_base
+      - unit_tests
+    runs-on: ${{ matrix.arch.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - { runner: ubuntu-latest, name: amd64 }
+          - { runner: ubuntu-24.04-arm, name: arm64 }
+        node:
+          - rust
+          - scala
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-06-15
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clone system-integration
+        uses: actions/checkout@v4
+        with:
+          repository: F1R3FLY-io/system-integration
+          ref: main
+          path: system-integration
+
+      - name: Load Working Tree
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-client-worktree
+          path: /tmp
+
+      - name: Restore Working Tree
+        shell: bash -ex {0}
+        run: tar -H posix -xzf /tmp/rust-client-worktree.tar.gz
+
+      - name: Pull f1r3node Docker image
+        shell: bash -ex {0}
+        env:
+          IMAGE_TAG: ${{ needs.build_base.outputs.IMAGE_TAG }}
+        run: |
+          if [ "${{ matrix.node }}" = "rust" ]; then
+            docker pull f1r3flyindustries/f1r3fly-rust-node:${IMAGE_TAG}
+          else
+            docker pull f1r3flyindustries/f1r3fly-scala-node:${IMAGE_TAG}
+          fi
+
+      - name: Start standalone node
+        shell: bash -ex {0}
+        env:
+          IMAGE_TAG: ${{ needs.build_base.outputs.IMAGE_TAG }}
+        run: |
+          cd system-integration/integration-tests
+          if [ "${{ matrix.node }}" = "rust" ]; then
+            F1R3FLY_RUST_IMAGE="f1r3flyindustries/f1r3fly-rust-node:${IMAGE_TAG}" \
+              docker compose -f docker-compose.standalone-rust.yml up -d
+          else
+            F1R3FLY_SCALA_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${IMAGE_TAG}" \
+              docker compose -f docker-compose.standalone-scala.yml up -d
+          fi
+
+      - name: Wait for node healthy
+        shell: bash {0}
+        run: |
+          echo "Waiting for standalone node to become healthy..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:40463/api/status >/dev/null 2>&1; then
+              echo "Node is healthy after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Node failed to become healthy after 300s"
+          docker logs rnode.standalone 2>&1 | tail -50
+          exit 1
+
+      - name: Run Smoke Tests
+        shell: bash -ex {0}
+        run: ./scripts/smoke_test.sh localhost 40462 40463
+
+      - name: Upload Smoke Test Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs-${{ matrix.arch.name }}-${{ matrix.node }}
+          path: logs/
+          retention-days: 7
+
+      - name: Capture Docker Logs
+        if: always()
+        shell: bash {0}
+        run: |
+          mkdir -p /tmp/docker-logs
+          docker logs rnode.standalone > /tmp/docker-logs/standalone.log 2>&1 || true
+
+      - name: Upload Docker Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs-${{ matrix.arch.name }}-${{ matrix.node }}
+          path: /tmp/docker-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Teardown
+        if: always()
+        shell: bash {0}
+        run: |
+          cd system-integration/integration-tests
+          if [ "${{ matrix.node }}" = "rust" ]; then
+            docker compose -f docker-compose.standalone-rust.yml down -v
+          else
+            docker compose -f docker-compose.standalone-scala.yml down -v
+          fi
+
+  # GitHub Release with compiled binaries and changelog.
+  release_packages:
+    name: Release Packages
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    needs:
+      - smoke_tests
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for CHANGELOG.md)
+        uses: actions/checkout@v4
+
+      - name: Load amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-client-binary-amd64
+          path: /tmp/amd64
+
+      - name: Load arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-client-binary-arm64
+          path: /tmp/arm64
+
+      - name: Prepare release artifacts
+        shell: bash -ex {0}
+        run: |
+          mkdir -p /tmp/release
+          cp /tmp/amd64/node_cli /tmp/release/rust-client-linux-amd64
+          cp /tmp/arm64/node_cli /tmp/release/rust-client-linux-arm64
+          chmod +x /tmp/release/rust-client-linux-amd64
+          chmod +x /tmp/release/rust-client-linux-arm64
+
+      - name: Determine release type
+        id: release_type
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PATCH=$(echo "$TAG" | cut -d. -f3)
+          if [ "$PATCH" = "0" ]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: /tmp/release/*
+          prerelease: ${{ steps.release_type.outputs.prerelease }}
+          draft: false
+          allowUpdates: true
+          omitBodyDuringUpdate: true
+          bodyFile: CHANGELOG.md
+          token: ${{ secrets.GITHUB_TOKEN }}
