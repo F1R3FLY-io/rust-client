@@ -16,9 +16,14 @@ pub struct ConnectionConfig {
     pub grpc_port: u16,
     pub http_port: u16,
     pub signing_key: String,
-    /// Maximum number of 1-second polling attempts when waiting for a deploy
-    /// to be included in a block (default: 180)
+    /// Observer node hostname for finalization checks (defaults to node_host)
+    pub observer_host: Option<String>,
+    /// Observer node gRPC port for finalization checks (defaults to 40452)
+    pub observer_grpc_port: u16,
+    /// Maximum seconds to wait for deploy inclusion in a block (default: 300)
     pub deploy_timeout_secs: u32,
+    /// Interval between polling attempts in seconds (default: 2)
+    pub poll_interval_secs: u64,
 }
 
 impl ConnectionConfig {
@@ -46,10 +51,16 @@ impl ConnectionConfig {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(40403),
             signing_key,
+            observer_host: env::var("FIREFLY_OBSERVER_HOST").ok(),
+            observer_grpc_port: env::var("FIREFLY_OBSERVER_GRPC_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(40452),
             deploy_timeout_secs: env::var("FIREFLY_DEPLOY_TIMEOUT")
                 .ok()
                 .and_then(|t| t.parse().ok())
-                .unwrap_or(180),
+                .unwrap_or(300),
+            poll_interval_secs: 2,
         })
     }
 
@@ -60,8 +71,18 @@ impl ConnectionConfig {
             grpc_port,
             http_port,
             signing_key,
-            deploy_timeout_secs: 180,
+            observer_host: None,
+            observer_grpc_port: 40452,
+            deploy_timeout_secs: 300,
+            poll_interval_secs: 2,
         }
+    }
+
+    /// Set observer node for finalization checks
+    pub fn with_observer(mut self, host: String, grpc_port: u16) -> Self {
+        self.observer_host = Some(host);
+        self.observer_grpc_port = grpc_port;
+        self
     }
 }
 
@@ -113,17 +134,32 @@ impl F1r3flyConnectionManager {
         &self.config
     }
 
-    fn api(&self) -> F1r3flyApi<'_> {
+    fn api(&self) -> Result<F1r3flyApi<'_>, ConnectionError> {
         F1r3flyApi::new(
             &self.config.signing_key,
             &self.config.node_host,
             self.config.grpc_port,
         )
+        .map_err(|e| ConnectionError::ConnectionFailed(e.to_string()))
+    }
+
+    fn observer_api(&self) -> Result<F1r3flyApi<'_>, ConnectionError> {
+        let host = self
+            .config
+            .observer_host
+            .as_deref()
+            .unwrap_or(&self.config.node_host);
+        F1r3flyApi::new(
+            &self.config.signing_key,
+            host,
+            self.config.observer_grpc_port,
+        )
+        .map_err(|e| ConnectionError::ConnectionFailed(e.to_string()))
     }
 
     /// Execute an exploratory deploy (read-only query)
     pub async fn query(&self, rholang_code: &str) -> Result<String, ConnectionError> {
-        let api = self.api();
+        let api = self.api()?;
         let (result, _block_info) = api
             .exploratory_deploy(rholang_code, None, false)
             .await
@@ -133,7 +169,7 @@ impl F1r3flyConnectionManager {
 
     /// Deploy Rholang code to the blockchain
     pub async fn deploy(&self, rholang_code: &str) -> Result<String, ConnectionError> {
-        let api = self.api();
+        let api = self.api()?;
         api.deploy_with_phlo_limit(rholang_code, 500_000, "rholang")
             .await
             .map_err(|e| ConnectionError::OperationFailed(e.to_string()))
@@ -148,7 +184,7 @@ impl F1r3flyConnectionManager {
         rholang_code: &str,
         timestamp_millis: i64,
     ) -> Result<String, ConnectionError> {
-        let api = self.api();
+        let api = self.api()?;
         api.deploy_with_timestamp_and_phlo_limit(
             rholang_code,
             "rholang",
@@ -159,28 +195,27 @@ impl F1r3flyConnectionManager {
         .map_err(|e| ConnectionError::OperationFailed(e.to_string()))
     }
 
-    /// Wait for a deploy to be included in a block
+    /// Wait for a deploy to be included in a block (uses gRPC find_deploy)
     pub async fn wait_for_deploy(
         &self,
         deploy_id: &str,
         max_attempts: u32,
     ) -> Result<String, ConnectionError> {
-        let api = self.api();
-        let check_interval_sec = 1;
+        let api = self.api()?;
+        let check_interval_sec = 2;
 
         for attempt in 1..=max_attempts {
             let result = api
-                .get_deploy_block_hash(deploy_id, self.config.http_port)
+                .find_deploy_grpc(deploy_id)
                 .await
                 .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
 
             match result {
-                Some(block_hash) => {
-                    log::debug!(
-                        "Deploy {} found in block {} after {} attempts",
-                        deploy_id,
-                        block_hash,
-                        attempt
+                Some(block_info) => {
+                    let block_hash = hex::encode(&block_info.block_hash);
+                    tracing::debug!(
+                        deploy_id, block_hash, attempt,
+                        "Deploy found in block"
                     );
                     return Ok(block_hash);
                 }
@@ -201,13 +236,13 @@ impl F1r3flyConnectionManager {
         ))
     }
 
-    /// Wait for a block to be finalized
+    /// Wait for a block to be finalized (uses observer node if configured)
     pub async fn wait_for_finalization(
         &self,
         block_hash: &str,
         max_attempts: u32,
     ) -> Result<(), ConnectionError> {
-        let api = self.api();
+        let api = self.observer_api()?;
         let retry_delay_sec = 5;
 
         let is_finalized = api
@@ -229,23 +264,96 @@ impl F1r3flyConnectionManager {
     pub async fn deploy_and_wait(
         &self,
         rholang_code: &str,
-        max_block_wait_attempts: u32,
-        max_finalization_attempts: u32,
+        bigger_phlo: bool,
+        expiration_timestamp: i64,
     ) -> Result<(String, String), ConnectionError> {
-        let deploy_id = self.deploy(rholang_code).await?;
+        let api = self.api()?;
+        let deploy_id = api
+            .deploy(rholang_code, bigger_phlo, "rholang", expiration_timestamp)
+            .await
+            .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {}", e)))?;
+        tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
 
+        let max_block_wait = (self.config.deploy_timeout_secs as u64 / self.config.poll_interval_secs) as u32;
         let block_hash = self
-            .wait_for_deploy(&deploy_id, max_block_wait_attempts)
+            .wait_for_deploy(&deploy_id, max_block_wait)
             .await?;
+        tracing::info!(block_hash = %block_hash, "Deploy included in block");
 
-        self.wait_for_finalization(&block_hash, max_finalization_attempts)
+        let max_finalization = 120; // 120 * 5s = 10 minutes
+        self.wait_for_finalization(&block_hash, max_finalization)
             .await?;
+        tracing::info!("Block finalized");
 
         Ok((deploy_id, block_hash))
     }
 
+    /// Deploy Rholang code, wait for finalization, then read deploy result
+    ///
+    /// Four phases:
+    /// 1. Deploy the code
+    /// 2. Poll until the deploy appears in a block
+    /// 3. Wait for the block to be finalized
+    /// 4. Read the deployId channel data from the finalized block
+    pub async fn full_deploy_and_wait(
+        &self,
+        rholang_code: &str,
+        bigger_phlo: bool,
+        expiration_timestamp: i64,
+    ) -> Result<crate::f1r3fly_api::DeployResult, ConnectionError> {
+        let api = self.api()?;
+
+        // Phase 1: Deploy
+        let deploy_id = api
+            .deploy(rholang_code, bigger_phlo, "rholang", expiration_timestamp)
+            .await
+            .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {}", e)))?;
+        tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
+
+        // Phase 2: Wait for block inclusion
+        let max_block_wait = (self.config.deploy_timeout_secs as u64 / self.config.poll_interval_secs) as u32;
+        let block_hash = self
+            .wait_for_deploy(&deploy_id, max_block_wait)
+            .await?;
+        tracing::info!(block_hash = %block_hash, "Deploy included in block");
+
+        // Phase 3: Wait for finalization (uses observer)
+        let max_finalization = 120; // 120 * 5s = 10 minutes
+        self.wait_for_finalization(&block_hash, max_finalization)
+            .await?;
+        tracing::info!("Block finalized");
+
+        // Phase 4: Read deploy result AFTER finalization
+        let data = api
+            .get_data_at_deploy_id(&deploy_id, &block_hash)
+            .await
+            .map_err(|e| ConnectionError::OperationFailed(format!("Failed to read deploy data: {}", e)))?;
+
+        // Get deploy execution details
+        let detail = api
+            .get_deploy_detail(&deploy_id, self.config.http_port)
+            .await
+            .map_err(|e| ConnectionError::OperationFailed(format!("Failed to get deploy detail: {}", e)))?;
+
+        Ok(crate::f1r3fly_api::DeployResult {
+            deploy_id,
+            block_hash,
+            block_number: detail.as_ref().map(|d| d.block_number),
+            cost: detail.as_ref().map(|d| d.cost),
+            errored: detail.as_ref().map(|d| d.errored).unwrap_or(false),
+            system_deploy_error: detail.and_then(|d| {
+                if d.system_deploy_error.is_empty() {
+                    None
+                } else {
+                    Some(d.system_deploy_error)
+                }
+            }),
+            data,
+        })
+    }
+
     /// Get direct access to the underlying F1r3flyApi
-    pub fn get_api(&self) -> F1r3flyApi<'_> {
+    pub fn get_api(&self) -> Result<F1r3flyApi<'_>, ConnectionError> {
         self.api()
     }
 
@@ -280,7 +388,7 @@ impl F1r3flyConnectionManager {
         let rholang = build_transfer_rholang(&from_address, to_address, amount_dust);
 
         let (deploy_id, block_hash) = self
-            .deploy_and_wait(&rholang, self.config.deploy_timeout_secs, 20)
+            .deploy_and_wait(&rholang, false, 0)
             .await?;
 
         log::info!(

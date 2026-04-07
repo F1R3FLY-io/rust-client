@@ -18,6 +18,12 @@ impl Dispatcher {
             Commands::DeployAndWait(args) => deploy_and_wait_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::FullDeployAndWait(args) => full_deploy_and_wait_command(args)
+                .await
+                .map_err(NodeCliError::from),
+            Commands::GetData(args) => get_data_command(args)
+                .await
+                .map_err(NodeCliError::from),
             Commands::IsFinalized(args) => {
                 is_finalized_command(args).await.map_err(NodeCliError::from)
             }
@@ -159,6 +165,8 @@ impl Dispatcher {
             Commands::WatchBlocks(_) => "watch-blocks",
             Commands::Dag(_) => "dag",
             Commands::BlockTransfers(_) => "block-transfers",
+            Commands::FullDeployAndWait(_) => "full-deploy-and-wait",
+            Commands::GetData(_) => "get-data",
         }
     }
 }

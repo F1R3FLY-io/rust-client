@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:ratatui", "dep:crossterm"]
+cli = ["dep:clap", "dep:ratatui", "dep:crossterm", "dep:tracing-subscriber"]
 
 [[bin]]
 name = "node_cli"
@@ -17,6 +17,9 @@ f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3
 f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
 f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
 prost = "0.14"
+
+# gRPC
+tonic = "0.14"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -45,6 +48,8 @@ typenum = "1.16.0"
 # Library modules
 chrono = "0.4"
 log = "0.4"
+tracing = "0.1"
+thiserror = "2.0"
 crc = "3"
 zbase32 = "0.1"
 
@@ -52,3 +57,4 @@ zbase32 = "0.1"
 clap = { version = "4.4.6", features = ["derive"], optional = true }
 ratatui = { version = "0.28", optional = true }
 crossterm = { version = "0.28", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }

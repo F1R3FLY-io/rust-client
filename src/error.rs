@@ -1,174 +1,119 @@
 use std::error::Error;
-use std::fmt;
 
-/// Custom error types for the node-cli application
-#[derive(Debug)]
+/// Error types for the f1r3fly client library and CLI
+#[derive(Debug, thiserror::Error)]
 pub enum NodeCliError {
-    /// Network-related errors (HTTP requests, connection issues)
-    Network(NetworkError),
-    /// Cryptographic errors (key generation, validation, signing)
-    Crypto(CryptoError),
-    /// File system errors (reading/writing files)
-    File(FileError),
-    /// API errors (gRPC calls, response parsing)
-    Api(ApiError),
-    /// Configuration errors (invalid arguments, missing required fields)
-    Config(ConfigError),
-    /// General application errors
+    #[error("Network error: {0}")]
+    Network(#[from] NetworkError),
+
+    #[error("Crypto error: {0}")]
+    Crypto(#[from] CryptoError),
+
+    #[error("File error: {0}")]
+    File(#[from] FileError),
+
+    #[error("API error: {0}")]
+    Api(#[from] ApiError),
+
+    #[error("Configuration error: {0}")]
+    Config(#[from] ConfigError),
+
+    #[error("{0}")]
     General(String),
 }
 
-/// Network-related error types
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum NetworkError {
+    #[error("Connection failed: {0}")]
     ConnectionFailed(String),
+
+    #[error("HTTP {0} error: {1}")]
     HttpError(u16, String),
+
+    #[error("Request timed out: {0}")]
     Timeout(String),
+
+    #[error("Invalid URL: {0}")]
     InvalidUrl(String),
+
+    #[error("Request failed: {0}")]
     RequestFailed(String),
 }
 
-/// Cryptographic error types
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CryptoError {
+    #[error("Invalid private key: {0}")]
     InvalidPrivateKey(String),
+
+    #[error("Invalid public key: {0}")]
     InvalidPublicKey(String),
+
+    #[error("Key generation failed: {0}")]
     KeyGenerationFailed(String),
+
+    #[error("Signing failed: {0}")]
     SigningFailed(String),
+
+    #[error("Address generation failed: {0}")]
     AddressGenerationFailed(String),
+
+    #[error("Hex decode failed: {0}")]
     HexDecodeFailed(String),
 }
 
-/// File system error types
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FileError {
+    #[error("Failed to read file '{0}': {1}")]
     ReadFailed(String, String),
+
+    #[error("Failed to write file '{0}': {1}")]
     WriteFailed(String, String),
+
+    #[error("File not found: {0}")]
     NotFound(String),
+
+    #[error("Permission denied: {0}")]
     PermissionDenied(String),
+
+    #[error("Invalid path: {0}")]
     InvalidPath(String),
 }
 
-/// API error types
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    #[error("gRPC error: {0}")]
     GrpcError(String),
+
+    #[error("Parse error: {0}")]
     ParseError(String),
+
+    #[error("Response error: {0}")]
     ResponseError(String),
+
+    #[error("Invalid response: {0}")]
     InvalidResponse(String),
+
+    #[error("Service unavailable: {0}")]
     ServiceUnavailable(String),
 }
 
-/// Configuration error types
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    #[error("Missing required field: {0}")]
     MissingRequired(String),
+
+    #[error("Invalid value for '{0}': {1}")]
     InvalidValue(String, String),
+
+    #[error("Conflicting options: {0}")]
     ConflictingOptions(String),
+
+    #[error("Invalid format: {0}")]
     InvalidFormat(String),
 }
 
-impl fmt::Display for NodeCliError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            NodeCliError::Network(e) => write!(f, "Network error: {}", e),
-            NodeCliError::Crypto(e) => write!(f, "Crypto error: {}", e),
-            NodeCliError::File(e) => write!(f, "File error: {}", e),
-            NodeCliError::Api(e) => write!(f, "API error: {}", e),
-            NodeCliError::Config(e) => write!(f, "Configuration error: {}", e),
-            NodeCliError::General(msg) => write!(f, "Error: {}", msg),
-        }
-    }
-}
+// --- From conversions for external error types ---
 
-impl fmt::Display for NetworkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            NetworkError::ConnectionFailed(msg) => write!(f, "Connection failed: {}", msg),
-            NetworkError::HttpError(code, msg) => write!(f, "HTTP {} error: {}", code, msg),
-            NetworkError::Timeout(msg) => write!(f, "Request timed out: {}", msg),
-            NetworkError::InvalidUrl(url) => write!(f, "Invalid URL: {}", url),
-            NetworkError::RequestFailed(msg) => write!(f, "Request failed: {}", msg),
-        }
-    }
-}
-
-impl fmt::Display for CryptoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CryptoError::InvalidPrivateKey(msg) => write!(f, "Invalid private key: {}", msg),
-            CryptoError::InvalidPublicKey(msg) => write!(f, "Invalid public key: {}", msg),
-            CryptoError::KeyGenerationFailed(msg) => write!(f, "Key generation failed: {}", msg),
-            CryptoError::SigningFailed(msg) => write!(f, "Signing failed: {}", msg),
-            CryptoError::AddressGenerationFailed(msg) => {
-                write!(f, "Address generation failed: {}", msg)
-            }
-            CryptoError::HexDecodeFailed(msg) => write!(f, "Hex decode failed: {}", msg),
-        }
-    }
-}
-
-impl fmt::Display for FileError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FileError::ReadFailed(path, msg) => {
-                write!(f, "Failed to read file '{}': {}", path, msg)
-            }
-            FileError::WriteFailed(path, msg) => {
-                write!(f, "Failed to write file '{}': {}", path, msg)
-            }
-            FileError::NotFound(path) => write!(f, "File not found: {}", path),
-            FileError::PermissionDenied(path) => write!(f, "Permission denied: {}", path),
-            FileError::InvalidPath(path) => write!(f, "Invalid path: {}", path),
-        }
-    }
-}
-
-impl fmt::Display for ApiError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ApiError::GrpcError(msg) => write!(f, "gRPC error: {}", msg),
-            ApiError::ParseError(msg) => write!(f, "Parse error: {}", msg),
-            ApiError::ResponseError(msg) => write!(f, "Response error: {}", msg),
-            ApiError::InvalidResponse(msg) => write!(f, "Invalid response: {}", msg),
-            ApiError::ServiceUnavailable(msg) => write!(f, "Service unavailable: {}", msg),
-        }
-    }
-}
-
-impl fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ConfigError::MissingRequired(field) => write!(f, "Missing required field: {}", field),
-            ConfigError::InvalidValue(field, msg) => {
-                write!(f, "Invalid value for '{}': {}", field, msg)
-            }
-            ConfigError::ConflictingOptions(msg) => write!(f, "Conflicting options: {}", msg),
-            ConfigError::InvalidFormat(msg) => write!(f, "Invalid format: {}", msg),
-        }
-    }
-}
-
-impl Error for NodeCliError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            NodeCliError::Network(e) => Some(e),
-            NodeCliError::Crypto(e) => Some(e),
-            NodeCliError::File(e) => Some(e),
-            NodeCliError::Api(e) => Some(e),
-            NodeCliError::Config(e) => Some(e),
-            NodeCliError::General(_) => None,
-        }
-    }
-}
-
-impl Error for NetworkError {}
-impl Error for CryptoError {}
-impl Error for FileError {}
-impl Error for ApiError {}
-impl Error for ConfigError {}
-
-// Conversion from std::io::Error to NodeCliError
 impl From<std::io::Error> for NodeCliError {
     fn from(err: std::io::Error) -> Self {
         match err.kind() {
@@ -186,7 +131,6 @@ impl From<std::io::Error> for NodeCliError {
     }
 }
 
-// Conversion from reqwest::Error to NodeCliError
 impl From<reqwest::Error> for NodeCliError {
     fn from(err: reqwest::Error) -> Self {
         if err.is_timeout() {
@@ -199,45 +143,49 @@ impl From<reqwest::Error> for NodeCliError {
     }
 }
 
-// Conversion from serde_json::Error to NodeCliError
 impl From<serde_json::Error> for NodeCliError {
     fn from(err: serde_json::Error) -> Self {
         NodeCliError::Api(ApiError::ParseError(err.to_string()))
     }
 }
 
-// Conversion from secp256k1::Error to NodeCliError
 impl From<secp256k1::Error> for NodeCliError {
     fn from(err: secp256k1::Error) -> Self {
         NodeCliError::Crypto(CryptoError::InvalidPrivateKey(err.to_string()))
     }
 }
 
-// Conversion from hex::FromHexError to NodeCliError
 impl From<hex::FromHexError> for NodeCliError {
     fn from(err: hex::FromHexError) -> Self {
         NodeCliError::Crypto(CryptoError::HexDecodeFailed(err.to_string()))
     }
 }
 
-// Conversion from String to NodeCliError
 impl From<String> for NodeCliError {
     fn from(err: String) -> Self {
         NodeCliError::General(err)
     }
 }
 
-// Conversion from &str to NodeCliError
 impl From<&str> for NodeCliError {
     fn from(err: &str) -> Self {
         NodeCliError::General(err.to_string())
     }
 }
 
-// Conversion from Box<dyn Error> to NodeCliError
 impl From<Box<dyn Error>> for NodeCliError {
     fn from(err: Box<dyn Error>) -> Self {
         NodeCliError::General(err.to_string())
+    }
+}
+
+impl From<tonic::Status> for NodeCliError {
+    fn from(err: tonic::Status) -> Self {
+        NodeCliError::Api(ApiError::GrpcError(format!(
+            "{}: {}",
+            err.code(),
+            err.message()
+        )))
     }
 }
 
@@ -297,4 +245,3 @@ impl NodeCliError {
         NodeCliError::File(FileError::ReadFailed("io".to_string(), msg.to_string()))
     }
 }
-

@@ -308,7 +308,7 @@ pub async fn wallet_balance_command(
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // Bootstrap private key
         &args.host,
         args.port,
-    );
+    )?;
 
     let rholang_query = format!(
         r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
@@ -964,7 +964,7 @@ pub async fn show_main_chain_command(
     println!("📊 Depth: {} blocks", args.depth);
 
     // Initialize the F1r3fly API client
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
 
     let start_time = Instant::now();
 
@@ -1019,7 +1019,7 @@ pub async fn validator_status_command(
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // Bootstrap private key
         &args.host,
         args.port,
-    );
+    )?;
 
     let start_time = Instant::now();
 
@@ -1158,7 +1158,7 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657", // Bootstrap private key
         &args.host,
         args.port,
-    );
+    )?;
 
     let start_time = Instant::now();
 
@@ -1417,7 +1417,7 @@ pub async fn network_consensus_command(
         "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
         &args.host,
         args.port,
-    );
+    )?;
 
     let start_time = Instant::now();
 
@@ -1572,7 +1572,7 @@ pub async fn get_blocks_by_height_command(
     }
 
     // Initialize the F1r3fly API client
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
 
     let start_time = Instant::now();
 

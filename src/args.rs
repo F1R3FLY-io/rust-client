@@ -23,6 +23,12 @@ pub enum Commands {
     /// Deploy Rholang code and wait for finalization
     DeployAndWait(DeployAndWaitArgs),
 
+    /// Deploy, wait for finalization, and read deploy result data
+    FullDeployAndWait(DeployAndWaitArgs),
+
+    /// Read data at a deploy ID from a specific block
+    GetData(GetDataArgs),
+
     /// Check if a block is finalized
     IsFinalized(IsFinalizedArgs),
 
@@ -159,6 +165,29 @@ pub struct DeployAndWaitArgs {
     /// Mutually exclusive with --expiration.
     #[arg(long, conflicts_with = "expiration")]
     pub expires_in: Option<u64>,
+}
+
+#[derive(Parser, Debug)]
+pub struct GetDataArgs {
+    /// Deploy ID (hex) to read data from
+    #[arg(short = 'd', long = "deploy-id")]
+    pub deploy_id: String,
+
+    /// Block hash containing the deploy
+    #[arg(short = 'b', long = "block-hash")]
+    pub block_hash: String,
+
+    /// Private key (defaults to well-known dev key)
+    #[arg(short = 'k', long = "private-key", default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657")]
+    pub private_key: String,
+
+    /// Node hostname
+    #[arg(short = 'H', long = "host", default_value = "localhost")]
+    pub host: String,
+
+    /// gRPC port
+    #[arg(short = 'p', long = "port", default_value_t = 40412)]
+    pub port: u16,
 }
 
 #[derive(Parser, Debug)]

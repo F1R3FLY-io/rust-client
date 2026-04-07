@@ -64,7 +64,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
     println!();
 
     // Initialize API once (reuse connection)
-    let api = F1r3flyApi::new(&args.private_key, &args.host, args.port);
+    let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
 
     let mut results = Vec::new();
     
@@ -327,7 +327,7 @@ async fn get_balance_for_address(
     );
 
     // Create a separate API instance for read-only port
-    let readonly_api = F1r3flyApi::new(&args.private_key, &args.host, args.readonly_port);
+    let readonly_api = F1r3flyApi::new(&args.private_key, &args.host, args.readonly_port)?;
 
     // Execute exploratory deploy to get balance on read-only node
     let (result, _block_info) = readonly_api.exploratory_deploy(&rholang_query, None, false).await?;
