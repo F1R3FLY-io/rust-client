@@ -23,66 +23,66 @@ use typenum::U32;
 ///
 /// The DER-encoded signature bytes
 pub fn sign_deploy_data(
-    data: &[u8],
-    timestamp: i64,
-    private_key: &SecretKey,
+ data: &[u8],
+ timestamp: i64,
+ private_key: &SecretKey,
 ) -> Result<Vec<u8>, SigningError> {
-    let mut hasher = Blake2b::<U32>::new();
-    hasher.update(data);
-    hasher.update(&timestamp.to_le_bytes());
-    let hash = hasher.finalize();
+ let mut hasher = Blake2b::<U32>::new();
+ hasher.update(data);
+ hasher.update(&timestamp.to_le_bytes());
+ let hash = hasher.finalize();
 
-    let mut digest = [0u8; 32];
-    digest.copy_from_slice(&hash);
+ let mut digest = [0u8; 32];
+ digest.copy_from_slice(&hash);
 
-    let secp = Secp256k1::new();
-    let message = Secp256k1Message::from_digest(digest);
-    let signature = secp.sign_ecdsa(message, private_key);
+ let secp = Secp256k1::new();
+ let message = Secp256k1Message::from_digest(digest);
+ let signature = secp.sign_ecdsa(message, private_key);
 
-    Ok(signature.serialize_der().to_vec())
+ Ok(signature.serialize_der().to_vec())
 }
 
 #[derive(Debug)]
 pub enum SigningError {
-    SigningFailed(String),
+ SigningFailed(String),
 }
 
 impl std::fmt::Display for SigningError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SigningError::SigningFailed(msg) => write!(f, "Signing failed: {}", msg),
-        }
-    }
+ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+ match self {
+ SigningError::SigningFailed(msg) => write!(f, "Signing failed: {}", msg),
+ }
+ }
 }
 
 impl std::error::Error for SigningError {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+ use super::*;
 
-    fn test_private_key() -> SecretKey {
-        SecretKey::from_byte_array([0x42; 32]).expect("32 bytes is valid")
-    }
+ fn test_private_key() -> SecretKey {
+ SecretKey::from_byte_array([0x42; 32]).expect("32 bytes is valid")
+ }
 
-    #[test]
-    fn test_sign_deploy_data() {
-        let private_key = test_private_key();
-        let data = b"new x in { x!(1) }";
-        let timestamp = 1234567890i64;
+ #[test]
+ fn test_sign_deploy_data() {
+ let private_key = test_private_key();
+ let data = b"new x in { x!(1) }";
+ let timestamp = 1234567890i64;
 
-        let signature = sign_deploy_data(data, timestamp, &private_key).unwrap();
-        assert!(signature.len() >= 70 && signature.len() <= 72);
-    }
+ let signature = sign_deploy_data(data, timestamp, &private_key).unwrap();
+ assert!(signature.len() >= 70 && signature.len() <= 72);
+ }
 
-    #[test]
-    fn test_sign_deploy_data_deterministic() {
-        let private_key = test_private_key();
-        let data = b"new x in { x!(1) }";
-        let timestamp = 1234567890i64;
+ #[test]
+ fn test_sign_deploy_data_deterministic() {
+ let private_key = test_private_key();
+ let data = b"new x in { x!(1) }";
+ let timestamp = 1234567890i64;
 
-        let sig1 = sign_deploy_data(data, timestamp, &private_key).unwrap();
-        let sig2 = sign_deploy_data(data, timestamp, &private_key).unwrap();
-        assert_eq!(sig1, sig2);
-    }
+ let sig1 = sign_deploy_data(data, timestamp, &private_key).unwrap();
+ let sig2 = sign_deploy_data(data, timestamp, &private_key).unwrap();
+ assert_eq!(sig1, sig2);
+ }
 }

@@ -9,832 +9,832 @@ pub const DEV_PRIVATE_KEY: &str = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    #[command(subcommand)]
-    pub command: Commands,
+ #[command(subcommand)]
+ pub command: Commands,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Deploy Rholang code to the F1r3fly network
-    Deploy(DeployArgs),
+ /// Deploy Rholang code to the F1r3fly network
+ Deploy(DeployArgs),
 
-    /// Propose a block to the F1r3fly network
-    Propose(ProposeArgs),
+ /// Propose a block to the F1r3fly network
+ Propose(ProposeArgs),
 
-    /// Deploy Rholang code, wait for finalization, and read result
-    DeployAndWait(DeployAndWaitArgs),
+ /// Deploy Rholang code, wait for finalization, and read result
+ DeployAndWait(DeployAndWaitArgs),
 
-    /// Read data at a deploy ID from a specific block
-    GetData(GetDataArgs),
+ /// Read data at a deploy ID from a specific block
+ GetData(GetDataArgs),
 
-    /// Check if a block is finalized
-    IsFinalized(IsFinalizedArgs),
+ /// Check if a block is finalized
+ IsFinalized(IsFinalizedArgs),
 
-    /// Execute Rholang code without committing to the blockchain (exploratory deployment)
-    ExploratoryDeploy(ExploratoryDeployArgs),
+ /// Execute Rholang code without committing to the blockchain (exploratory deployment)
+ ExploratoryDeploy(ExploratoryDeployArgs),
 
-    /// Generate a public key from a private key
-    GeneratePublicKey(GeneratePublicKeyArgs),
+ /// Generate a public key from a private key
+ GeneratePublicKey(GeneratePublicKeyArgs),
 
-    /// Generate a new secp256k1 private/public key pair
-    GenerateKeyPair(GenerateKeyPairArgs),
+ /// Generate a new secp256k1 private/public key pair
+ GenerateKeyPair(GenerateKeyPairArgs),
 
-    /// Generate a vault address from a public key
-    GenerateVaultAddress(GenerateVaultAddressArgs),
+ /// Generate a vault address from a public key
+ GenerateVaultAddress(GenerateVaultAddressArgs),
 
-    /// Get node status and peer information
-    Status(HttpArgs),
+ /// Get node status and peer information
+ Status(HttpArgs),
 
-    /// Get recent blocks or specific block information
-    Blocks(BlocksArgs),
+ /// Get recent blocks or specific block information
+ Blocks(BlocksArgs),
 
-    /// Get current validator bonds from PoS contract
-    Bonds(HttpArgs),
+ /// Get current validator bonds from PoS contract
+ Bonds(HttpArgs),
 
-    /// Get active validators from PoS contract
-    ActiveValidators(HttpArgs),
+ /// Get active validators from PoS contract
+ ActiveValidators(HttpArgs),
 
-    /// Check wallet balance for a specific address
-    WalletBalance(WalletBalanceArgs),
+ /// Check wallet balance for a specific address
+ WalletBalance(WalletBalanceArgs),
 
-    /// Check if a validator is bonded
-    BondStatus(BondStatusArgs),
+ /// Check if a validator is bonded
+ BondStatus(BondStatusArgs),
 
-    /// Get node metrics
-    Metrics(HttpArgs),
+ /// Get node metrics
+ Metrics(HttpArgs),
 
-    /// Bond a new validator to the network (dynamic validator addition)
-    BondValidator(BondValidatorArgs),
+ /// Bond a new validator to the network (dynamic validator addition)
+ BondValidator(BondValidatorArgs),
 
-    /// Check network health across multiple nodes
-    NetworkHealth(NetworkHealthArgs),
+ /// Check network health across multiple nodes
+ NetworkHealth(NetworkHealthArgs),
 
-    /// Get the last finalized block
-    LastFinalizedBlock(HttpArgs),
+ /// Get the last finalized block
+ LastFinalizedBlock(HttpArgs),
 
-    /// Get blocks in the main chain
-    ShowMainChain(ShowMainChainArgs),
+ /// Get blocks in the main chain
+ ShowMainChain(ShowMainChainArgs),
 
-    /// Transfer tokens between addresses
-    Transfer(TransferArgs),
+ /// Transfer tokens between addresses
+ Transfer(TransferArgs),
 
-    /// Run load test by sending multiple transfers and tracking orphan rate
-    LoadTest(LoadTestArgs),
+ /// Run load test by sending multiple transfers and tracking orphan rate
+ LoadTest(LoadTestArgs),
 
-    /// Get a specific deploy by ID
-    GetDeploy(GetDeployArgs),
+ /// Get a specific deploy by ID
+ GetDeploy(GetDeployArgs),
 
-    /// Get current epoch information and status
-    EpochInfo(PosQueryArgs),
+ /// Get current epoch information and status
+ EpochInfo(PosQueryArgs),
 
-    /// Check individual validator status (bonded, active, quarantine)
-    ValidatorStatus(ValidatorStatusArgs),
+ /// Check individual validator status (bonded, active, quarantine)
+ ValidatorStatus(ValidatorStatusArgs),
 
-    /// Get current epoch rewards information
-    EpochRewards(PosQueryArgs),
+ /// Get current epoch rewards information
+ EpochRewards(PosQueryArgs),
 
-    /// Get network-wide consensus health overview
-    NetworkConsensus(PosQueryArgs),
+ /// Get network-wide consensus health overview
+ NetworkConsensus(PosQueryArgs),
 
-    /// Get blocks by height range
-    GetBlocksByHeight(GetBlocksByHeightArgs),
+ /// Get blocks by height range
+ GetBlocksByHeight(GetBlocksByHeightArgs),
 
-    /// Extract node ID from TLS private key file
-    GetNodeId(GetNodeIdArgs),
+ /// Extract node ID from TLS private key file
+ GetNodeId(GetNodeIdArgs),
 
-    /// Watch real-time block events via WebSocket
-    WatchBlocks(WatchBlocksArgs),
+ /// Watch real-time block events via WebSocket
+ WatchBlocks(WatchBlocksArgs),
 
-    /// Interactive DAG visualization with real-time updates
-    Dag(DagArgs),
+ /// Interactive DAG visualization with real-time updates
+ Dag(DagArgs),
 
-    /// Get transfer information from a block's deploys
-    BlockTransfers(BlockTransfersArgs),
+ /// Get transfer information from a block's deploys
+ BlockTransfers(BlockTransfersArgs),
 }
 
 #[derive(Parser, Debug)]
 pub struct DeployAndWaitArgs {
-    /// Rholang file to deploy
-    #[arg(short, long)]
-    pub file: String,
+ /// Rholang file to deploy
+ #[arg(short, long)]
+ pub file: String,
 
-    /// Private key for deploy (defaults to well-known dev key)
-    #[arg(short = 'k', long = "private-key")]
-    pub private_key: Option<String>,
+ /// Private key for deploy (defaults to well-known dev key)
+ #[arg(short = 'k', long = "private-key")]
+ pub private_key: Option<String>,
 
-    /// Node hostname
-    #[arg(short = 'H', long = "host", default_value = "localhost")]
-    pub host: String,
+ /// Node hostname
+ #[arg(short = 'H', long = "host", default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port for deploy operations
-    #[arg(short = 'p', long = "port", default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port for deploy operations
+ #[arg(short = 'p', long = "port", default_value_t = 40412)]
+ pub port: u16,
 
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+ /// HTTP port for status queries
+ #[arg(long = "http-port", default_value_t = 40413)]
+ pub http_port: u16,
 
-    /// Use bigger phlo limit (100,000,000 instead of 50,000)
-    #[arg(long = "bigger-phlo")]
-    pub bigger_phlo: bool,
+ /// Use bigger phlo limit (100,000,000 instead of 50,000)
+ #[arg(long = "bigger-phlo")]
+ pub bigger_phlo: bool,
 
-    /// Also propose a block after deploy
-    #[arg(long, default_value_t = false)]
-    pub propose: bool,
+ /// Also propose a block after deploy
+ #[arg(long, default_value_t = false)]
+ pub propose: bool,
 
-    /// Maximum seconds to wait for deploy inclusion in a block
-    #[arg(long = "max-wait", default_value_t = 60)]
-    pub max_wait: u64,
+ /// Maximum seconds to wait for deploy inclusion in a block
+ #[arg(long = "max-wait", default_value_t = 60)]
+ pub max_wait: u64,
 
-    /// Maximum seconds to wait for block finalization
-    #[arg(long = "finalization-timeout", default_value_t = 30)]
-    pub finalization_timeout: u64,
+ /// Maximum seconds to wait for block finalization
+ #[arg(long = "finalization-timeout", default_value_t = 30)]
+ pub finalization_timeout: u64,
 
-    /// Check interval in seconds
-    #[arg(long = "check-interval", default_value_t = 2)]
-    pub check_interval: u64,
+ /// Check interval in seconds
+ #[arg(long = "check-interval", default_value_t = 2)]
+ pub check_interval: u64,
 
-    /// Observer node host for finalization checks (falls back to main host if not specified)
-    #[arg(long = "observer-host")]
-    pub observer_host: Option<String>,
+ /// Observer node host for finalization checks (falls back to main host if not specified)
+ #[arg(long = "observer-host")]
+ pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+ /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+ #[arg(long = "observer-port")]
+ pub observer_port: Option<u16>,
 
-    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
-    /// Use 0 or omit for no expiration.
-    #[arg(long)]
-    pub expiration: Option<i64>,
+ /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+ /// Use 0 or omit for no expiration.
+ #[arg(long)]
+ pub expiration: Option<i64>,
 
-    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
-    /// Mutually exclusive with --expiration.
-    #[arg(long, conflicts_with = "expiration")]
-    pub expires_in: Option<u64>,
+ /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+ /// Mutually exclusive with --expiration.
+ #[arg(long, conflicts_with = "expiration")]
+ pub expires_in: Option<u64>,
 }
 
 #[derive(Parser, Debug)]
 pub struct GetDataArgs {
-    /// Deploy ID (hex) to read data from
-    #[arg(short = 'd', long = "deploy-id")]
-    pub deploy_id: String,
+ /// Deploy ID (hex) to read data from
+ #[arg(short = 'd', long = "deploy-id")]
+ pub deploy_id: String,
 
-    /// Block hash containing the deploy
-    #[arg(short = 'b', long = "block-hash")]
-    pub block_hash: String,
+ /// Block hash containing the deploy
+ #[arg(short = 'b', long = "block-hash")]
+ pub block_hash: String,
 
-    /// Private key (defaults to well-known dev key)
-    #[arg(short = 'k', long = "private-key", default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657")]
-    pub private_key: String,
+ /// Private key (defaults to well-known dev key)
+ #[arg(short = 'k', long = "private-key", default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657")]
+ pub private_key: String,
 
-    /// Node hostname
-    #[arg(short = 'H', long = "host", default_value = "localhost")]
-    pub host: String,
+ /// Node hostname
+ #[arg(short = 'H', long = "host", default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port
-    #[arg(short = 'p', long = "port", default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port
+ #[arg(short = 'p', long = "port", default_value_t = 40412)]
+ pub port: u16,
 }
 
 #[derive(Parser, Debug)]
 pub struct GetDeployArgs {
-    /// Deploy ID to retrieve
-    #[arg(short = 'd', long = "deploy-id")]
-    pub deploy_id: String,
+ /// Deploy ID to retrieve
+ #[arg(short = 'd', long = "deploy-id")]
+ pub deploy_id: String,
 
-    /// Node hostname
-    #[arg(short = 'H', long = "host", default_value = "localhost")]
-    pub host: String,
+ /// Node hostname
+ #[arg(short = 'H', long = "host", default_value = "localhost")]
+ pub host: String,
 
-    /// HTTP port for API queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+ /// HTTP port for API queries
+ #[arg(long = "http-port", default_value_t = 40413)]
+ pub http_port: u16,
 
-    /// Output format (json, pretty, summary)
-    #[arg(short = 'f', long = "format", default_value = "pretty")]
-    pub format: String,
+ /// Output format (json, pretty, summary)
+ #[arg(short = 'f', long = "format", default_value = "pretty")]
+ pub format: String,
 
-    /// Show full deploy details
-    #[arg(long = "verbose")]
-    pub verbose: bool,
+ /// Show full deploy details
+ #[arg(long = "verbose")]
+ pub verbose: bool,
 }
 
 /// Arguments for deploy and full-deploy commands
 #[derive(Parser)]
 pub struct DeployArgs {
-    /// Path to the Rholang file to deploy
-    #[arg(short, long)]
-    pub file: PathBuf,
+ /// Path to the Rholang file to deploy
+ #[arg(short, long)]
+ pub file: PathBuf,
 
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key in hex format
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 
-    /// Use bigger phlo limit
-    #[arg(short, long, default_value_t = false)]
-    pub bigger_phlo: bool,
+ /// Use bigger phlo limit
+ #[arg(short, long, default_value_t = false)]
+ pub bigger_phlo: bool,
 
-    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
-    /// Use 0 or omit for no expiration.
-    #[arg(long)]
-    pub expiration: Option<i64>,
+ /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+ /// Use 0 or omit for no expiration.
+ #[arg(long)]
+ pub expiration: Option<i64>,
 
-    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
-    /// Mutually exclusive with --expiration.
-    #[arg(long, conflicts_with = "expiration")]
-    pub expires_in: Option<u64>,
+ /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+ /// Mutually exclusive with --expiration.
+ #[arg(long, conflicts_with = "expiration")]
+ pub expires_in: Option<u64>,
 }
 
 /// Arguments for propose command
 #[derive(Parser)]
 pub struct ProposeArgs {
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key in hex format
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 }
 
 /// Arguments for is-finalized command
 #[derive(Parser)]
 pub struct IsFinalizedArgs {
-    /// Block hash to check
-    #[arg(short, long)]
-    pub block_hash: String,
+ /// Block hash to check
+ #[arg(short, long)]
+ pub block_hash: String,
 
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key in hex format
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 
-    /// Maximum number of retry attempts
-    #[arg(short, long, default_value_t = 12)]
-    pub max_attempts: u32,
+ /// Maximum number of retry attempts
+ #[arg(short, long, default_value_t = 12)]
+ pub max_attempts: u32,
 
-    /// Delay between retries in seconds
-    #[arg(short, long, default_value_t = 5)]
-    pub retry_delay: u64,
+ /// Delay between retries in seconds
+ #[arg(short, long, default_value_t = 5)]
+ pub retry_delay: u64,
 }
 
 /// Arguments for exploratory-deploy command
 #[derive(Parser)]
 pub struct ExploratoryDeployArgs {
-    /// Path to the Rholang file to execute
-    #[arg(short, long)]
-    pub file: PathBuf,
+ /// Path to the Rholang file to execute
+ #[arg(short, long)]
+ pub file: PathBuf,
 
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key in hex format
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 
-    /// Block hash to use as reference (optional)
-    #[arg(short, long)]
-    pub block_hash: Option<String>,
+ /// Block hash to use as reference (optional)
+ #[arg(short, long)]
+ pub block_hash: Option<String>,
 
-    /// Use pre-state hash instead of post-state hash
-    #[arg(short, long, default_value_t = false)]
-    pub use_pre_state: bool,
+ /// Use pre-state hash instead of post-state hash
+ #[arg(short, long, default_value_t = false)]
+ pub use_pre_state: bool,
 }
 
 /// Arguments for generate-public-key command
 #[derive(Parser)]
 pub struct GeneratePublicKeyArgs {
-    /// Private key in hex format
-    #[arg(
-        short,
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key in hex format
+ #[arg(
+ short,
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 
-    /// Output public key in compressed format (shorter)
-    #[arg(short, long, default_value_t = false)]
-    pub compressed: bool,
+ /// Output public key in compressed format (shorter)
+ #[arg(short, long, default_value_t = false)]
+ pub compressed: bool,
 }
 
 /// Arguments for generate-key-pair command
 #[derive(Parser)]
 pub struct GenerateKeyPairArgs {
-    /// Output public key in compressed format (shorter)
-    #[arg(short, long, default_value_t = false)]
-    pub compressed: bool,
+ /// Output public key in compressed format (shorter)
+ #[arg(short, long, default_value_t = false)]
+ pub compressed: bool,
 
-    /// Save keys to files instead of displaying them
-    #[arg(short, long, default_value_t = false)]
-    pub save: bool,
+ /// Save keys to files instead of displaying them
+ #[arg(short, long, default_value_t = false)]
+ pub save: bool,
 
-    /// Output directory for saved keys (default: current directory)
-    #[arg(short, long, default_value = ".")]
-    pub output_dir: String,
+ /// Output directory for saved keys (default: current directory)
+ #[arg(short, long, default_value = ".")]
+ pub output_dir: String,
 }
 
 /// Arguments for generate-vault-address command
 #[derive(Parser)]
 pub struct GenerateVaultAddressArgs {
-    /// Public key in hex format (uncompressed format preferred)
-    #[arg(short, long, conflicts_with = "private_key")]
-    pub public_key: Option<String>,
+ /// Public key in hex format (uncompressed format preferred)
+ #[arg(short, long, conflicts_with = "private_key")]
+ pub public_key: Option<String>,
 
-    /// Private key in hex format (will derive public key from this)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
-        conflicts_with = "public_key"
-    )]
-    pub private_key: Option<String>,
+ /// Private key in hex format (will derive public key from this)
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
+ conflicts_with = "public_key"
+ )]
+ pub private_key: Option<String>,
 }
 
 /// Arguments for HTTP-based commands (status, bonds, metrics)
 #[derive(Parser)]
 pub struct HttpArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// HTTP port number (not gRPC port)
-    #[arg(short, long, default_value_t = 40453)]
-    pub port: u16,
+ /// HTTP port number (not gRPC port)
+ #[arg(short, long, default_value_t = 40453)]
+ pub port: u16,
 }
 
 /// Arguments for blocks command
 #[derive(Parser)]
 pub struct BlocksArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// HTTP port number (not gRPC port)
-    #[arg(short, long, default_value_t = 40413)]
-    pub port: u16,
+ /// HTTP port number (not gRPC port)
+ #[arg(short, long, default_value_t = 40413)]
+ pub port: u16,
 
-    /// Number of recent blocks to fetch (default: 5)
-    #[arg(short, long, default_value_t = 5)]
-    pub number: u32,
+ /// Number of recent blocks to fetch (default: 5)
+ #[arg(short, long, default_value_t = 5)]
+ pub number: u32,
 
-    /// Specific block hash to fetch (optional)
-    #[arg(short, long)]
-    pub block_hash: Option<String>,
+ /// Specific block hash to fetch (optional)
+ #[arg(short, long)]
+ pub block_hash: Option<String>,
 }
 
 /// Arguments for show-main-chain command
 #[derive(Parser)]
 pub struct ShowMainChainArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 
-    /// Number of blocks to fetch from main chain (default: 10)
-    #[arg(short, long, default_value_t = 10)]
-    pub depth: u32,
+ /// Number of blocks to fetch from main chain (default: 10)
+ #[arg(short, long, default_value_t = 10)]
+ pub depth: u32,
 
-    /// Private key in hex format (required for gRPC)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key in hex format (required for gRPC)
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 }
 
 /// Arguments for get-blocks-by-height command
 #[derive(Parser)]
 pub struct GetBlocksByHeightArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 
-    /// Start block number (inclusive)
-    #[arg(short, long)]
-    pub start_block_number: i64,
+ /// Start block number (inclusive)
+ #[arg(short, long)]
+ pub start_block_number: i64,
 
-    /// End block number (inclusive)
-    #[arg(short, long)]
-    pub end_block_number: i64,
+ /// End block number (inclusive)
+ #[arg(short, long)]
+ pub end_block_number: i64,
 
-    /// Private key in hex format (required for gRPC)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key in hex format (required for gRPC)
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 }
 
 /// Arguments for wallet-balance command
 #[derive(Parser)]
 pub struct WalletBalanceArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number (requires read-only node)
-    #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+ /// gRPC port number (requires read-only node)
+ #[arg(short, long, default_value_t = 40452)]
+ pub port: u16,
 
-    /// Wallet address to check balance for
-    #[arg(short = 'a', long)]
-    pub address: String,
+ /// Wallet address to check balance for
+ #[arg(short = 'a', long)]
+ pub address: String,
 }
 
 /// Arguments for bond-status command
 #[derive(Parser)]
 pub struct BondStatusArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// HTTP port number (same as other inspection commands)
-    #[arg(short, long, default_value_t = 40413)]
-    pub port: u16,
+ /// HTTP port number (same as other inspection commands)
+ #[arg(short, long, default_value_t = 40413)]
+ pub port: u16,
 
-    /// Public key to check bond status for
-    #[arg(short = 'k', long)]
-    pub public_key: String,
+ /// Public key to check bond status for
+ #[arg(short = 'k', long)]
+ pub public_key: String,
 }
 
 /// Arguments for bond-validator command
 #[derive(Parser)]
 pub struct BondValidatorArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number for deploy
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number for deploy
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+ /// HTTP port for status queries
+ #[arg(long = "http-port", default_value_t = 40413)]
+ pub http_port: u16,
 
-    /// Stake amount for the validator (required)
-    #[arg(short, long)]
-    pub stake: u64,
+ /// Stake amount for the validator (required)
+ #[arg(short, long)]
+ pub stake: u64,
 
-    /// Private key for signing the deploy (hex format) - determines which validator gets bonded
-    #[arg(long)]
-    pub private_key: String,
+ /// Private key for signing the deploy (hex format) - determines which validator gets bonded
+ #[arg(long)]
+ pub private_key: String,
 
-    /// Also propose a block after bonding
-    #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
-    pub propose: bool,
+ /// Also propose a block after bonding
+ #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
+ pub propose: bool,
 
-    /// Maximum wait time in seconds for deploy finalization
-    #[arg(long = "max-wait", default_value_t = 300)]
-    pub max_wait: u64,
+ /// Maximum wait time in seconds for deploy finalization
+ #[arg(long = "max-wait", default_value_t = 300)]
+ pub max_wait: u64,
 
-    /// Check interval in seconds for deploy status
-    #[arg(long = "check-interval", default_value_t = 5)]
-    pub check_interval: u64,
+ /// Check interval in seconds for deploy status
+ #[arg(long = "check-interval", default_value_t = 5)]
+ pub check_interval: u64,
 
-    /// Observer node host for finalization checks (falls back to main host if not specified)
-    #[arg(long = "observer-host")]
-    pub observer_host: Option<String>,
+ /// Observer node host for finalization checks (falls back to main host if not specified)
+ #[arg(long = "observer-host")]
+ pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+ /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+ #[arg(long = "observer-port")]
+ pub observer_port: Option<u16>,
 
-    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
-    /// Use 0 or omit for no expiration.
-    #[arg(long)]
-    pub expiration: Option<i64>,
+ /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+ /// Use 0 or omit for no expiration.
+ #[arg(long)]
+ pub expiration: Option<i64>,
 
-    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
-    /// Mutually exclusive with --expiration.
-    #[arg(long, conflicts_with = "expiration")]
-    pub expires_in: Option<u64>,
+ /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+ /// Mutually exclusive with --expiration.
+ #[arg(long, conflicts_with = "expiration")]
+ pub expires_in: Option<u64>,
 }
 
 /// Arguments for network-health command
 #[derive(Parser)]
 pub struct NetworkHealthArgs {
-    /// Check standard F1r3fly shard ports (bootstrap, validator1, validator2, observer)
-    #[arg(short, long, default_value_t = true, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
-    pub standard_ports: bool,
+ /// Check standard F1r3fly shard ports (bootstrap, validator1, validator2, observer)
+ #[arg(short, long, default_value_t = true, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
+ pub standard_ports: bool,
 
-    /// Additional custom ports to check (comma-separated, e.g. "60503,70503")
-    #[arg(short, long)]
-    pub custom_ports: Option<String>,
+ /// Additional custom ports to check (comma-separated, e.g. "60503,70503")
+ #[arg(short, long)]
+ pub custom_ports: Option<String>,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// Enable recursive peer discovery to find all peers in the network
-    #[arg(short, long)]
-    pub recursive: bool,
+ /// Enable recursive peer discovery to find all peers in the network
+ #[arg(short, long)]
+ pub recursive: bool,
 
-    /// Maximum number of unique peers to discover (-1 or 0 means no limit)
-    #[arg(short = 'n', long, default_value = "20")]
-    pub max_peers: i32,
+ /// Maximum number of unique peers to discover (-1 or 0 means no limit)
+ #[arg(short = 'n', long, default_value = "20")]
+ pub max_peers: i32,
 
-    /// Print more details about the results
-    #[arg(short, long)]
-    pub verbose: bool,
+ /// Print more details about the results
+ #[arg(short, long)]
+ pub verbose: bool,
 
-    /// Print underlying HTTP requests and responses
-    #[arg(long)]
-    pub debug: bool,
+ /// Print underlying HTTP requests and responses
+ #[arg(long)]
+ pub debug: bool,
 }
 
 /// Arguments for transfer command
 #[derive(Parser)]
 pub struct TransferArgs {
-    /// Recipient vault address
-    #[arg(short, long)]
-    pub to_address: String,
+ /// Recipient vault address
+ #[arg(short, long)]
+ pub to_address: String,
 
-    /// Amount to transfer
-    #[arg(short, long)]
-    pub amount: u64,
+ /// Amount to transfer
+ #[arg(short, long)]
+ pub amount: u64,
 
-    /// Private key for signing the transfer (hex format)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key for signing the transfer (hex format)
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number for deploy
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number for deploy
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+ /// HTTP port for status queries
+ #[arg(long = "http-port", default_value_t = 40413)]
+ pub http_port: u16,
 
-    /// Use bigger phlo limit (recommended for transfers)
-    #[arg(short, long, default_value_t = true)]
-    pub bigger_phlo: bool,
+ /// Use bigger phlo limit (recommended for transfers)
+ #[arg(short, long, default_value_t = true)]
+ pub bigger_phlo: bool,
 
-    /// Also propose a block after transfer
-    #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
-    pub propose: bool,
+ /// Also propose a block after transfer
+ #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
+ pub propose: bool,
 
-    /// Maximum wait time in seconds for deploy finalization
-    #[arg(long = "max-wait", default_value_t = 300)]
-    pub max_wait: u64,
+ /// Maximum wait time in seconds for deploy finalization
+ #[arg(long = "max-wait", default_value_t = 300)]
+ pub max_wait: u64,
 
-    /// Check interval in seconds for deploy status
-    #[arg(long = "check-interval", default_value_t = 5)]
-    pub check_interval: u64,
+ /// Check interval in seconds for deploy status
+ #[arg(long = "check-interval", default_value_t = 5)]
+ pub check_interval: u64,
 
-    /// Observer node host for finalization checks (falls back to main host if not specified)
-    #[arg(long = "observer-host")]
-    pub observer_host: Option<String>,
+ /// Observer node host for finalization checks (falls back to main host if not specified)
+ #[arg(long = "observer-host")]
+ pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
+ /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+ #[arg(long = "observer-port")]
+ pub observer_port: Option<u16>,
 
-    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
-    /// Use 0 or omit for no expiration.
-    #[arg(long)]
-    pub expiration: Option<i64>,
+ /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+ /// Use 0 or omit for no expiration.
+ #[arg(long)]
+ pub expiration: Option<i64>,
 
-    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
-    /// Mutually exclusive with --expiration.
-    #[arg(long, conflicts_with = "expiration")]
-    pub expires_in: Option<u64>,
+ /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+ /// Mutually exclusive with --expiration.
+ #[arg(long, conflicts_with = "expiration")]
+ pub expires_in: Option<u64>,
 }
 
 /// Arguments for load-test command
 #[derive(Parser)]
 pub struct LoadTestArgs {
-    /// Recipient vault address
-    #[arg(long)]
-    pub to_address: String,
+ /// Recipient vault address
+ #[arg(long)]
+ pub to_address: String,
 
-    /// Number of transfers to send
-    #[arg(long, default_value_t = 20)]
-    pub num_tests: u32,
+ /// Number of transfers to send
+ #[arg(long, default_value_t = 20)]
+ pub num_tests: u32,
 
-    /// Amount per transfer
-    #[arg(long, default_value_t = 1)]
-    pub amount: u64,
+ /// Amount per transfer
+ #[arg(long, default_value_t = 1)]
+ pub amount: u64,
 
-    /// Seconds between tests
-    #[arg(long, default_value_t = 10)]
-    pub interval: u64,
+ /// Seconds between tests
+ #[arg(long, default_value_t = 10)]
+ pub interval: u64,
 
-    /// Private key for signing (hex format)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
+ /// Private key for signing (hex format)
+ #[arg(
+ long,
+ default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+ )]
+ pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+ /// gRPC port number
+ #[arg(short, long, default_value_t = 40412)]
+ pub port: u16,
 
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+ /// HTTP port for status queries
+ #[arg(long = "http-port", default_value_t = 40413)]
+ pub http_port: u16,
 
-    /// Check interval in seconds for deploy status (fast mode)
-    #[arg(long = "check-interval", default_value_t = 1)]
-    pub check_interval: u64,
+ /// Check interval in seconds for deploy status (fast mode)
+ #[arg(long = "check-interval", default_value_t = 1)]
+ pub check_interval: u64,
 
-    /// Max depth to check main chain for orphan detection
-    #[arg(long = "chain-depth", default_value_t = 200)]
-    pub chain_depth: u32,
+ /// Max depth to check main chain for orphan detection
+ #[arg(long = "chain-depth", default_value_t = 200)]
+ pub chain_depth: u32,
 
-    /// Read-only gRPC port for balance queries (requires read-only node)
-    #[arg(long = "readonly-port", default_value_t = 40452)]
-    pub readonly_port: u16,
+ /// Read-only gRPC port for balance queries (requires read-only node)
+ #[arg(long = "readonly-port", default_value_t = 40452)]
+ pub readonly_port: u16,
 
-    /// Maximum time in seconds to wait for block inclusion
-    #[arg(long = "inclusion-timeout", default_value_t = 120)]
-    pub inclusion_timeout: u64,
+ /// Maximum time in seconds to wait for block inclusion
+ #[arg(long = "inclusion-timeout", default_value_t = 120)]
+ pub inclusion_timeout: u64,
 
-    /// Maximum time in seconds to wait for block finalization
-    #[arg(long = "finalization-timeout", default_value_t = 120)]
-    pub finalization_timeout: u64,
+ /// Maximum time in seconds to wait for block finalization
+ #[arg(long = "finalization-timeout", default_value_t = 120)]
+ pub finalization_timeout: u64,
 }
 
 /// Arguments for validator-status command
 #[derive(Parser)]
 pub struct ValidatorStatusArgs {
-    /// Validator public key to check (hex format)
-    #[arg(short = 'k', long)]
-    pub public_key: String,
+ /// Validator public key to check (hex format)
+ #[arg(short = 'k', long)]
+ pub public_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number (use 40452 for observer/read-only node)
-    #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+ /// gRPC port number (use 40452 for observer/read-only node)
+ #[arg(short, long, default_value_t = 40452)]
+ pub port: u16,
 
-    /// HTTP port number for explore-deploy queries
-    #[arg(long = "http-port", default_value_t = 40453)]
-    pub http_port: u16,
+ /// HTTP port number for explore-deploy queries
+ #[arg(long = "http-port", default_value_t = 40453)]
+ pub http_port: u16,
 }
 
 /// Arguments for PoS contract query commands (epoch-info, network-consensus, epoch-rewards)
 #[derive(Parser)]
 pub struct PosQueryArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// gRPC port number (use 40452 for observer/read-only node)
-    #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+ /// gRPC port number (use 40452 for observer/read-only node)
+ #[arg(short, long, default_value_t = 40452)]
+ pub port: u16,
 
-    /// HTTP port number for explore-deploy queries
-    #[arg(long = "http-port", default_value_t = 40453)]
-    pub http_port: u16,
+ /// HTTP port number for explore-deploy queries
+ #[arg(long = "http-port", default_value_t = 40453)]
+ pub http_port: u16,
 }
 
 /// Arguments for get-node-id command
 #[derive(Parser, Debug)]
 pub struct GetNodeIdArgs {
-    /// Path to the TLS private key file (node.key.pem)
-    #[arg(short = 'k', long, conflicts_with = "cert_file")]
-    pub key_file: Option<String>,
+ /// Path to the TLS private key file (node.key.pem)
+ #[arg(short = 'k', long, conflicts_with = "cert_file")]
+ pub key_file: Option<String>,
 
-    /// Path to the TLS certificate file (node.certificate.pem)
-    #[arg(short = 'c', long, conflicts_with = "key_file")]
-    pub cert_file: Option<String>,
+ /// Path to the TLS certificate file (node.certificate.pem)
+ #[arg(short = 'c', long, conflicts_with = "key_file")]
+ pub cert_file: Option<String>,
 
-    /// Output format (hex, rnode-url)
-    #[arg(short = 'f', long, default_value = "hex")]
-    pub format: String,
+ /// Output format (hex, rnode-url)
+ #[arg(short = 'f', long, default_value = "hex")]
+ pub format: String,
 
-    /// Node hostname for rnode-url format
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Node hostname for rnode-url format
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// Protocol port for rnode-url format
-    #[arg(long, default_value_t = 40400)]
-    pub protocol_port: u16,
+ /// Protocol port for rnode-url format
+ #[arg(long, default_value_t = 40400)]
+ pub protocol_port: u16,
 
-    /// Discovery port for rnode-url format
-    #[arg(long, default_value_t = 40404)]
-    pub discovery_port: u16,
+ /// Discovery port for rnode-url format
+ #[arg(long, default_value_t = 40404)]
+ pub discovery_port: u16,
 }
 
 /// Arguments for watch-blocks command
 #[derive(Parser, Debug)]
 pub struct WatchBlocksArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// HTTP port number for WebSocket connection
-    #[arg(long, default_value_t = 40403)]
-    pub http_port: u16,
+ /// HTTP port number for WebSocket connection
+ #[arg(long, default_value_t = 40403)]
+ pub http_port: u16,
 
-    /// Filter events by type: "created", "added", or "finalized"
-    #[arg(short, long)]
-    pub filter: Option<String>,
+ /// Filter events by type: "created", "added", or "finalized"
+ #[arg(short, long)]
+ pub filter: Option<String>,
 
-    /// Retry reconnection indefinitely until manually killed (Ctrl+C)
-    #[arg(long, default_value_t = false)]
-    pub retry_forever: bool,
+ /// Retry reconnection indefinitely until manually killed (Ctrl+C)
+ #[arg(long, default_value_t = false)]
+ pub retry_forever: bool,
 }
 
 #[derive(Parser, Debug)]
 pub struct DagArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// HTTP port for block queries
-    #[arg(long, default_value_t = 40413)]
-    pub http_port: u16,
+ /// HTTP port for block queries
+ #[arg(long, default_value_t = 40413)]
+ pub http_port: u16,
 
-    /// WebSocket port for real-time events
-    #[arg(long, default_value_t = 40403)]
-    pub ws_port: u16,
+ /// WebSocket port for real-time events
+ #[arg(long, default_value_t = 40403)]
+ pub ws_port: u16,
 
-    /// Initial number of blocks to load
-    #[arg(short, long, default_value_t = 50)]
-    pub depth: usize,
+ /// Initial number of blocks to load
+ #[arg(short, long, default_value_t = 50)]
+ pub depth: usize,
 
-    /// Disable real-time updates (static view)
-    #[arg(long, default_value_t = false)]
-    pub no_live: bool,
+ /// Disable real-time updates (static view)
+ #[arg(long, default_value_t = false)]
+ pub no_live: bool,
 
-    /// Show deploy counts inline
-    #[arg(long, default_value_t = true)]
-    pub show_deploys: bool,
+ /// Show deploy counts inline
+ #[arg(long, default_value_t = true)]
+ pub show_deploys: bool,
 }
 
 /// Arguments for block-transfers command
 #[derive(Parser, Debug)]
 pub struct BlockTransfersArgs {
-    /// Block hash to get transfers from
-    pub block_hash: String,
+ /// Block hash to get transfers from
+ pub block_hash: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+ /// Host address
+ #[arg(short = 'H', long, default_value = "localhost")]
+ pub host: String,
 
-    /// HTTP port number
-    #[arg(short, long, default_value_t = 40403)]
-    pub port: u16,
+ /// HTTP port number
+ #[arg(short, long, default_value_t = 40403)]
+ pub port: u16,
 
-    /// Show all deploys, not just those with transfers
-    #[arg(long = "all-deploys", default_value_t = false)]
-    pub all_deploys: bool,
+ /// Show all deploys, not just those with transfers
+ #[arg(long = "all-deploys", default_value_t = false)]
+ pub all_deploys: bool,
 }

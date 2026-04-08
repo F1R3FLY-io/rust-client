@@ -23,140 +23,140 @@ use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 /// # Returns
 /// DER-encoded ECDSA signature as bytes
 pub fn generate_insert_signed_signature(
-    key: &SecretKey,
-    timestamp: DateTime<Utc>,
-    deployer: &PublicKey,
-    version: i64,
+ key: &SecretKey,
+ timestamp: DateTime<Utc>,
+ deployer: &PublicKey,
+ version: i64,
 ) -> Vec<u8> {
-    use f1r3fly_models::rhoapi;
+ use f1r3fly_models::rhoapi;
 
-    let par = rhoapi::Par {
-        exprs: vec![rhoapi::Expr {
-            expr_instance: Some(rhoapi::expr::ExprInstance::ETupleBody(rhoapi::ETuple {
-                ps: vec![
-                    rhoapi::Par {
-                        exprs: vec![rhoapi::Expr {
-                            expr_instance: Some(rhoapi::expr::ExprInstance::GInt(
-                                timestamp.timestamp_millis(),
-                            )),
-                        }],
-                        ..Default::default()
-                    },
-                    rhoapi::Par {
-                        exprs: vec![rhoapi::Expr {
-                            expr_instance: Some(rhoapi::expr::ExprInstance::GByteArray(
-                                deployer.serialize_uncompressed().into(),
-                            )),
-                        }],
-                        ..Default::default()
-                    },
-                    rhoapi::Par {
-                        exprs: vec![rhoapi::Expr {
-                            expr_instance: Some(rhoapi::expr::ExprInstance::GInt(version)),
-                        }],
-                        ..Default::default()
-                    },
-                ],
-                ..Default::default()
-            })),
-        }],
-        ..Default::default()
-    }
-    .encode_to_vec();
+ let par = rhoapi::Par {
+ exprs: vec![rhoapi::Expr {
+ expr_instance: Some(rhoapi::expr::ExprInstance::ETupleBody(rhoapi::ETuple {
+ ps: vec![
+ rhoapi::Par {
+ exprs: vec![rhoapi::Expr {
+ expr_instance: Some(rhoapi::expr::ExprInstance::GInt(
+ timestamp.timestamp_millis(),
+ )),
+ }],
+ ..Default::default()
+ },
+ rhoapi::Par {
+ exprs: vec![rhoapi::Expr {
+ expr_instance: Some(rhoapi::expr::ExprInstance::GByteArray(
+ deployer.serialize_uncompressed().into(),
+ )),
+ }],
+ ..Default::default()
+ },
+ rhoapi::Par {
+ exprs: vec![rhoapi::Expr {
+ expr_instance: Some(rhoapi::expr::ExprInstance::GInt(version)),
+ }],
+ ..Default::default()
+ },
+ ],
+ ..Default::default()
+ })),
+ }],
+ ..Default::default()
+ }
+ .encode_to_vec();
 
-    let hash = Blake2b::<U32>::new().chain_update(par).finalize();
-    let message = Message::from_digest(hash.into());
+ let hash = Blake2b::<U32>::new().chain_update(par).finalize();
+ let message = Message::from_digest(hash.into());
 
-    Secp256k1::new()
-        .sign_ecdsa(message, key)
-        .serialize_der()
-        .to_vec()
+ Secp256k1::new()
+ .sign_ecdsa(message, key)
+ .serialize_der()
+ .to_vec()
 }
 
 /// Convert a public key to a F1r3fly registry URI
 ///
 /// The URI format is: `rho:id:<zbase32-encoded-hash-with-crc14>`
 pub fn public_key_to_uri(public_key: &PublicKey) -> String {
-    let pubkey_bytes = public_key.serialize_uncompressed();
-    let hash = Blake2b::<U32>::new().chain_update(&pubkey_bytes).finalize();
-    let crc_bytes = compute_crc14(&hash);
+ let pubkey_bytes = public_key.serialize_uncompressed();
+ let hash = Blake2b::<U32>::new().chain_update(&pubkey_bytes).finalize();
+ let crc_bytes = compute_crc14(&hash);
 
-    let mut full_key = Vec::with_capacity(34);
-    full_key.extend_from_slice(hash.as_ref());
-    full_key.push(crc_bytes[0]);
-    full_key.push(crc_bytes[1] << 2);
+ let mut full_key = Vec::with_capacity(34);
+ full_key.extend_from_slice(hash.as_ref());
+ full_key.push(crc_bytes[0]);
+ full_key.push(crc_bytes[1] << 2);
 
-    let encoded = zbase32::encode(&full_key, 270);
-    format!("rho:id:{}", encoded)
+ let encoded = zbase32::encode(&full_key, 270);
+ format!("rho:id:{}", encoded)
 }
 
 /// Compute CRC14 checksum for URI generation
 fn compute_crc14(data: &[u8]) -> [u8; 2] {
-    use crc::{Algorithm, Crc};
+ use crc::{Algorithm, Crc};
 
-    const CRC14: Algorithm<u16> = Algorithm {
-        width: 14,
-        poly: 0x4805,
-        init: 0x0000,
-        refin: false,
-        refout: false,
-        xorout: 0x0000,
-        check: 0x0000,
-        residue: 0x0000,
-    };
+ const CRC14: Algorithm<u16> = Algorithm {
+ width: 14,
+ poly: 0x4805,
+ init: 0x0000,
+ refin: false,
+ refout: false,
+ xorout: 0x0000,
+ check: 0x0000,
+ residue: 0x0000,
+ };
 
-    let crc = Crc::<u16>::new(&CRC14);
-    let mut digest = crc.digest();
-    digest.update(data);
-    let crc_value = digest.finalize();
-    crc_value.to_le_bytes()
+ let crc = Crc::<u16>::new(&CRC14);
+ let mut digest = crc.digest();
+ digest.update(data);
+ let crc_value = digest.finalize();
+ crc_value.to_le_bytes()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+ use super::*;
 
-    #[test]
-    fn test_uri_is_deterministic() {
-        let secp = Secp256k1::new();
-        let private_key_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-        let secret_key_bytes = hex::decode(private_key_hex).unwrap();
-        let secret_key = SecretKey::from_byte_array(secret_key_bytes.try_into().unwrap()).unwrap();
-        let public_key = secret_key.public_key(&secp);
+ #[test]
+ fn test_uri_is_deterministic() {
+ let secp = Secp256k1::new();
+ let private_key_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
+ let secret_key_bytes = hex::decode(private_key_hex).unwrap();
+ let secret_key = SecretKey::from_byte_array(secret_key_bytes.try_into().unwrap()).unwrap();
+ let public_key = secret_key.public_key(&secp);
 
-        let uri1 = public_key_to_uri(&public_key);
-        let uri2 = public_key_to_uri(&public_key);
-        assert_eq!(uri1, uri2);
-    }
+ let uri1 = public_key_to_uri(&public_key);
+ let uri2 = public_key_to_uri(&public_key);
+ assert_eq!(uri1, uri2);
+ }
 
-    #[test]
-    fn test_uri_format() {
-        let secp = Secp256k1::new();
-        let private_key_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-        let secret_key_bytes = hex::decode(private_key_hex).unwrap();
-        let secret_key = SecretKey::from_byte_array(secret_key_bytes.try_into().unwrap()).unwrap();
-        let public_key = secret_key.public_key(&secp);
+ #[test]
+ fn test_uri_format() {
+ let secp = Secp256k1::new();
+ let private_key_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
+ let secret_key_bytes = hex::decode(private_key_hex).unwrap();
+ let secret_key = SecretKey::from_byte_array(secret_key_bytes.try_into().unwrap()).unwrap();
+ let public_key = secret_key.public_key(&secp);
 
-        let uri = public_key_to_uri(&public_key);
-        assert!(uri.starts_with("rho:id:"));
-    }
+ let uri = public_key_to_uri(&public_key);
+ assert!(uri.starts_with("rho:id:"));
+ }
 
-    #[test]
-    fn test_different_keys_produce_different_uris() {
-        let secp = Secp256k1::new();
+ #[test]
+ fn test_different_keys_produce_different_uris() {
+ let secp = Secp256k1::new();
 
-        let key1_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-        let key1_bytes: [u8; 32] = hex::decode(key1_hex).unwrap().try_into().unwrap();
-        let secret_key1 = SecretKey::from_byte_array(key1_bytes).unwrap();
-        let public_key1 = secret_key1.public_key(&secp);
+ let key1_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
+ let key1_bytes: [u8; 32] = hex::decode(key1_hex).unwrap().try_into().unwrap();
+ let secret_key1 = SecretKey::from_byte_array(key1_bytes).unwrap();
+ let public_key1 = secret_key1.public_key(&secp);
 
-        let key2_hex = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
-        let key2_bytes: [u8; 32] = hex::decode(key2_hex).unwrap().try_into().unwrap();
-        let secret_key2 = SecretKey::from_byte_array(key2_bytes).unwrap();
-        let public_key2 = secret_key2.public_key(&secp);
+ let key2_hex = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+ let key2_bytes: [u8; 32] = hex::decode(key2_hex).unwrap().try_into().unwrap();
+ let secret_key2 = SecretKey::from_byte_array(key2_bytes).unwrap();
+ let public_key2 = secret_key2.public_key(&secp);
 
-        let uri1 = public_key_to_uri(&public_key1);
-        let uri2 = public_key_to_uri(&public_key2);
-        assert_ne!(uri1, uri2);
-    }
+ let uri1 = public_key_to_uri(&public_key1);
+ let uri2 = public_key_to_uri(&public_key2);
+ assert_ne!(uri1, uri2);
+ }
 }
