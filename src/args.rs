@@ -34,6 +34,9 @@ pub enum Commands {
     /// Execute Rholang code without committing to the blockchain (exploratory deployment)
     ExploratoryDeploy(ExploratoryDeployArgs),
 
+    /// Estimate phlogiston cost of Rholang code without deploying
+    EstimateCost(ExploratoryDeployArgs),
+
     /// Generate a public key from a private key
     GeneratePublicKey(GeneratePublicKeyArgs),
 

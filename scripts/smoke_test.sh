@@ -306,10 +306,17 @@ fi
 
 # exploratory-deploy: Execute Rholang without committing to blockchain
 # Must run on observer (read-only) node - validators reject exploratory deploys
-# Expected output: "Execution successful"
+# Expected output: "Execution successful" and cost
 run_test "exploratory-deploy" \
     "cargo run -q --release -- exploratory-deploy -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
-    "Execution successful"
+    "Execution successful|phlogiston"
+
+# estimate-cost: Estimate phlogiston cost without deploying
+# Must run on observer (read-only) node
+# Expected output: a number (the cost in phlogiston)
+run_test "estimate-cost" \
+    "cargo run -q --release -- estimate-cost -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
+    "^[0-9]+"
 
 # ============================================
 # CRYPTO COMMANDS (offline, no node required)
@@ -444,13 +451,16 @@ else
 fi
 
 # get-deploy: Get deploy execution details (cost, errored, blockNumber)
-# Uses the new /api/deploy/{id} endpoint with DeployDetailResponse
-if [ -n "${TRANSFER_DEPLOY_ID:-}" ]; then
+# Uses deploy ID from deploy-and-wait (with data) test
+if [ -n "${FDAW_DEPLOY_ID:-}" ]; then
     run_test "get-deploy" \
-        "cargo run -q --release -- get-deploy -d $TRANSFER_DEPLOY_ID -H $HOST --http-port $HTTP_PORT" \
+        "cargo run -q --release -- get-deploy -d $FDAW_DEPLOY_ID -H $HOST --http-port $HTTP_PORT" \
         "Deploy Information|Block Number:|Cost:|Deploy ID:"
 else
-    skip_test "get-deploy" "no deploy ID from transfer test"
+    # Fail, not skip — if we can't get a deploy ID something is wrong
+    echo -n "Testing get-deploy... "
+    echo -e "${RED}FAIL${NC} (no deploy ID from earlier tests)"
+    inc_fail
 fi
 
 # ============================================

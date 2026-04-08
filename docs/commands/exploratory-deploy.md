@@ -26,17 +26,15 @@ node_cli exploratory-deploy -f <FILE> [OPTIONS]
 ```
 $ node_cli exploratory-deploy -f ./rho_examples/stdout.rho -H localhost -p 40452
 
-Reading Rholang from: ./rho_examples/stdout.rho
-Code size: 62 bytes
-Connecting to F1r3fly node at localhost:40452
-Executing Rholang code (exploratory deploy)...
-Using post-state hash
 Execution successful!
-Time taken: 80.43ms
-Block hash: 3ef7b8d5..., Block number: 364
+Cost:    317 phlogiston
+Time:    70.37ms
+Block hash: 0ffe5c93..., Block number: 48
 Result:
 No data returned
 ```
+
+The response now includes the phlogiston cost of execution. For cost-only output, use [estimate-cost](estimate-cost.md).
 
 ## Notes
 

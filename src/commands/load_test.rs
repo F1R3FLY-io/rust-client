@@ -325,7 +325,7 @@ async fn get_balance_for_address(
     let readonly_api = F1r3flyApi::new(&args.private_key, &args.host, args.readonly_port)?;
 
     // Execute exploratory deploy to get balance on read-only node
-    let (result, _block_info) = readonly_api
+    let (result, _block_info, _cost) = readonly_api
         .exploratory_deploy(&rholang_query, None, false)
         .await?;
 

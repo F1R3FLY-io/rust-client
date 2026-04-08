@@ -13,10 +13,11 @@ required-features = ["cli"]
 
 [dependencies]
 # F1r3fly protocol
-f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
-f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
-f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
-f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
+# TODO: revert to branch = "rust/dev" after f1r3node PR #472 is merged
+f1r3fly-models = { package = "models", path = "../f1r3node-rust/models" }
+f1r3fly-shared = { package = "shared", path = "../f1r3node-rust/shared" }
+f1r3fly-crypto = { package = "crypto", path = "../f1r3node-rust/crypto" }
+f1r3fly-rholang = { package = "rholang", path = "../f1r3node-rust/rholang" }
 prost = "0.14"
 
 # gRPC

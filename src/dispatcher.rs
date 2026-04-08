@@ -22,6 +22,9 @@ impl Dispatcher {
             Commands::ExploratoryDeploy(args) => exploratory_deploy_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::EstimateCost(args) => estimate_cost_command(args)
+                .await
+                .map_err(NodeCliError::from),
             Commands::GeneratePublicKey(args) => {
                 generate_public_key_command(args).map_err(NodeCliError::from)
             }
@@ -131,6 +134,7 @@ impl Dispatcher {
             Commands::DeployAndWait(_) => "deploy-and-wait",
             Commands::IsFinalized(_) => "is-finalized",
             Commands::ExploratoryDeploy(_) => "exploratory-deploy",
+            Commands::EstimateCost(_) => "estimate-cost",
             Commands::GeneratePublicKey(_) => "generate-public-key",
             Commands::GenerateKeyPair(_) => "generate-key-pair",
             Commands::GenerateVaultAddress(_) => "generate-vault-address",

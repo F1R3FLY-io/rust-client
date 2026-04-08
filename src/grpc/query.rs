@@ -16,7 +16,7 @@ impl<'a> F1r3flyApi<'a> {
         rho_code: &str,
         block_hash: Option<&str>,
         use_pre_state_hash: bool,
-    ) -> Result<(String, String), Box<dyn std::error::Error>> {
+    ) -> Result<(String, String, u64), Box<dyn std::error::Error>> {
         let mut client = DeployServiceClient::connect(self.grpc_url()).await?;
 
         let query = ExploratoryDeployQuery {
@@ -26,9 +26,10 @@ impl<'a> F1r3flyApi<'a> {
         };
 
         let response = client.exploratory_deploy(query).await?;
+        let resp = response.get_ref();
+        let cost = resp.cost;
 
-        let message = response
-            .get_ref()
+        let message = resp
             .message
             .as_ref()
             .ok_or("Exploratory deploy result not found")?;
@@ -65,7 +66,7 @@ impl<'a> F1r3flyApi<'a> {
                     })
                     .unwrap_or_else(|| "No block info".to_string());
 
-                Ok((data, block_info))
+                Ok((data, block_info, cost))
             }
         }
     }

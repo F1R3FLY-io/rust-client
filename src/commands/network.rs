@@ -128,20 +128,42 @@ pub async fn exploratory_deploy_command(
         )
         .await
     {
-        Ok((result, block_info)) => {
+        Ok((result, block_info, cost)) => {
             let duration = start_time.elapsed();
-            println!(" Execution successful!");
-            println!(" Time taken: {:.2?}", duration);
-            println!(" {}", block_info);
-            println!(" Result:");
+            println!("Execution successful!");
+            println!("Cost:    {} phlogiston", cost);
+            println!("Time:    {:.2?}", duration);
+            println!("{}", block_info);
+            println!("Result:");
             println!("{}", result);
         }
         Err(e) => {
-            println!(" Execution failed!");
+            println!("Execution failed!");
             println!("Error: {}", e);
             return Err(e);
         }
     }
+
+    Ok(())
+}
+
+pub async fn estimate_cost_command(
+    args: &ExploratoryDeployArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rholang_code =
+        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
+
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+
+    let (_result, _block_info, cost) = f1r3fly_api
+        .exploratory_deploy(
+            &rholang_code,
+            args.block_hash.as_deref(),
+            args.use_pre_state,
+        )
+        .await?;
+
+    println!("{}", cost);
 
     Ok(())
 }

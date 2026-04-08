@@ -21,6 +21,7 @@ cargo run --release -- exploratory-deploy -f query.rho -H localhost -p 40452
 - [deploy](docs/commands/deploy.md) -- submit Rholang code to the blockchain
 - [deploy-and-wait](docs/commands/deploy-and-wait.md) -- deploy, wait for finalization, read result
 - [exploratory-deploy](docs/commands/exploratory-deploy.md) -- read-only Rholang execution
+- [estimate-cost](docs/commands/estimate-cost.md) -- estimate phlogiston cost before deploying
 - [get-deploy](docs/commands/get-deploy.md) -- get deploy execution details
 - [get-data](docs/commands/get-data.md) -- read deploy result data
 - [propose](docs/commands/propose.md) -- manually propose a block

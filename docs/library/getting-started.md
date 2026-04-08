@@ -55,6 +55,13 @@ println!("Data:   {:?}", result.data);  // Vec<Par> from deployId channel
 let result = manager.query(r#"new x in { x!(1 + 1) }"#).await?;
 ```
 
+### Estimate cost
+
+```rust
+let cost = manager.estimate_cost(r#"new x in { x!(1 + 1) }"#).await?;
+println!("Estimated cost: {} phlogiston", cost);
+```
+
 ### Transfer
 
 ```rust

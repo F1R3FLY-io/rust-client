@@ -336,12 +336,12 @@ pub async fn wallet_balance_command(
         .exploratory_deploy(&rholang_query, None, false)
         .await
     {
-        Ok((result, block_info)) => {
+        Ok((result, block_info, _cost)) => {
             let duration = start_time.elapsed();
-            println!(" Wallet balance retrieved successfully!");
-            println!(" Time taken: {:.2?}", duration);
-            println!(" Balance for {}: {}", args.address, result);
-            println!(" {}", block_info);
+            println!("Wallet balance retrieved successfully!");
+            println!("Time taken: {:.2?}", duration);
+            println!("Balance for {}: {}", args.address, result);
+            println!("{}", block_info);
         }
         Err(e) => {
             println!(" Failed to get wallet balance!");

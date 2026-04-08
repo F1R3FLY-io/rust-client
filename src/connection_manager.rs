@@ -167,11 +167,21 @@ impl F1r3flyConnectionManager {
     /// Execute an exploratory deploy (read-only query)
     pub async fn query(&self, rholang_code: &str) -> Result<String, ConnectionError> {
         let api = self.api()?;
-        let (result, _block_info) = api
+        let (result, _block_info, _cost) = api
             .exploratory_deploy(rholang_code, None, false)
             .await
             .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
         Ok(result)
+    }
+
+    /// Estimate phlogiston cost of Rholang code via exploratory deploy
+    pub async fn estimate_cost(&self, rholang_code: &str) -> Result<u64, ConnectionError> {
+        let api = self.api()?;
+        let (_result, _block_info, cost) = api
+            .exploratory_deploy(rholang_code, None, false)
+            .await
+            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
+        Ok(cost)
     }
 
     /// Deploy Rholang code to the blockchain
