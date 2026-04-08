@@ -14,25 +14,17 @@ Use `F1r3flyApi` directly when you need a single operation (exploratory deploy, 
 
 ## Deploy Flow
 
-### deploy_and_wait (3 phases)
-
-```
-1. Deploy         F1r3flyApi::deploy()          -> deploy_id
-2. Block wait     F1r3flyApi::find_deploy_grpc()  polls until deploy in block -> block_hash
-3. Finalization   F1r3flyApi::is_finalized()     polls observer until finalized
-```
-
-### full_deploy_and_wait (4 phases)
+### deploy_and_wait (5 phases)
 
 ```
 1. Deploy         F1r3flyApi::deploy()                -> deploy_id
-2. Block wait     F1r3flyApi::find_deploy_grpc()        -> block_hash
-3. Finalization   F1r3flyApi::is_finalized()           (via observer)
+2. Block wait     F1r3flyApi::find_deploy_grpc()      polls until deploy in block -> block_hash
+3. Finalization   F1r3flyApi::is_finalized()           polls observer until finalized
 4. Data read      F1r3flyApi::get_data_at_deploy_id()  -> Vec<Par> (AFTER finalization)
-                  F1r3flyApi::get_deploy_detail()       -> cost, errored, blockNumber
+5. Details        F1r3flyApi::get_deploy_detail()       -> cost, errored, blockNumber
 ```
 
-The critical difference from earlier implementations: data is read AFTER finalization, not before. Reading before finalization can return empty results on shards because the block may not be replayed on the validator being queried.
+Data is read AFTER finalization, not before. Reading before finalization can return empty results on shards because the block may not be replayed on the validator being queried.
 
 ## Node API Endpoints Used
 

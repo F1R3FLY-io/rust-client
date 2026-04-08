@@ -37,6 +37,7 @@ Test 1/3
 [17:24:41] Block finalized (10.2s)
    SUCCESS - Block finalized and on main chain
 
+Test 2/3
 ...
 
 FINAL RESULTS
@@ -59,15 +60,32 @@ node_cli watch-blocks [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-fore
 | `--filter` | all | `created`, `added`, or `finalized` |
 | `--retry-forever` | false | Reconnect indefinitely |
 
+Three event types are streamed:
+
+- **Block Created** -- new block proposed by a validator. Includes block hash, creator, sequence number, parent hashes, and deploy IDs.
+- **Block Added** -- block validated and added to the DAG by a receiving node. Same fields as Created.
+- **Block Finalized** -- block reached finalized status (confirmed by consensus). Includes block hash, deploys with cost and errored status.
+
+```
+$ node_cli watch-blocks
+
+Connected to node WebSocket
+Watching for block events...
+
+Block Created: a1b2c3d4... (creator: 0457feba..., seq: 293, deploys: 0, parents: 3)
+Block Added: a1b2c3d4... (creator: 0457feba..., seq: 293, deploys: 0, parents: 3)
+Block Added: e5f6a7b8... (creator: 04837a4c..., seq: 297, deploys: 0, parents: 3)
+Block Finalized: 9c0d1e2f...
+```
+
 ```
 $ node_cli watch-blocks --filter finalized
 
-Connected to node WebSocket at ws://localhost:40403/ws/events
-Block Finalized: abc123def456...
-Block Finalized: 789012345678...
+Block Finalized: 9c0d1e2f...
+Block Finalized: 3a4b5c6d...
 ```
 
-Connects to `/ws/events` and streams block creation, validation, and finalization events. Auto-reconnects on disconnect (10 retries by default).
+Auto-reconnects on disconnect (10 retries by default, indefinitely with `--retry-forever`).
 
 ## dag
 
@@ -146,7 +164,7 @@ node_cli epoch-info [-H HOST] [-p GRPC_PORT]
 ```
 
 ```
-$ node_cli epoch-info -H localhost -p 40452
+$ node_cli epoch-info -p 40452
 
 Current Epoch Status:
    Current Block: 403
@@ -154,6 +172,11 @@ Current Epoch Status:
    Epoch Length: 10 blocks
    Progress: 3/10 blocks (30.0%)
    Remaining: 7 blocks
+
+   Recent Block Activity:
+      Block 403: finalized
+      Block 402: finalized
+      Block 401: finalized
 ```
 
 ### epoch-rewards
@@ -162,24 +185,52 @@ Current Epoch Status:
 node_cli epoch-rewards [-H HOST] [-p GRPC_PORT] [--http-port PORT]
 ```
 
-Returns reward distribution data for the current epoch.
+```
+$ node_cli epoch-rewards -p 40452 --http-port 40453
+
+Current Epoch Rewards (3 validators):
+
+   0457feba...b4ae661c : 1621929
+   04837a4c...b2df065f : 1621929
+   04fa70d7...00f60420 : 1621929
+
+   Total: 4865787
+```
 
 ### validator-status
 
 ```bash
-node_cli validator-status -k <PUBLIC_KEY> [-H HOST] [-p GRPC_PORT]
+node_cli validator-status -k <PUBLIC_KEY> [-H HOST] [-p GRPC_PORT] [--http-port PORT]
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-k` | required | Validator public key (hex) |
+```
+$ node_cli validator-status -k 0457febafcc25dd3...b4ae661c -p 40452 --http-port 40453
 
-Reports whether the validator is BONDED, ACTIVE, or in QUARANTINE.
+BONDED: Validator is bonded to the network
+   Stake Amount: 1000
+ACTIVE: Validator is actively participating in consensus
+
+Summary:
+   Bonded:  Yes
+   Active:  Yes
+   Status: Fully operational
+```
 
 ### network-consensus
 
 ```bash
-node_cli network-consensus [-H HOST] [-p GRPC_PORT]
+node_cli network-consensus [-H HOST] [-p GRPC_PORT] [--http-port PORT]
 ```
 
-Returns network-wide consensus health overview including validator participation and finalization metrics.
+```
+$ node_cli network-consensus -p 40452 --http-port 40453
+
+Network Consensus Health:
+   Current Block: 573
+   Total Bonded Validators: 3
+   Active Validators: 3
+   Validators in Quarantine: 0
+   Quarantine Length: 10 blocks
+   Consensus Status: Healthy
+   Participation Rate: 100.0%
+```
