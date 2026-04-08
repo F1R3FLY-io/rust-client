@@ -4,7 +4,7 @@ use crate::f1r3fly_api::{F1r3flyApi, ProposeResult};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-const DEFAULT_PRIVATE_KEY: &str = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
+use crate::args::DEV_PRIVATE_KEY;
 
 fn build_config(
     host: &str,
@@ -12,6 +12,7 @@ fn build_config(
     http_port: u16,
     private_key: &str,
     max_wait: u64,
+    finalization_timeout: u64,
     check_interval: u64,
     observer_host: Option<&str>,
     observer_port: Option<u16>,
@@ -23,6 +24,7 @@ fn build_config(
         private_key.to_string(),
     );
     config.deploy_timeout_secs = max_wait as u32;
+    config.finalization_timeout_secs = finalization_timeout as u32;
     config.poll_interval_secs = check_interval;
     if let Some(obs_host) = observer_host {
         config.observer_host = Some(obs_host.to_string());
@@ -34,10 +36,10 @@ fn build_config(
 }
 
 fn config_from_deploy_args(args: &DeployAndWaitArgs) -> ConnectionConfig {
-    let private_key = args.private_key.as_deref().unwrap_or(DEFAULT_PRIVATE_KEY);
+    let private_key = args.private_key.as_deref().unwrap_or(DEV_PRIVATE_KEY);
     build_config(
         &args.host, args.port, args.http_port, private_key,
-        args.max_wait, args.check_interval,
+        args.max_wait, args.finalization_timeout, args.check_interval,
         args.observer_host.as_deref(), args.observer_port,
     )
 }
@@ -45,7 +47,7 @@ fn config_from_deploy_args(args: &DeployAndWaitArgs) -> ConnectionConfig {
 fn config_from_transfer_args(args: &TransferArgs) -> ConnectionConfig {
     build_config(
         &args.host, args.port, args.http_port, &args.private_key,
-        args.max_wait, args.check_interval,
+        args.max_wait, 30, args.check_interval,
         args.observer_host.as_deref(), args.observer_port,
     )
 }
@@ -53,7 +55,7 @@ fn config_from_transfer_args(args: &TransferArgs) -> ConnectionConfig {
 fn config_from_bond_args(args: &BondValidatorArgs) -> ConnectionConfig {
     build_config(
         &args.host, args.port, args.http_port, &args.private_key,
-        args.max_wait, args.check_interval,
+        args.max_wait, 30, args.check_interval,
         args.observer_host.as_deref(), args.observer_port,
     )
 }
@@ -349,13 +351,13 @@ pub async fn bond_validator_command(
     let manager = F1r3flyConnectionManager::new(config_from_bond_args(args));
     let start = Instant::now();
 
-    let (deploy_id, block_hash) = manager
+    let result = manager
         .deploy_and_wait(&bonding_code, true, expiration)
         .await
         .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
-    println!("Deploy ID:    {}", deploy_id);
-    println!("Block hash:   {}", block_hash);
+    println!("Deploy ID:    {}", result.deploy_id);
+    println!("Block hash:   {}", result.block_hash);
     println!("Total time:   {:.2?}", start.elapsed());
 
     if args.propose {
@@ -395,7 +397,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     let start = Instant::now();
 
     let result = manager
-        .full_deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
+        .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
         .await
         .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
@@ -437,14 +439,45 @@ pub async fn deploy_and_wait_command(
     println!("Deploying and waiting for finalization...");
     let start = Instant::now();
 
-    let (deploy_id, block_hash) = manager
+    let result = manager
         .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
         .await
         .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
-    println!("Deploy ID:    {}", deploy_id);
-    println!("Block hash:   {}", block_hash);
+    println!("Deploy ID:    {}", result.deploy_id);
+    println!("Block hash:   {}", result.block_hash);
+    if let Some(block_num) = result.block_number {
+        println!("Block number: {}", block_num);
+    }
+    if let Some(cost) = result.cost {
+        println!("Cost:         {}", cost);
+    }
+    if result.errored {
+        println!("Errored:      true");
+        if let Some(ref err) = result.system_deploy_error {
+            println!("Deploy error: {}", err);
+        }
+    }
+    if result.data.is_empty() {
+        println!("Data:         (none)");
+    } else {
+        for (i, par) in result.data.iter().enumerate() {
+            let simplified = crate::f1r3fly_api::extract_par_data(par)
+                .unwrap_or_else(|| format!("{:?}", par));
+            println!("Data[{}]:      {}", i, simplified);
+        }
+    }
     println!("Total time:   {:.2?}", start.elapsed());
+
+    if args.propose {
+        let private_key = args.private_key.as_deref().unwrap_or(DEV_PRIVATE_KEY);
+        let api = F1r3flyApi::new(private_key, &args.host, args.port)?;
+        match api.propose().await {
+            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {}", hash),
+            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {}", reason),
+            Err(e) => println!("Propose failed: {}", e),
+        }
+    }
 
     Ok(())
 }
@@ -456,8 +489,7 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
         args.host, args.http_port
     );
 
-    let dummy_private_key = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-    let f1r3fly_api = F1r3flyApi::new(dummy_private_key, &args.host, 40412)?;
+    let f1r3fly_api = F1r3flyApi::new(DEV_PRIVATE_KEY, &args.host, 40412)?;
 
     let start_time = Instant::now();
 
@@ -572,49 +604,6 @@ in {{
         amount_dust,  // transfer amount
         amount_dust   // success message amount
     )
-}
-
-/// Deploy Rholang code, wait for finalization, and read deploy result data
-pub async fn full_deploy_and_wait_command(args: &DeployAndWaitArgs) -> crate::error::Result<()> {
-    let rho_code = fs::read_to_string(&args.file)?;
-    let manager = F1r3flyConnectionManager::new(config_from_deploy_args(args));
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-
-    println!("Deploying and waiting for finalization...");
-    let start = Instant::now();
-
-    let result = manager
-        .full_deploy_and_wait(&rho_code, args.bigger_phlo, expiration_timestamp)
-        .await
-        .map_err(|e| crate::error::NodeCliError::General(e.to_string()))?;
-
-    let elapsed = start.elapsed();
-
-    println!("Deploy ID:    {}", result.deploy_id);
-    println!("Block hash:   {}", result.block_hash);
-    if let Some(block_num) = result.block_number {
-        println!("Block number: {}", block_num);
-    }
-    if let Some(cost) = result.cost {
-        println!("Cost:         {}", cost);
-    }
-    println!("Errored:      {}", result.errored);
-    if let Some(ref err) = result.system_deploy_error {
-        println!("Deploy error: {}", err);
-    }
-    println!("Time:         {:.2?}", elapsed);
-
-    if result.data.is_empty() {
-        println!("Data:         (none)");
-    } else {
-        for (i, par) in result.data.iter().enumerate() {
-            let simplified = crate::f1r3fly_api::extract_par_data(par)
-                .unwrap_or_else(|| format!("{:?}", par));
-            println!("Data[{}]:      {}", i, simplified);
-        }
-    }
-
-    Ok(())
 }
 
 /// Read data at a deploy ID from a specific block

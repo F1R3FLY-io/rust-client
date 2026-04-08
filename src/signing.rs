@@ -37,7 +37,7 @@ pub fn sign_deploy_data(
 
     let secp = Secp256k1::new();
     let message = Secp256k1Message::from_digest(digest);
-    let signature = secp.sign_ecdsa(&message, private_key);
+    let signature = secp.sign_ecdsa(message, private_key);
 
     Ok(signature.serialize_der().to_vec())
 }
@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     fn test_private_key() -> SecretKey {
-        SecretKey::from_slice(&[0x42; 32]).expect("32 bytes is valid")
+        SecretKey::from_byte_array([0x42; 32]).expect("32 bytes is valid")
     }
 
     #[test]

@@ -12,13 +12,7 @@ impl Dispatcher {
         let result = match &cli.command {
             Commands::Deploy(args) => deploy_command(args).await.map_err(NodeCliError::from),
             Commands::Propose(args) => propose_command(args).await.map_err(NodeCliError::from),
-            Commands::FullDeploy(args) => {
-                full_deploy_command(args).await.map_err(NodeCliError::from)
-            }
             Commands::DeployAndWait(args) => deploy_and_wait_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::FullDeployAndWait(args) => full_deploy_and_wait_command(args)
                 .await
                 .map_err(NodeCliError::from),
             Commands::GetData(args) => get_data_command(args)
@@ -135,7 +129,7 @@ impl Dispatcher {
         match &cli.command {
             Commands::Deploy(_) => "deploy",
             Commands::Propose(_) => "propose",
-            Commands::FullDeploy(_) => "full-deploy",
+
             Commands::DeployAndWait(_) => "deploy-and-wait",
             Commands::IsFinalized(_) => "is-finalized",
             Commands::ExploratoryDeploy(_) => "exploratory-deploy",
@@ -165,7 +159,7 @@ impl Dispatcher {
             Commands::WatchBlocks(_) => "watch-blocks",
             Commands::Dag(_) => "dag",
             Commands::BlockTransfers(_) => "block-transfers",
-            Commands::FullDeployAndWait(_) => "full-deploy-and-wait",
+
             Commands::GetData(_) => "get-data",
         }
     }

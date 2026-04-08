@@ -1,6 +1,10 @@
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Well-known bootstrap validator private key used in dev/test Docker setups.
+/// NOT for production use.
+pub const DEV_PRIVATE_KEY: &str = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
+
 /// Command-line interface for interacting with F1r3fly nodes
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -17,14 +21,8 @@ pub enum Commands {
     /// Propose a block to the F1r3fly network
     Propose(ProposeArgs),
 
-    /// Deploy Rholang code and propose a block in one operation
-    FullDeploy(DeployArgs),
-
-    /// Deploy Rholang code and wait for finalization
+    /// Deploy Rholang code, wait for finalization, and read result
     DeployAndWait(DeployAndWaitArgs),
-
-    /// Deploy, wait for finalization, and read deploy result data
-    FullDeployAndWait(DeployAndWaitArgs),
 
     /// Read data at a deploy ID from a specific block
     GetData(GetDataArgs),
@@ -140,12 +138,20 @@ pub struct DeployAndWaitArgs {
     #[arg(long = "bigger-phlo")]
     pub bigger_phlo: bool,
 
-    /// Maximum wait time in seconds
-    #[arg(long = "max-wait", default_value_t = 300)]
+    /// Also propose a block after deploy
+    #[arg(long, default_value_t = false)]
+    pub propose: bool,
+
+    /// Maximum seconds to wait for deploy inclusion in a block
+    #[arg(long = "max-wait", default_value_t = 60)]
     pub max_wait: u64,
 
+    /// Maximum seconds to wait for block finalization
+    #[arg(long = "finalization-timeout", default_value_t = 30)]
+    pub finalization_timeout: u64,
+
     /// Check interval in seconds
-    #[arg(long = "check-interval", default_value_t = 5)]
+    #[arg(long = "check-interval", default_value_t = 2)]
     pub check_interval: u64,
 
     /// Observer node host for finalization checks (falls back to main host if not specified)

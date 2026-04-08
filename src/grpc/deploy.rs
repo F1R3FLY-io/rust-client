@@ -251,7 +251,7 @@ impl<'a> F1r3flyApi<'a> {
 
         let secp = Secp256k1::new();
         let message = Secp256k1Message::from_digest(digest.into());
-        let signature = secp.sign_ecdsa(&message, &self.signing_key);
+        let signature = secp.sign_ecdsa(message, &self.signing_key);
         let sig_bytes = signature.serialize_der().to_vec();
         let public_key = self.signing_key.public_key(&secp);
         let pub_key_bytes = public_key.serialize_uncompressed().to_vec();

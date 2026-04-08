@@ -250,10 +250,48 @@ run_test "deploy" \
     "Deployment successful|Deploy ID:"
 
 # deploy-and-wait: Deploy and wait for block inclusion/finalization
-# Expected output: "Deploy successful" and "Deploy found in block"
+# Uses ConnectionManager: deploy -> find_deploy_grpc -> is_finalized (observer)
 run_test "deploy-and-wait" \
-    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 30 --check-interval 2" \
-    "Deploy successful|Deploy found in block"
+    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --check-interval 2" \
+    "Deploy ID:|Block hash:|Total time:"
+
+# deploy-and-wait with deployId data: Deploy, wait for finalization, read result
+# deploy-and-wait now always reads deployId channel data after finalization
+echo -n "Testing deploy-and-wait (with data)... "
+FDAW_START=$(date +%s.%N)
+if cargo run -q --release -- deploy-and-wait -f ./rho_examples/deploy_id_test.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --finalization-timeout 30 --check-interval 2 > "$OUTPUT" 2>&1; then
+    FDAW_END=$(date +%s.%N)
+    FDAW_MS=$(echo "($FDAW_END - $FDAW_START) * 1000" | bc | cut -d. -f1)
+    save_log "deploy-and-wait (with data)"
+    if grep -qE "Deploy ID:|Data\[0\]:" "$OUTPUT"; then
+        echo -e "${GREEN}PASS${NC} [$(format_duration $FDAW_MS)]"
+        inc_pass
+        # Capture deploy ID and block hash for get-data test
+        FDAW_DEPLOY_ID=$(grep "Deploy ID:" "$OUTPUT" | head -1 | awk '{print $NF}')
+        FDAW_BLOCK_HASH=$(grep "Block hash:" "$OUTPUT" | head -1 | awk '{print $NF}')
+    else
+        echo -e "${RED}FAIL${NC} (output validation failed) [$(format_duration $FDAW_MS)]"
+        head -15 "$OUTPUT" | sed 's/^/    /'
+        inc_fail
+    fi
+else
+    FDAW_END=$(date +%s.%N)
+    FDAW_MS=$(echo "($FDAW_END - $FDAW_START) * 1000" | bc | cut -d. -f1)
+    save_log "deploy-and-wait (with data)"
+    echo -e "${RED}FAIL${NC} (non-zero exit) [$(format_duration $FDAW_MS)]"
+    head -15 "$OUTPUT" | sed 's/^/    /'
+    inc_fail
+fi
+
+# get-data: Read deploy result data by deploy ID and block hash
+# Uses getDataAtName gRPC endpoint (non-deprecated)
+if [ -n "${FDAW_DEPLOY_ID:-}" ] && [ -n "${FDAW_BLOCK_HASH:-}" ]; then
+    run_test "get-data" \
+        "cargo run -q --release -- get-data -d $FDAW_DEPLOY_ID -b $FDAW_BLOCK_HASH -H $HOST -p $GRPC_PORT" \
+        "42|No data found"
+else
+    skip_test "get-data" "no deploy ID/block hash from deploy-and-wait"
+fi
 
 # is-finalized: Check if a block is finalized
 # First get a recent block hash, then check if it's finalized
@@ -379,21 +417,21 @@ echo ""
 echo -e "${BLUE}--- Transfer Commands ---${NC}"
 
 # transfer: Transfer tokens between addresses
-# Uses observer port for finalization check
-# Capture deploy ID for get-deploy test
+# Uses ConnectionManager with full_deploy_and_wait (deploy -> finalize -> read)
 echo -n "Testing transfer... "
 TRANSFER_START=$(date +%s.%N)
 if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --check-interval 2 > "$OUTPUT" 2>&1; then
     TRANSFER_END=$(date +%s.%N)
     TRANSFER_MS=$(echo "($TRANSFER_END - $TRANSFER_START) * 1000" | bc | cut -d. -f1)
     save_log "transfer"
-    if grep -qE "Transfer contract deployed successfully|Transfer deploy found in block" "$OUTPUT"; then
+    if grep -qE "Deploy ID:|Transfer complete|Transfer failed" "$OUTPUT"; then
         echo -e "${GREEN}PASS${NC} [$(format_duration $TRANSFER_MS)]"
         inc_pass
         # Extract deploy ID for get-deploy test
-        TRANSFER_DEPLOY_ID=$(grep -oE 'Deploy ID: [a-f0-9]+' "$OUTPUT" | head -1 | cut -d' ' -f3 || echo "")
+        TRANSFER_DEPLOY_ID=$(grep "Deploy ID:" "$OUTPUT" | head -1 | awk '{print $NF}' || echo "")
     else
         echo -e "${RED}FAIL${NC} (output validation failed) [$(format_duration $TRANSFER_MS)]"
+        head -10 "$OUTPUT" | sed 's/^/    /'
         inc_fail
     fi
 else
@@ -405,11 +443,12 @@ else
     inc_fail
 fi
 
-# get-deploy: Get deploy information by ID
+# get-deploy: Get deploy execution details (cost, errored, blockNumber)
+# Uses the new /api/deploy/{id} endpoint with DeployDetailResponse
 if [ -n "${TRANSFER_DEPLOY_ID:-}" ]; then
     run_test "get-deploy" \
         "cargo run -q --release -- get-deploy -d $TRANSFER_DEPLOY_ID -H $HOST --http-port $HTTP_PORT" \
-        "Deploy Information|Status.*Included|Deploy ID"
+        "Deploy Information|Block Number:|Cost:|Deploy ID:"
 else
     skip_test "get-deploy" "no deploy ID from transfer test"
 fi
@@ -562,10 +601,6 @@ echo -e "${BLUE}--- Skipped Commands ---${NC}"
 # Manual propose will fail with "another propose is in progress" most of the time.
 # Use deploy-and-wait instead, which relies on heartbeat to include deploys.
 skip_test "propose" "conflicts with heartbeat proposer - use deploy-and-wait instead"
-
-# full-deploy: Deploy + propose in one operation - same issue as propose
-# The propose step conflicts with heartbeat. Use deploy-and-wait instead.
-skip_test "full-deploy" "propose step conflicts with heartbeat - use deploy-and-wait instead"
 
 # bond-validator: Bonds a new validator to the network
 # This test should be run manually because bonding a validator that isn't running

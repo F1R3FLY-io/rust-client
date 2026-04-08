@@ -26,7 +26,10 @@ impl<'a> F1r3flyApi<'a> {
         grpc_port: u16,
     ) -> std::result::Result<Self, crate::error::NodeCliError> {
         let key_bytes = hex::decode(signing_key)?;
-        let secret_key = SecretKey::from_slice(&key_bytes)?;
+        let key_array: [u8; 32] = key_bytes
+            .try_into()
+            .map_err(|_| crate::error::NodeCliError::crypto_invalid_private_key("key must be 32 bytes"))?;
+        let secret_key = SecretKey::from_byte_array(key_array)?;
         Ok(F1r3flyApi {
             signing_key: secret_key,
             node_host,

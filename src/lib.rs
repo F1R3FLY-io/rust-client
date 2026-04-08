@@ -1,6 +1,7 @@
 // Library modules
 pub mod connection_manager;
 pub mod error;
+pub mod events;
 pub mod f1r3fly_api;
 pub mod grpc;
 pub mod registry;
@@ -24,4 +25,5 @@ pub use connection_manager::{ConnectionConfig, ConnectionError, F1r3flyConnectio
 pub use error::{NodeCliError, Result};
 pub use f1r3fly_api::{DeployDetail, DeployResult, F1r3flyApi, ProposeResult};
 pub use grpc::query::extract_par_data;
+pub use events::NodeEvents;
 pub use vault::{TransferResult, DUST_FACTOR};

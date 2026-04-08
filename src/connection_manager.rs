@@ -20,8 +20,10 @@ pub struct ConnectionConfig {
     pub observer_host: Option<String>,
     /// Observer node gRPC port for finalization checks (defaults to 40452)
     pub observer_grpc_port: u16,
-    /// Maximum seconds to wait for deploy inclusion in a block (default: 300)
+    /// Maximum seconds to wait for deploy inclusion in a block (default: 60)
     pub deploy_timeout_secs: u32,
+    /// Maximum seconds to wait for block finalization (default: 30)
+    pub finalization_timeout_secs: u32,
     /// Interval between polling attempts in seconds (default: 2)
     pub poll_interval_secs: u64,
 }
@@ -59,7 +61,11 @@ impl ConnectionConfig {
             deploy_timeout_secs: env::var("FIREFLY_DEPLOY_TIMEOUT")
                 .ok()
                 .and_then(|t| t.parse().ok())
-                .unwrap_or(300),
+                .unwrap_or(60),
+            finalization_timeout_secs: env::var("FIREFLY_FINALIZATION_TIMEOUT")
+                .ok()
+                .and_then(|t| t.parse().ok())
+                .unwrap_or(30),
             poll_interval_secs: 2,
         })
     }
@@ -73,7 +79,8 @@ impl ConnectionConfig {
             signing_key,
             observer_host: None,
             observer_grpc_port: 40452,
-            deploy_timeout_secs: 300,
+            deploy_timeout_secs: 60,
+            finalization_timeout_secs: 30,
             poll_interval_secs: 2,
         }
     }
@@ -212,7 +219,7 @@ impl F1r3flyConnectionManager {
 
             match result {
                 Some(block_info) => {
-                    let block_hash = hex::encode(&block_info.block_hash);
+                    let block_hash = block_info.block_hash;
                     tracing::debug!(
                         deploy_id, block_hash, attempt,
                         "Deploy found in block"
@@ -260,42 +267,14 @@ impl F1r3flyConnectionManager {
         }
     }
 
-    /// Deploy Rholang code and wait for finalization
-    pub async fn deploy_and_wait(
-        &self,
-        rholang_code: &str,
-        bigger_phlo: bool,
-        expiration_timestamp: i64,
-    ) -> Result<(String, String), ConnectionError> {
-        let api = self.api()?;
-        let deploy_id = api
-            .deploy(rholang_code, bigger_phlo, "rholang", expiration_timestamp)
-            .await
-            .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {}", e)))?;
-        tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
-
-        let max_block_wait = (self.config.deploy_timeout_secs as u64 / self.config.poll_interval_secs) as u32;
-        let block_hash = self
-            .wait_for_deploy(&deploy_id, max_block_wait)
-            .await?;
-        tracing::info!(block_hash = %block_hash, "Deploy included in block");
-
-        let max_finalization = 120; // 120 * 5s = 10 minutes
-        self.wait_for_finalization(&block_hash, max_finalization)
-            .await?;
-        tracing::info!("Block finalized");
-
-        Ok((deploy_id, block_hash))
-    }
-
-    /// Deploy Rholang code, wait for finalization, then read deploy result
+    /// Deploy Rholang code, wait for finalization, and read result
     ///
-    /// Four phases:
-    /// 1. Deploy the code
+    /// 1. Deploy the code via gRPC
     /// 2. Poll until the deploy appears in a block
-    /// 3. Wait for the block to be finalized
+    /// 3. Wait for the block to be finalized (via observer)
     /// 4. Read the deployId channel data from the finalized block
-    pub async fn full_deploy_and_wait(
+    /// 5. Get deploy execution details (cost, errored)
+    pub async fn deploy_and_wait(
         &self,
         rholang_code: &str,
         bigger_phlo: bool,
@@ -317,8 +296,10 @@ impl F1r3flyConnectionManager {
             .await?;
         tracing::info!(block_hash = %block_hash, "Deploy included in block");
 
-        // Phase 3: Wait for finalization (uses observer)
-        let max_finalization = 120; // 120 * 5s = 10 minutes
+        // Phase 3: Wait for finalization (via observer)
+        let finalization_poll_secs: u64 = 5;
+        let max_finalization = (self.config.finalization_timeout_secs as u64 / finalization_poll_secs) as u32;
+        let max_finalization = max_finalization.max(1);
         self.wait_for_finalization(&block_hash, max_finalization)
             .await?;
         tracing::info!("Block finalized");
@@ -329,7 +310,7 @@ impl F1r3flyConnectionManager {
             .await
             .map_err(|e| ConnectionError::OperationFailed(format!("Failed to read deploy data: {}", e)))?;
 
-        // Get deploy execution details
+        // Phase 5: Get deploy execution details
         let detail = api
             .get_deploy_detail(&deploy_id, self.config.http_port)
             .await
@@ -387,20 +368,20 @@ impl F1r3flyConnectionManager {
 
         let rholang = build_transfer_rholang(&from_address, to_address, amount_dust);
 
-        let (deploy_id, block_hash) = self
+        let result = self
             .deploy_and_wait(&rholang, false, 0)
             .await?;
 
-        log::info!(
-            "Transfer complete: {} dust to {} (deploy: {})",
-            amount_dust,
+        tracing::info!(
+            deploy_id = %result.deploy_id,
             to_address,
-            deploy_id
+            amount_dust,
+            "Transfer complete"
         );
 
         Ok(TransferResult {
-            deploy_id,
-            block_hash,
+            deploy_id: result.deploy_id,
+            block_hash: result.block_hash,
             from_address,
             to_address: to_address.to_string(),
             amount_dust,

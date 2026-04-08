@@ -14,6 +14,7 @@ required-features = ["cli"]
 [dependencies]
 # F1r3fly protocol
 f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
+f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
 f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
 f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", branch = "rust/dev" }
 prost = "0.14"
@@ -25,7 +26,7 @@ tonic = "0.14"
 tokio = { version = "1", features = ["full"] }
 
 # Crypto
-secp256k1 = { version = "0.28.0", features = ["rand-std"] }
+secp256k1 = { version = "0.31", features = ["rand"] }
 blake2 = "0.10.6"
 rand = "0.8.5"
 
@@ -36,8 +37,8 @@ hex = "0.4.3"
 bs58 = "0.5.0"
 
 # Networking
-reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
-tokio-tungstenite = "0.21"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tokio-tungstenite = "0.26"
 futures-util = "0.3"
 
 # Hashing
