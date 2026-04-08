@@ -23,7 +23,7 @@ pub mod dispatcher;
 // Re-export primary types
 pub use connection_manager::{ConnectionConfig, ConnectionError, F1r3flyConnectionManager};
 pub use error::{NodeCliError, Result};
+pub use events::NodeEvents;
 pub use f1r3fly_api::{DeployDetail, DeployResult, F1r3flyApi, ProposeResult};
 pub use grpc::query::extract_par_data;
-pub use events::NodeEvents;
 pub use vault::{TransferResult, DUST_FACTOR};
