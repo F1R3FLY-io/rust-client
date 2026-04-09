@@ -646,7 +646,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 [[package]]
 name = "crypto"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#5cf0bfca400b810f8e4bbd23c146bc85eacef623"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?tag=rust-v0.4.11#dca4619b3e031d5865f7c4fe0098d8b0a573cac1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1993,7 +1993,7 @@ dependencies = [
 [[package]]
 name = "models"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#5cf0bfca400b810f8e4bbd23c146bc85eacef623"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?tag=rust-v0.4.11#dca4619b3e031d5865f7c4fe0098d8b0a573cac1"
 dependencies = [
  "crypto",
  "hex",
@@ -2959,7 +2959,7 @@ dependencies = [
 [[package]]
 name = "rholang"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#5cf0bfca400b810f8e4bbd23c146bc85eacef623"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?tag=rust-v0.4.11#dca4619b3e031d5865f7c4fe0098d8b0a573cac1"
 dependencies = [
  "bincode",
  "cc",
@@ -3058,7 +3058,7 @@ dependencies = [
 [[package]]
 name = "rspace_plus_plus"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#5cf0bfca400b810f8e4bbd23c146bc85eacef623"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?tag=rust-v0.4.11#dca4619b3e031d5865f7c4fe0098d8b0a573cac1"
 dependencies = [
  "async-trait",
  "bincode",
@@ -3439,7 +3439,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node.git?branch=rust%2Fdev#5cf0bfca400b810f8e4bbd23c146bc85eacef623"
+source = "git+https://github.com/F1R3FLY-io/f1r3node.git?tag=rust-v0.4.11#dca4619b3e031d5865f7c4fe0098d8b0a573cac1"
 dependencies = [
  "axum",
  "bincode",
