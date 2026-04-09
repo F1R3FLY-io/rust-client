@@ -313,10 +313,7 @@ impl F1r3flyConnectionManager {
 
         // Phase 4: Read deploy result AFTER finalization
         // Empty data is normal when the contract doesn't write to deployId
-        let data = match api
-            .get_data_at_deploy_id(&deploy_id, &block_hash)
-            .await
-        {
+        let data = match api.get_data_at_deploy_id(&deploy_id, &block_hash).await {
             Ok(data) => data,
             Err(e) => {
                 let msg = e.to_string();
