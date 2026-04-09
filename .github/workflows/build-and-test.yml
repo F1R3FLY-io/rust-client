@@ -38,7 +38,7 @@ jobs:
 
       - name: Check compiler warnings
         env:
-          RUSTFLAGS: "-D warnings"
+          RUSTFLAGS: "-D warnings -C target-feature=+aes,+sse2"
         run: cargo check --features cli
 
   # Build base: version discovery and worktree packing.
