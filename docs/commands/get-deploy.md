@@ -1,6 +1,6 @@
 # get-deploy
 
-Get deploy execution details by deploy ID. Returns cost, errored status, block number, and other metadata in a single call.
+Get deploy information by deploy ID. Tries the detail view first (Rust node v0.4.11+), falls back to basic view on older or Scala nodes.
 
 ## Usage
 
@@ -18,7 +18,7 @@ node_cli get-deploy --deploy-id <ID> [OPTIONS]
 | `--format` | | `pretty` | Output format: `pretty`, `json`, `summary` |
 | `--verbose` | `-v` | false | Show signature and VABN in pretty mode |
 
-## Example: Pretty format (default)
+## Example: Detail view (Rust node v0.4.11+)
 
 ```
 $ node_cli get-deploy --deploy-id 3044022075e51b8f...
@@ -38,25 +38,39 @@ Sig Algo:     secp256k1
 Query time:   30.57ms
 ```
 
+## Example: Basic view (older nodes / Scala)
+
+When the node doesn't support the detail view, the command falls back:
+
+```
+$ node_cli get-deploy --deploy-id 3044022075e51b8f...
+
+Deploy Information (basic view)
+----------------------------------------
+Deploy ID:    3044022075e51b8f...
+Block Hash:   0519f656624c26e8...
+Block Number: 314
+Sender:       04ffc016579a6805...
+Timestamp:    1775610628069
+Query time:   12.31ms
+
+Note: deploy execution details (cost, errored) require Rust node v0.4.11+
+```
+
 ## Example: JSON format
+
+On nodes with detail view, returns `DeployDetail`. On older nodes, returns raw block metadata JSON.
 
 ```
 $ node_cli get-deploy --deploy-id 3044022075e51b8f... --format json
 
 {
-  "blockHash": "0519f656624c26e8a406ed4fd7f1fa9327f48128a0ad7758289bc09b8f646419",
+  "blockHash": "0519f656624c26e8...",
   "blockNumber": 314,
-  "timestamp": 1775610628069,
-  "deployer": "04ffc016579a680...",
-  "term": "new deployId(`rho:system:deployId`) in {\n  deployId!(42)\n}\n",
   "cost": 316,
   "errored": false,
-  "systemDeployError": "",
-  "phloPrice": 1,
-  "phloLimit": 50000,
-  "sig": "3044022075e51b8f...",
-  "sigAlgorithm": "secp256k1",
-  "validAfterBlockNumber": 313
+  "deployer": "04ffc016579a680...",
+  ...
 }
 ```
 
@@ -67,3 +81,12 @@ $ node_cli get-deploy --deploy-id 3044022075e51b8f... --format summary
 
 Deploy 3044022075e51b8f... in block 0519f656... (#314) cost=316 errored=false
 ```
+
+## Node Views
+
+The command tries views in order:
+
+| View | Endpoint | Available on | What it returns |
+|------|----------|-------------|-----------------|
+| detail | `?view=detail` | Rust v0.4.11+ | cost, errored, deployer, phlo, blockNumber |
+| default | (no param) | All nodes | blockHash, seqNum, sender, timestamp |
