@@ -312,20 +312,35 @@ impl F1r3flyConnectionManager {
         tracing::info!("Block finalized");
 
         // Phase 4: Read deploy result AFTER finalization
-        let data = api
+        // Empty data is normal when the contract doesn't write to deployId
+        let data = match api
             .get_data_at_deploy_id(&deploy_id, &block_hash)
             .await
-            .map_err(|e| {
-                ConnectionError::OperationFailed(format!("Failed to read deploy data: {}", e))
-            })?;
+        {
+            Ok(data) => data,
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("No data found") || msg.contains("None") {
+                    tracing::info!("No deployId data for deploy {}", deploy_id);
+                } else {
+                    tracing::warn!("Failed to read deploy data: {}", msg);
+                }
+                vec![]
+            }
+        };
 
         // Phase 5: Get deploy execution details
-        let detail = api
+        // May fail on older nodes that don't support ?view=detail
+        let detail = match api
             .get_deploy_detail(&deploy_id, self.config.http_port)
             .await
-            .map_err(|e| {
-                ConnectionError::OperationFailed(format!("Failed to get deploy detail: {}", e))
-            })?;
+        {
+            Ok(detail) => detail,
+            Err(e) => {
+                tracing::info!("Deploy detail not available: {}", e);
+                None
+            }
+        };
 
         Ok(crate::f1r3fly_api::DeployResult {
             deploy_id,
