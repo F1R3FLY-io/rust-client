@@ -455,7 +455,7 @@ fi
 if [ -n "${FDAW_DEPLOY_ID:-}" ]; then
     run_test "get-deploy" \
         "cargo run -q --release -- get-deploy -d $FDAW_DEPLOY_ID -H $HOST --http-port $HTTP_PORT" \
-        "Deploy Information|Block Number:|Cost:|Deploy ID:"
+        "Deploy Information|Block Number:|Cost:|Deploy ID:|in block"
 else
     # Fail, not skip — if we can't get a deploy ID something is wrong
     echo -n "Testing get-deploy... "

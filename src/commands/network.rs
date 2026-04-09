@@ -516,59 +516,87 @@ pub async fn deploy_and_wait_command(
 }
 
 pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Looking up deploy: {}", args.deploy_id);
-    println!(
-        "Connecting to F1r3fly node at {}:{}",
-        args.host, args.http_port
-    );
-
     let f1r3fly_api = F1r3flyApi::new(DEV_PRIVATE_KEY, &args.host, 40412)?;
-
     let start_time = Instant::now();
 
-    match f1r3fly_api
+    // Try detail view first (Rust node with PR #472+)
+    if let Ok(Some(detail)) = f1r3fly_api
         .get_deploy_detail(&args.deploy_id, args.http_port)
         .await
     {
-        Ok(Some(detail)) => {
-            let duration = start_time.elapsed();
+        let duration = start_time.elapsed();
+        match args.format.as_str() {
+            "json" => {
+                println!("{}", serde_json::to_string_pretty(&detail)?);
+            }
+            "summary" => {
+                println!(
+                    "Deploy {} in block {} (#{}) cost={} errored={}",
+                    args.deploy_id,
+                    detail.block_hash,
+                    detail.block_number,
+                    detail.cost,
+                    detail.errored
+                );
+            }
+            _ => {
+                println!("Deploy Information");
+                println!("----------------------------------------");
+                println!("Deploy ID:    {}", args.deploy_id);
+                println!("Block Hash:   {}", detail.block_hash);
+                println!("Block Number: {}", detail.block_number);
+                println!("Deployer:     {}", detail.deployer);
+                println!("Cost:         {}", detail.cost);
+                println!("Errored:      {}", detail.errored);
+                if !detail.system_deploy_error.is_empty() {
+                    println!("Error:        {}", detail.system_deploy_error);
+                }
+                println!("Phlo Price:   {}", detail.phlo_price);
+                println!("Phlo Limit:   {}", detail.phlo_limit);
+                println!("Timestamp:    {}", detail.timestamp);
+                println!("Sig Algo:     {}", detail.sig_algorithm);
+                if args.verbose {
+                    println!("Signature:    {}", detail.sig);
+                    println!("VABN:         {}", detail.valid_after_block_number);
+                }
+                println!("Query time:   {:.2?}", duration);
+            }
+        }
+        return Ok(());
+    }
 
+    // Fall back to default view (works on all nodes)
+    match f1r3fly_api
+        .get_deploy_default(&args.deploy_id, args.http_port)
+        .await
+    {
+        Ok(Some(json)) => {
+            let duration = start_time.elapsed();
             match args.format.as_str() {
                 "json" => {
-                    let json_output = serde_json::to_string_pretty(&detail)?;
-                    println!("{}", json_output);
+                    println!("{}", serde_json::to_string_pretty(&json)?);
                 }
-                "summary" => {
-                    println!(
-                        "Deploy {} in block {} (#{}) cost={} errored={}",
-                        args.deploy_id,
-                        detail.block_hash,
-                        detail.block_number,
-                        detail.cost,
-                        detail.errored
-                    );
-                }
-                "pretty" | _ => {
-                    println!("Deploy Information");
+                _ => {
+                    println!("Deploy Information (basic view)");
                     println!("----------------------------------------");
-                    println!("Deploy ID: {}", args.deploy_id);
-                    println!("Block Hash: {}", detail.block_hash);
-                    println!("Block Number: {}", detail.block_number);
-                    println!("Deployer: {}", detail.deployer);
-                    println!("Cost: {}", detail.cost);
-                    println!("Errored: {}", detail.errored);
-                    if !detail.system_deploy_error.is_empty() {
-                        println!("Error: {}", detail.system_deploy_error);
+                    println!("Deploy ID:    {}", args.deploy_id);
+                    if let Some(hash) = json.get("blockHash").and_then(|v| v.as_str()) {
+                        println!("Block Hash:   {}", hash);
                     }
-                    println!("Phlo Price: {}", detail.phlo_price);
-                    println!("Phlo Limit: {}", detail.phlo_limit);
-                    println!("Timestamp: {}", detail.timestamp);
-                    println!("Sig Algo: {}", detail.sig_algorithm);
-                    if args.verbose {
-                        println!("Signature: {}", detail.sig);
-                        println!("VABN: {}", detail.valid_after_block_number);
+                    if let Some(num) = json.get("blockNumber").and_then(|v| v.as_i64()) {
+                        println!("Block Number: {}", num);
                     }
-                    println!("Query time: {:.2?}", duration);
+                    if let Some(sender) = json.get("sender").and_then(|v| v.as_str()) {
+                        println!("Sender:       {}", sender);
+                    }
+                    if let Some(ts) = json.get("timestamp").and_then(|v| v.as_i64()) {
+                        println!("Timestamp:    {}", ts);
+                    }
+                    println!("Query time:   {:.2?}", duration);
+                    println!();
+                    println!(
+                        "Note: deploy execution details (cost, errored) require Rust node v0.4.11+"
+                    );
                 }
             }
         }

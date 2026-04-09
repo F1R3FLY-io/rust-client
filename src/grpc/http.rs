@@ -67,7 +67,31 @@ impl<'a> F1r3flyApi<'a> {
             return Ok(None);
         }
 
-        let detail: DeployDetail = response.json().await?;
-        Ok(Some(detail))
+        match response.json::<DeployDetail>().await {
+            Ok(detail) => Ok(Some(detail)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Get deploy info using the default view (works on all nodes).
+    /// Returns raw JSON with block metadata (blockHash, seqNum, blockNumber, etc.)
+    pub async fn get_deploy_default(
+        &self,
+        deploy_id: &str,
+        http_port: u16,
+    ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
+        let url = format!(
+            "http://{}:{}/api/deploy/{}",
+            self.node_host, http_port, deploy_id
+        );
+        let client = reqwest::Client::new();
+        let response = client.get(&url).send().await?;
+
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+
+        let json: serde_json::Value = response.json().await?;
+        Ok(Some(json))
     }
 }
