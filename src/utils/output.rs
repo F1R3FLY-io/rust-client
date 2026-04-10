@@ -2,18 +2,18 @@ use serde_json;
 use std::time::Duration;
 
 // Emoji constants
-pub const EMOJI_SEARCH: &str = "🔍";
-pub const EMOJI_SUCCESS: &str = "✅";
-pub const EMOJI_ERROR: &str = "❌";
-pub const EMOJI_INFO: &str = "📊";
-pub const EMOJI_TIME: &str = "⏱️";
-pub const EMOJI_ROCKET: &str = "🚀";
-pub const EMOJI_FILE: &str = "📄";
-pub const EMOJI_BLOCK: &str = "🧱";
-pub const EMOJI_CONNECT: &str = "🔌";
-pub const EMOJI_KEY: &str = "🔑";
-pub const EMOJI_LINK: &str = "🔗";
-pub const EMOJI_WARNING: &str = "⚠️";
+pub const EMOJI_SEARCH: &str = "";
+pub const EMOJI_SUCCESS: &str = "";
+pub const EMOJI_ERROR: &str = "";
+pub const EMOJI_INFO: &str = "";
+pub const EMOJI_TIME: &str = "";
+pub const EMOJI_ROCKET: &str = "";
+pub const EMOJI_FILE: &str = "";
+pub const EMOJI_BLOCK: &str = "";
+pub const EMOJI_CONNECT: &str = "";
+pub const EMOJI_KEY: &str = "";
+pub const EMOJI_LINK: &str = "";
+pub const EMOJI_WARNING: &str = "";
 
 // Output formatting functions
 pub fn print_info(message: &str) {

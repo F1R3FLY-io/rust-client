@@ -12,16 +12,17 @@ impl Dispatcher {
         let result = match &cli.command {
             Commands::Deploy(args) => deploy_command(args).await.map_err(NodeCliError::from),
             Commands::Propose(args) => propose_command(args).await.map_err(NodeCliError::from),
-            Commands::FullDeploy(args) => {
-                full_deploy_command(args).await.map_err(NodeCliError::from)
-            }
             Commands::DeployAndWait(args) => deploy_and_wait_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::GetData(args) => get_data_command(args).await.map_err(NodeCliError::from),
             Commands::IsFinalized(args) => {
                 is_finalized_command(args).await.map_err(NodeCliError::from)
             }
             Commands::ExploratoryDeploy(args) => exploratory_deploy_command(args)
+                .await
+                .map_err(NodeCliError::from),
+            Commands::EstimateCost(args) => estimate_cost_command(args)
                 .await
                 .map_err(NodeCliError::from),
             Commands::GeneratePublicKey(args) => {
@@ -75,9 +76,9 @@ impl Dispatcher {
                 .await
                 .map_err(NodeCliError::from),
             Commands::GetNodeId(args) => get_node_id_command(args).map_err(NodeCliError::from),
-            Commands::WatchBlocks(args) => watch_blocks_command(args)
-                .await
-                .map_err(NodeCliError::from),
+            Commands::WatchBlocks(args) => {
+                watch_blocks_command(args).await.map_err(NodeCliError::from)
+            }
             Commands::Dag(args) => run_dag(args).await,
             Commands::BlockTransfers(args) => block_transfers_command(args)
                 .await
@@ -98,25 +99,25 @@ impl Dispatcher {
         match error {
             NodeCliError::Network(net_err) => {
                 print_error(&format!("Network issue: {}", net_err));
-                eprintln!("💡 Suggestion: Check your internet connection and node availability");
+                eprintln!(" Suggestion: Check your internet connection and node availability");
             }
             NodeCliError::Crypto(crypto_err) => {
                 print_error(&format!("Cryptographic issue: {}", crypto_err));
-                eprintln!("💡 Suggestion: Verify your private/public key format and validity");
+                eprintln!(" Suggestion: Verify your private/public key format and validity");
             }
             NodeCliError::File(file_err) => {
                 print_error(&format!("File operation failed: {}", file_err));
-                eprintln!("💡 Suggestion: Check file permissions and paths");
+                eprintln!(" Suggestion: Check file permissions and paths");
             }
             NodeCliError::Api(api_err) => {
                 print_error(&format!("API communication failed: {}", api_err));
                 eprintln!(
-                    "💡 Suggestion: Verify the node is running and API endpoints are accessible"
+                    " Suggestion: Verify the node is running and API endpoints are accessible"
                 );
             }
             NodeCliError::Config(config_err) => {
                 print_error(&format!("Configuration issue: {}", config_err));
-                eprintln!("💡 Suggestion: Check your command arguments and configuration");
+                eprintln!(" Suggestion: Check your command arguments and configuration");
             }
             NodeCliError::General(msg) => {
                 print_error(msg);
@@ -129,10 +130,11 @@ impl Dispatcher {
         match &cli.command {
             Commands::Deploy(_) => "deploy",
             Commands::Propose(_) => "propose",
-            Commands::FullDeploy(_) => "full-deploy",
+
             Commands::DeployAndWait(_) => "deploy-and-wait",
             Commands::IsFinalized(_) => "is-finalized",
             Commands::ExploratoryDeploy(_) => "exploratory-deploy",
+            Commands::EstimateCost(_) => "estimate-cost",
             Commands::GeneratePublicKey(_) => "generate-public-key",
             Commands::GenerateKeyPair(_) => "generate-key-pair",
             Commands::GenerateVaultAddress(_) => "generate-vault-address",
@@ -159,6 +161,8 @@ impl Dispatcher {
             Commands::WatchBlocks(_) => "watch-blocks",
             Commands::Dag(_) => "dag",
             Commands::BlockTransfers(_) => "block-transfers",
+
+            Commands::GetData(_) => "get-data",
         }
     }
 }

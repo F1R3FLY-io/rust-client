@@ -43,29 +43,29 @@ impl TransferResult {
 pub fn build_transfer_rholang(from_address: &str, to_address: &str, amount_dust: u64) -> String {
     format!(
         r#"new
-    deployerId(`rho:system:deployerId`),
-    rl(`rho:registry:lookup`),
-    systemVaultCh,
-    vaultCh,
-    toVaultCh,
-    systemVaultKeyCh,
-    resultCh
+ deployerId(`rho:system:deployerId`),
+ rl(`rho:registry:lookup`),
+ systemVaultCh,
+ vaultCh,
+ toVaultCh,
+ systemVaultKeyCh,
+ resultCh
 in {{
-  rl!(`rho:vault:system`, *systemVaultCh) |
-  for (@(_, SystemVault) <- systemVaultCh) {{
-    @SystemVault!("findOrCreate", "{from_address}", *vaultCh) |
-    @SystemVault!("findOrCreate", "{to_address}", *toVaultCh) |
-    @SystemVault!("deployerAuthKey", *deployerId, *systemVaultKeyCh) |
-    for (@(true, vault) <- vaultCh; key <- systemVaultKeyCh; @(true, toVault) <- toVaultCh) {{
-      @vault!("transfer", "{to_address}", {amount_dust}, *key, *resultCh)
-    }} |
-    for (@(false, errorMsg) <- vaultCh) {{
-      resultCh!(("error", "Sender vault error", errorMsg))
-    }} |
-    for (@(false, errorMsg) <- toVaultCh) {{
-      resultCh!(("error", "Recipient vault error", errorMsg))
-    }}
-  }}
+ rl!(`rho:vault:system`, *systemVaultCh) |
+ for (@(_, SystemVault) <- systemVaultCh) {{
+ @SystemVault!("findOrCreate", "{from_address}", *vaultCh) |
+ @SystemVault!("findOrCreate", "{to_address}", *toVaultCh) |
+ @SystemVault!("deployerAuthKey", *deployerId, *systemVaultKeyCh) |
+ for (@(true, vault) <- vaultCh; key <- systemVaultKeyCh; @(true, toVault) <- toVaultCh) {{
+ @vault!("transfer", "{to_address}", {amount_dust}, *key, *resultCh)
+ }} |
+ for (@(false, errorMsg) <- vaultCh) {{
+ resultCh!(("error", "Sender vault error", errorMsg))
+ }} |
+ for (@(false, errorMsg) <- toVaultCh) {{
+ resultCh!(("error", "Recipient vault error", errorMsg))
+ }}
+ }}
 }}"#
     )
 }
@@ -78,19 +78,19 @@ in {{
 pub fn build_balance_query(address: &str) -> String {
     format!(
         r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
-    rl!(`rho:vault:system`, *systemVaultCh) |
-    for (@(_, SystemVault) <- systemVaultCh) {{
-        @SystemVault!("findOrCreate", "{address}", *vaultCh) |
-        for (@either <- vaultCh) {{
-            match either {{
-                (true, vault) => {{
-                    @vault!("balance", *balanceCh) |
-                    for (@balance <- balanceCh) {{ return!(balance) }}
-                }}
-                (false, _) => return!(-1)
-            }}
-        }}
-    }}
+ rl!(`rho:vault:system`, *systemVaultCh) |
+ for (@(_, SystemVault) <- systemVaultCh) {{
+ @SystemVault!("findOrCreate", "{address}", *vaultCh) |
+ for (@either <- vaultCh) {{
+ match either {{
+ (true, vault) => {{
+ @vault!("balance", *balanceCh) |
+ for (@balance <- balanceCh) {{ return!(balance) }}
+ }}
+ (false, _) => return!(-1)
+ }}
+ }}
+ }}
 }}"#
     )
 }

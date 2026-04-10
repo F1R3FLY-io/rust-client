@@ -85,15 +85,15 @@ impl EventStats {
     }
 
     fn print_summary(&self, duration: std::time::Duration) {
-        println!("\n📊 Event Statistics:");
-        println!("   Total Events: {}", self.total);
-        println!("   - Created:   {}", self.created);
-        println!("   - Added:     {}", self.added);
-        println!("   - Finalized: {}", self.finalized);
-        println!("   Duration:    {:.1}s", duration.as_secs_f64());
+        println!("\n Event Statistics:");
+        println!(" Total Events: {}", self.total);
+        println!(" - Created: {}", self.created);
+        println!(" - Added: {}", self.added);
+        println!(" - Finalized: {}", self.finalized);
+        println!(" Duration: {:.1}s", duration.as_secs_f64());
         if duration.as_secs() > 0 {
             let rate = self.total as f64 / duration.as_secs_f64();
-            println!("   Rate:        {:.2} events/sec", rate);
+            println!(" Rate: {:.2} events/sec", rate);
         }
     }
 }
@@ -102,11 +102,11 @@ impl EventStats {
 pub async fn watch_blocks_command(args: &WatchBlocksArgs) -> Result<()> {
     let ws_url = format!("ws://{}:{}/ws/events", args.host, args.http_port);
 
-    println!("🔌 Connecting to F1r3fly node WebSocket...");
-    println!("   URL: {}", ws_url);
+    println!(" Connecting to F1r3fly node WebSocket...");
+    println!(" URL: {}", ws_url);
 
     if let Some(filter) = &args.filter {
-        println!("   Filter: {}", filter);
+        println!(" Filter: {}", filter);
     }
     println!();
 
@@ -124,29 +124,29 @@ pub async fn watch_blocks_command(args: &WatchBlocksArgs) -> Result<()> {
             }
             Err(e) => {
                 retry_count += 1;
-                
+
                 // Check if we should stop retrying
                 if !args.retry_forever && retry_count > MAX_RETRIES {
-                    println!("❌ Max reconnection attempts ({}) reached", MAX_RETRIES);
+                    println!(" Max reconnection attempts ({}) reached", MAX_RETRIES);
                     return Err(e);
                 }
 
-                println!("⚠️  Connection lost: {}", e);
-                
+                println!(" Connection lost: {}", e);
+
                 if args.retry_forever {
                     println!(
-                        "🔄 Reconnecting in {} seconds... (attempt {})",
+                        " Reconnecting in {} seconds... (attempt {})",
                         RETRY_DELAY_SECS, retry_count
                     );
                 } else {
                     println!(
-                        "🔄 Reconnecting in {} seconds... (attempt {}/{})",
+                        " Reconnecting in {} seconds... (attempt {}/{})",
                         RETRY_DELAY_SECS, retry_count, MAX_RETRIES
                     );
                 }
-                
+
                 tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
-                println!("🔌 Reconnecting to {}...", ws_url);
+                println!(" Reconnecting to {}...", ws_url);
             }
         }
     }
@@ -166,8 +166,8 @@ async fn connect_and_watch(
         NodeCliError::network_connection_failed(&format!("WebSocket connection failed: {}", e))
     })?;
 
-    println!("✅ Connected to node WebSocket");
-    println!("👁️  Watching for block events... (Press Ctrl+C to stop)\n");
+    println!(" Connected to node WebSocket");
+    println!(" Watching for block events... (Press Ctrl+C to stop)\n");
 
     let (mut _write, mut read) = ws_stream.split();
 
@@ -177,30 +177,30 @@ async fn connect_and_watch(
 
     loop {
         tokio::select! {
-            _ = &mut ctrl_c => {
-                println!("\n🛑 Shutting down gracefully...");
-                return Ok(());
-            }
-            msg = read.next() => {
-                match msg {
-                    Some(Ok(Message::Text(text))) => {
-                        if let Err(e) = handle_event(&text, args, stats) {
-                            eprintln!("⚠️  Error processing event: {}", e);
-                            continue;
-                        }
-                    }
-                    Some(Ok(Message::Close(_))) => {
-                        return Err(NodeCliError::network_connection_failed("WebSocket closed by server"));
-                    }
-                    Some(Err(e)) => {
-                        return Err(NodeCliError::network_connection_failed(&format!("WebSocket error: {}", e)));
-                    }
-                    None => {
-                        return Err(NodeCliError::network_connection_failed("WebSocket stream ended"));
-                    }
-                    _ => continue,
-                }
-            }
+        _ = &mut ctrl_c => {
+        println!("\n Shutting down gracefully...");
+        return Ok(());
+        }
+        msg = read.next() => {
+        match msg {
+        Some(Ok(Message::Text(text))) => {
+        if let Err(e) = handle_event(&text, args, stats) {
+        eprintln!(" Error processing event: {}", e);
+        continue;
+        }
+        }
+        Some(Ok(Message::Close(_))) => {
+        return Err(NodeCliError::network_connection_failed("WebSocket closed by server"));
+        }
+        Some(Err(e)) => {
+        return Err(NodeCliError::network_connection_failed(&format!("WebSocket error: {}", e)));
+        }
+        None => {
+        return Err(NodeCliError::network_connection_failed("WebSocket stream ended"));
+        }
+        _ => continue,
+        }
+        }
         }
     }
 }
@@ -234,18 +234,18 @@ fn handle_event(text: &str, args: &WatchBlocksArgs, stats: &mut EventStats) -> R
 fn display_pretty(event: &RChainEvent) {
     match event {
         RChainEvent::Started { .. } => {
-            println!("🚀 WebSocket connection started\n");
+            println!(" WebSocket connection started\n");
         }
         RChainEvent::BlockCreated { payload, .. } => {
-            println!("🆕 Block Created");
-            println!("├─ Hash:     {}", payload.block_hash);
-            println!("├─ Creator:  {}", payload.creator);
-            println!("├─ Seq Num:  {}", payload.seq_num);
-            println!("├─ Parents:  {}", payload.parent_hashes.len());
+            println!(" Block Created");
+            println!(" Hash: {}", payload.block_hash);
+            println!(" Creator: {}", payload.creator);
+            println!(" Seq Num: {}", payload.seq_num);
+            println!(" Parents: {}", payload.parent_hashes.len());
 
             if !payload.deploys.is_empty() {
                 println!(
-                    "└─ Deploys:  {} [{}]",
+                    " Deploys: {} [{}]",
                     payload.deploys.len(),
                     payload
                         .deploys
@@ -255,20 +255,20 @@ fn display_pretty(event: &RChainEvent) {
                         .join(", ")
                 );
             } else {
-                println!("└─ Deploys:  {}", payload.deploys.len());
+                println!(" Deploys: {}", payload.deploys.len());
             }
             println!();
         }
         RChainEvent::BlockAdded { payload, .. } => {
-            println!("📦 Block Added");
-            println!("├─ Hash:     {}", payload.block_hash);
-            println!("├─ Creator:  {}", payload.creator);
-            println!("├─ Seq Num:  {}", payload.seq_num);
-            println!("├─ Parents:  {}", payload.parent_hashes.len());
+            println!(" Block Added");
+            println!(" Hash: {}", payload.block_hash);
+            println!(" Creator: {}", payload.creator);
+            println!(" Seq Num: {}", payload.seq_num);
+            println!(" Parents: {}", payload.parent_hashes.len());
 
             if !payload.deploys.is_empty() {
                 println!(
-                    "└─ Deploys:  {} [{}]",
+                    " Deploys: {} [{}]",
                     payload.deploys.len(),
                     payload
                         .deploys
@@ -278,13 +278,13 @@ fn display_pretty(event: &RChainEvent) {
                         .join(", ")
                 );
             } else {
-                println!("└─ Deploys:  {}", payload.deploys.len());
+                println!(" Deploys: {}", payload.deploys.len());
             }
             println!();
         }
         RChainEvent::BlockFinalised { payload, .. } => {
-            println!("✅ Block Finalized");
-            println!("└─ Hash:     {}", payload.block_hash);
+            println!(" Block Finalized");
+            println!(" Hash: {}", payload.block_hash);
             println!();
         }
     }

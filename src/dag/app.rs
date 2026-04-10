@@ -4,7 +4,10 @@ use std::time::Duration;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType},
+    terminal::{
+        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -22,8 +25,8 @@ use super::renderer::DagRenderer;
 /// Events from WebSocket
 pub enum DagEvent {
     BlockCreated(DagBlock),
-    BlockAdded(String),      // hash
-    BlockFinalized(String),  // hash
+    BlockAdded(String),     // hash
+    BlockFinalized(String), // hash
     Error(String),
 }
 
@@ -38,7 +41,7 @@ pub struct DagApp {
     pub event_receiver: Option<mpsc::Receiver<DagEvent>>,
     pub status_message: String,
     pub block_count: usize,
-    pub follow_head: bool,  // If true, auto-scroll to show newest blocks at top
+    pub follow_head: bool, // If true, auto-scroll to show newest blocks at top
 }
 
 impl DagApp {
@@ -53,7 +56,7 @@ impl DagApp {
             event_receiver: None,
             status_message: "Connecting...".to_string(),
             block_count: 0,
-            follow_head: true,  // Start following the head
+            follow_head: true, // Start following the head
         }
     }
 
@@ -93,7 +96,10 @@ impl DagApp {
         result
     }
 
-    async fn main_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+    async fn main_loop(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> io::Result<()> {
         loop {
             // Check for WebSocket events (non-blocking)
             // Only process events when NOT in detail view to avoid screen updates while comparing hashes
@@ -135,7 +141,8 @@ impl DagApp {
     fn handle_dag_event(&mut self, event: DagEvent) {
         match event {
             DagEvent::BlockCreated(block) => {
-                self.status_message = format!("New block: #{} {}", block.block_number, block.short_hash);
+                self.status_message =
+                    format!("New block: #{} {}", block.block_number, block.short_hash);
                 self.dag.add_block(block);
                 self.dag.compute_layout();
                 self.block_count = self.dag.blocks.len();
@@ -199,7 +206,7 @@ impl DagApp {
             KeyCode::Char('g') => {
                 self.selected_index = 0;
                 self.scroll_offset = 0;
-                self.follow_head = true;  // Resume following at top
+                self.follow_head = true; // Resume following at top
             }
             KeyCode::Char('G') => {
                 self.selected_index = num_rows.saturating_sub(1);
@@ -236,10 +243,7 @@ impl DagApp {
         // Layout: main content + status bar
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(0),
-                Constraint::Length(3),
-            ])
+            .constraints([Constraint::Min(0), Constraint::Length(3)])
             .split(area);
 
         // Main DAG view
@@ -255,17 +259,18 @@ impl DagApp {
         let content_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(2),  // Header rows (names + separator)
-                Constraint::Min(0),     // Content
+                Constraint::Length(2), // Header rows (names + separator)
+                Constraint::Min(0),    // Content
             ])
             .split(inner_area);
 
         // Render column header
         let content_width = content_chunks[1].width as usize;
         let header_line = self.renderer.render_header(content_width);
-        let separator_line = Line::from(vec![
-            Span::styled("─".repeat(content_chunks[0].width as usize), Style::default().fg(Color::DarkGray)),
-        ]);
+        let separator_line = Line::from(vec![Span::styled(
+            "".repeat(content_chunks[0].width as usize),
+            Style::default().fg(Color::DarkGray),
+        )]);
         let header = Paragraph::new(vec![header_line, separator_line]);
         frame.render_widget(header, content_chunks[0]);
 
@@ -283,9 +288,16 @@ impl DagApp {
         let mut items: Vec<ListItem> = Vec::new();
 
         let rows: Vec<_> = self.dag.graph_rows.iter().collect();
-        for (i, row) in rows.iter().enumerate().skip(self.scroll_offset).take(viewport_height) {
+        for (i, row) in rows
+            .iter()
+            .enumerate()
+            .skip(self.scroll_offset)
+            .take(viewport_height)
+        {
             let is_selected = i == self.selected_index;
-            let line = self.renderer.render_row(row, &self.dag, is_selected, content_width);
+            let line = self
+                .renderer
+                .render_row(row, &self.dag, is_selected, content_width);
 
             let style = if is_selected {
                 Style::default().bg(Color::DarkGray)
@@ -305,23 +317,20 @@ impl DagApp {
             .border_style(Style::default().fg(Color::DarkGray));
 
         let status_text = Line::from(vec![
-            Span::styled(" [↑↓/jk] ", Style::default().fg(Color::Yellow)),
-            Span::raw("Navigate  "),
+            Span::styled(" [/jk] ", Style::default().fg(Color::Yellow)),
+            Span::raw("Navigate "),
             Span::styled("[Enter] ", Style::default().fg(Color::Yellow)),
-            Span::raw("Details  "),
+            Span::raw("Details "),
             Span::styled("[g/G] ", Style::default().fg(Color::Yellow)),
-            Span::raw("Top/Bottom  "),
+            Span::raw("Top/Bottom "),
             Span::styled("[q] ", Style::default().fg(Color::Yellow)),
-            Span::raw("Quit  "),
-            Span::raw("  │  "),
+            Span::raw("Quit "),
+            Span::raw(" "),
             Span::styled(
-                format!("Blocks: {}  ", self.block_count),
+                format!("Blocks: {} ", self.block_count),
                 Style::default().fg(Color::Cyan),
             ),
-            Span::styled(
-                &self.status_message,
-                Style::default().fg(Color::Green),
-            ),
+            Span::styled(&self.status_message, Style::default().fg(Color::Green)),
         ]);
 
         let status = Paragraph::new(status_text).block(status_block);
@@ -351,49 +360,58 @@ impl DagApp {
         let mut lines: Vec<Line> = vec![
             Line::from(""),
             Line::from(vec![
-                Span::styled("  Hash:        ", Style::default().fg(Color::Yellow)),
+                Span::styled(" Hash: ", Style::default().fg(Color::Yellow)),
                 Span::raw(&block.hash),
             ]),
             Line::from(vec![
-                Span::styled("  Block #:     ", Style::default().fg(Color::Yellow)),
+                Span::styled(" Block #: ", Style::default().fg(Color::Yellow)),
                 Span::raw(block.block_number.to_string()),
             ]),
             Line::from(vec![
-                Span::styled("  Timestamp:   ", Style::default().fg(Color::Yellow)),
+                Span::styled(" Timestamp: ", Style::default().fg(Color::Yellow)),
                 Span::raw(block.timestamp.format("%Y-%m-%d %H:%M:%S UTC").to_string()),
             ]),
             Line::from(vec![
-                Span::styled("  Creator:     ", Style::default().fg(Color::Yellow)),
+                Span::styled(" Creator: ", Style::default().fg(Color::Yellow)),
                 Span::raw(&block.creator),
             ]),
             Line::from(vec![
-                Span::styled("  Seq Num:     ", Style::default().fg(Color::Yellow)),
+                Span::styled(" Seq Num: ", Style::default().fg(Color::Yellow)),
                 Span::raw(block.seq_num.to_string()),
             ]),
             Line::from(vec![
-                Span::styled("  Shard:       ", Style::default().fg(Color::Yellow)),
-                Span::raw(if block.shard_id.is_empty() { "root" } else { &block.shard_id }),
+                Span::styled(" Shard: ", Style::default().fg(Color::Yellow)),
+                Span::raw(if block.shard_id.is_empty() {
+                    "root"
+                } else {
+                    &block.shard_id
+                }),
             ]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("  Parents:", Style::default().fg(Color::Yellow)),
-            ]),
+            Line::from(vec![Span::styled(
+                " Parents:",
+                Style::default().fg(Color::Yellow),
+            )]),
         ];
 
         if block.parents.is_empty() {
-            lines.push(Line::from("    (genesis - no parents)"));
+            lines.push(Line::from(" (genesis - no parents)"));
         } else {
             for parent in &block.parents {
-                lines.push(Line::from(format!("    └─ {}...", &parent[..16.min(parent.len())])));
+                lines.push(Line::from(format!(
+                    " {}...",
+                    &parent[..16.min(parent.len())]
+                )));
             }
         }
 
         lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("  State Transition:", Style::default().fg(Color::Yellow)),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            " State Transition:",
+            Style::default().fg(Color::Yellow),
+        )]));
         lines.push(Line::from(format!(
-            "    Pre:  {}...",
+            " Pre: {}...",
             if block.pre_state_hash.len() > 16 {
                 &block.pre_state_hash[..16]
             } else if block.pre_state_hash.is_empty() {
@@ -403,7 +421,7 @@ impl DagApp {
             }
         )));
         lines.push(Line::from(format!(
-            "    Post: {}...",
+            " Post: {}...",
             if block.post_state_hash.len() > 16 {
                 &block.post_state_hash[..16]
             } else if block.post_state_hash.is_empty() {
@@ -414,24 +432,26 @@ impl DagApp {
         )));
 
         lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("  Deploys ({}):", block.deploy_count),
-                Style::default().fg(Color::Yellow),
-            ),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!(" Deploys ({}):", block.deploy_count),
+            Style::default().fg(Color::Yellow),
+        )]));
 
         if block.deploys.is_empty() {
-            lines.push(Line::from("    (no deploys)"));
+            lines.push(Line::from(" (no deploys)"));
         } else {
             for deploy in &block.deploys {
-                let status_icon = if deploy.errored { "✗" } else { "✓" };
-                let status_color = if deploy.errored { Color::Red } else { Color::Green };
+                let status_icon = if deploy.errored { "" } else { "" };
+                let status_color = if deploy.errored {
+                    Color::Red
+                } else {
+                    Color::Green
+                };
                 lines.push(Line::from(vec![
-                    Span::raw("    └─ ["),
+                    Span::raw(" ["),
                     Span::styled(status_icon, Style::default().fg(status_color)),
                     Span::raw(format!(
-                        "] {}  cost: {}  deployer: {}",
+                        "] {} cost: {} deployer: {}",
                         &deploy.id[..12.min(deploy.id.len())],
                         deploy.cost,
                         &deploy.deployer[..8.min(deploy.deployer.len())]
@@ -447,15 +467,20 @@ impl DagApp {
             BlockStatus::Created => ("CREATED (pending validation)", Color::Cyan),
         };
         lines.push(Line::from(vec![
-            Span::styled("  Status: ", Style::default().fg(Color::Yellow)),
-            Span::styled(status_str, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+            Span::styled(" Status: ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                status_str,
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
 
         lines.push(Line::from(""));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled(" [Esc] ", Style::default().fg(Color::Yellow)),
-            Span::raw("Back  "),
+            Span::raw("Back "),
         ]));
 
         let detail_text = Paragraph::new(lines).wrap(Wrap { trim: false });

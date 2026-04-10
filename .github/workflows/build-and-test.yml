@@ -12,7 +12,39 @@ on:
       - main
       - dev
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Format and lint checks: fast, runs in parallel with build_base.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    if: >-
+      !startsWith(github.event.head_commit.message, 'chore(release)')
+      || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-06-15
+          components: rustfmt
+
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Check compiler warnings
+        env:
+          RUSTFLAGS: "-D warnings -C target-feature=+aes,+sse2"
+        run: cargo check --features cli
+
   # Build base: version discovery and worktree packing.
   # Skip release commits on branch pushes — the tag push handles the release build.
   build_base:

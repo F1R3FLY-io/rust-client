@@ -38,7 +38,9 @@ pub async fn run_dag(args: &DagArgs) -> Result<(), NodeCliError> {
     }
 
     // Run the TUI
-    app.run().await.map_err(|e| NodeCliError::io_error(&e.to_string()))?;
+    app.run()
+        .await
+        .map_err(|e| NodeCliError::io_error(&e.to_string()))?;
 
     Ok(())
 }
@@ -86,7 +88,10 @@ fn parse_block_json(json: &serde_json::Value) -> Option<DagBlock> {
     let hash = json.get("blockHash")?.as_str()?.to_string();
     let block_number = json.get("blockNumber")?.as_i64()?;
     let timestamp_ms = json.get("timestamp")?.as_i64().unwrap_or(0);
-    let timestamp = Utc.timestamp_millis_opt(timestamp_ms).single().unwrap_or_else(Utc::now);
+    let timestamp = Utc
+        .timestamp_millis_opt(timestamp_ms)
+        .single()
+        .unwrap_or_else(Utc::now);
     let creator = json.get("sender")?.as_str()?.to_string();
     let seq_num = json.get("seqNum")?.as_i64().unwrap_or(0);
 
@@ -158,7 +163,10 @@ fn parse_block_info_json(json: &serde_json::Value) -> Option<DagBlock> {
     let hash = json.get("blockHash")?.as_str()?.to_string();
     let block_number = json.get("blockNumber")?.as_i64()?;
     let timestamp_ms = json.get("timestamp")?.as_i64().unwrap_or(0);
-    let timestamp = Utc.timestamp_millis_opt(timestamp_ms).single().unwrap_or_else(Utc::now);
+    let timestamp = Utc
+        .timestamp_millis_opt(timestamp_ms)
+        .single()
+        .unwrap_or_else(Utc::now);
     let creator = json.get("sender")?.as_str()?.to_string();
     let seq_num = json.get("seqNum")?.as_i64().unwrap_or(0);
 
@@ -222,7 +230,9 @@ async fn run_websocket_listener(
                     // to get the correct block number
                     let enriched_event = match &event {
                         DagEvent::BlockCreated(block) => {
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, &block.hash).await {
+                            if let Some(mut full_block) =
+                                fetch_block_by_hash(&api_base, &block.hash).await
+                            {
                                 full_block.status = BlockStatus::Created;
                                 DagEvent::BlockCreated(full_block)
                             } else {
@@ -232,7 +242,8 @@ async fn run_websocket_listener(
                         DagEvent::BlockAdded(hash) => {
                             // Fetch full block and return as BlockCreated with Added status
                             // This ensures we have block_number even if we missed BlockCreated
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await {
+                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
+                            {
                                 full_block.status = BlockStatus::Added;
                                 DagEvent::BlockCreated(full_block)
                             } else {
@@ -241,7 +252,8 @@ async fn run_websocket_listener(
                         }
                         DagEvent::BlockFinalized(hash) => {
                             // Fetch full block and return as BlockCreated with Finalized status
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await {
+                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
+                            {
                                 full_block.status = BlockStatus::Finalized;
                                 DagEvent::BlockCreated(full_block)
                             } else {
@@ -279,10 +291,7 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
         serde_json::from_str(text).map_err(|e| NodeCliError::parse_error(&e.to_string()))?;
 
     // Get event type (kebab-case)
-    let event_type = json
-        .get("event")
-        .and_then(|e| e.as_str())
-        .unwrap_or("");
+    let event_type = json.get("event").and_then(|e| e.as_str()).unwrap_or("");
 
     let payload = json.get("payload");
 
@@ -314,13 +323,19 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
         _ => {}
     }
 
-    Err(NodeCliError::parse_error(&format!("Unknown event type: {}", event_type)))
+    Err(NodeCliError::parse_error(&format!(
+        "Unknown event type: {}",
+        event_type
+    )))
 }
 
 /// Parse a block from WebSocket event payload (kebab-case fields)
 /// Note: WebSocket events contain seq-num (validator sequence) not block number.
 /// We set block_number to -1 to indicate it needs to be fetched.
-fn parse_event_block(payload: &serde_json::Value, status: BlockStatus) -> Result<DagBlock, NodeCliError> {
+fn parse_event_block(
+    payload: &serde_json::Value,
+    status: BlockStatus,
+) -> Result<DagBlock, NodeCliError> {
     let hash = payload
         .get("block-hash")
         .and_then(|h| h.as_str())
@@ -333,10 +348,7 @@ fn parse_event_block(payload: &serde_json::Value, status: BlockStatus) -> Result
         .unwrap_or("unknown")
         .to_string();
 
-    let seq_num = payload
-        .get("seq-num")
-        .and_then(|s| s.as_i64())
-        .unwrap_or(0);
+    let seq_num = payload.get("seq-num").and_then(|s| s.as_i64()).unwrap_or(0);
 
     let parents: Vec<String> = payload
         .get("parent-hashes")
