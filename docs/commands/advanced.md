@@ -47,42 +47,60 @@ Orphaned:    0
 Timeout:     0
 ```
 
-## watch-blocks
+## watch-events
 
-Monitor real-time block events via WebSocket.
+Monitor real-time node events via WebSocket. Connects to `/ws/events` and streams all 9 event types defined by the node. On connect, the node replays any startup events that occurred before the client connected.
 
 ```bash
-node_cli watch-blocks [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-forever]
+node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-forever]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--filter` | all | `created`, `added`, or `finalized` |
+| `--filter` | all | `created`, `added`, `finalized`, `genesis`, or `lifecycle` |
 | `--retry-forever` | false | Reconnect indefinitely |
 
-Three event types are streamed:
+### Event types
 
-- **Block Created** -- new block proposed by a validator. Includes block hash, creator, sequence number, parent hashes, and deploy IDs.
-- **Block Added** -- block validated and added to the DAG by a receiving node. Same fields as Created.
-- **Block Finalized** -- block reached finalized status (confirmed by consensus). Includes block hash, deploys with cost and errored status.
+| Type | Filter | Description |
+|------|--------|-------------|
+| Block Created | `created` | Block proposed by a validator (hash, creator, seq-num, deploys) |
+| Block Added | `added` | Block validated and added to the DAG |
+| Block Finalized | `finalized` | Block reached finalized status |
+| Sent Unapproved Block | `genesis` | Boot broadcasts genesis candidate to validators |
+| Block Approval Received | `genesis` | Boot receives approval from a validator |
+| Sent Approved Block | `genesis` | Boot broadcasts the approved genesis block |
+| Approved Block Received | `genesis` | Validator receives the approved genesis block |
+| Entered Running State | `lifecycle` | Node engine transitions to Running |
+| Node Started | `lifecycle` | Node HTTP server is ready |
 
-```
-$ node_cli watch-blocks
-
-Connected to node WebSocket
-Watching for block events...
-
-Block Created: a1b2c3d4... (creator: 0457feba..., seq: 293, deploys: 0, parents: 3)
-Block Added: a1b2c3d4... (creator: 0457feba..., seq: 293, deploys: 0, parents: 3)
-Block Added: e5f6a7b8... (creator: 04837a4c..., seq: 297, deploys: 0, parents: 3)
-Block Finalized: 9c0d1e2f...
-```
+### Examples
 
 ```
-$ node_cli watch-blocks --filter finalized
+$ node_cli watch-events
 
-Block Finalized: 9c0d1e2f...
-Block Finalized: 3a4b5c6d...
+ Node Started
+ Address: rnode://871fc407...@localhost?protocol=40400&discovery=40404
+
+ Entered Running State
+ Block: 37115b862d...
+
+ Block Created
+ Hash:     7d88a8f291...
+ Creator:  04ffc01657...
+ Seq Num:  1
+ Parents:  1
+ Deploys:  0
+
+ Block Finalized
+ Hash:     7d88a8f291...
+```
+
+```
+$ node_cli watch-events --filter finalized
+
+ Block Finalized
+ Hash:     7d88a8f291...
 ```
 
 Auto-reconnects on disconnect (10 retries by default, indefinitely with `--retry-forever`).

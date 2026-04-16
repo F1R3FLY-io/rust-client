@@ -316,9 +316,12 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
                 }
             }
         }
-        "started" => {
-            // Initial connection event, ignore
-            return Err(NodeCliError::parse_error("Ignoring started event"));
+        // Non-block events: handshake, genesis ceremony, node lifecycle.
+        // Not relevant for DAG visualization.
+        "started" | "sent-unapproved-block" | "sent-approved-block"
+        | "block-approval-received" | "approved-block-received"
+        | "entered-running-state" | "node-started" => {
+            return Err(NodeCliError::parse_error("Non-block event, skipping"));
         }
         _ => {}
     }

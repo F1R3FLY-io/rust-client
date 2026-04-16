@@ -29,7 +29,7 @@ cargo run --release -- exploratory-deploy -f query.rho -H localhost -p 40452
 - [transfer](docs/commands/transfer.md) -- transfer native tokens
 - [Node inspection](docs/commands/inspection.md) -- status, blocks, bonds, balance, etc.
 - [Key management](docs/commands/keys.md) -- generate keys, addresses
-- [Advanced](docs/commands/advanced.md) -- load-test, watch-blocks, dag, bond-validator
+- [Advanced](docs/commands/advanced.md) -- load-test, watch-events, dag, bond-validator
 
 ### Library
 - [Getting started](docs/library/getting-started.md) -- ConnectionManager API, config, examples

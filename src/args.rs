@@ -106,8 +106,8 @@ pub enum Commands {
     /// Extract node ID from TLS private key file
     GetNodeId(GetNodeIdArgs),
 
-    /// Watch real-time block events via WebSocket
-    WatchBlocks(WatchBlocksArgs),
+    /// Watch real-time node events via WebSocket
+    WatchEvents(WatchEventsArgs),
 
     /// Interactive DAG visualization with real-time updates
     Dag(DagArgs),
@@ -781,9 +781,9 @@ pub struct GetNodeIdArgs {
     pub discovery_port: u16,
 }
 
-/// Arguments for watch-blocks command
+/// Arguments for watch-events command
 #[derive(Parser, Debug)]
-pub struct WatchBlocksArgs {
+pub struct WatchEventsArgs {
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
@@ -792,7 +792,7 @@ pub struct WatchBlocksArgs {
     #[arg(long, default_value_t = 40403)]
     pub http_port: u16,
 
-    /// Filter events by type: "created", "added", or "finalized"
+    /// Filter events by type: created, added, finalized, genesis, lifecycle
     #[arg(short, long)]
     pub filter: Option<String>,
 

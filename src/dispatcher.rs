@@ -76,8 +76,8 @@ impl Dispatcher {
                 .await
                 .map_err(NodeCliError::from),
             Commands::GetNodeId(args) => get_node_id_command(args).map_err(NodeCliError::from),
-            Commands::WatchBlocks(args) => {
-                watch_blocks_command(args).await.map_err(NodeCliError::from)
+            Commands::WatchEvents(args) => {
+                watch_events_command(args).await.map_err(NodeCliError::from)
             }
             Commands::Dag(args) => run_dag(args).await,
             Commands::BlockTransfers(args) => block_transfers_command(args)
@@ -158,7 +158,7 @@ impl Dispatcher {
             Commands::NetworkConsensus(_) => "network-consensus",
             Commands::GetBlocksByHeight(_) => "get-blocks-by-height",
             Commands::GetNodeId(_) => "get-node-id",
-            Commands::WatchBlocks(_) => "watch-blocks",
+            Commands::WatchEvents(_) => "watch-events",
             Commands::Dag(_) => "dag",
             Commands::BlockTransfers(_) => "block-transfers",
 

@@ -515,29 +515,38 @@ fi
 echo ""
 echo -e "${BLUE}--- Streaming Commands ---${NC}"
 
-# watch-blocks: Watch real-time block events via WebSocket
-# Run for 10 seconds and check if it connects and receives all event types
-echo -n "Testing watch-blocks... "
+# watch-events: Watch real-time block events via WebSocket
+# Run for 10 seconds and check if it connects and receives events.
+# The node sends 9 event types: 3 block lifecycle, 4 genesis, 2 node lifecycle.
+# Startup events (node-started, entered-running-state) are replayed from buffer.
+echo -n "Testing watch-events... "
 WB_START=$(date +%s.%N)
-run_with_timeout 10 cargo run -q --release -- watch-blocks -H $HOST --http-port $HTTP_PORT > "$OUTPUT" 2>&1 || true
+run_with_timeout 10 cargo run -q --release -- watch-events -H $HOST --http-port $HTTP_PORT > "$OUTPUT" 2>&1 || true
 WB_END=$(date +%s.%N)
 WB_MS=$(echo "($WB_END - $WB_START) * 1000" | bc | cut -d. -f1)
-save_log "watch-blocks"
-# Check for successful connection and all three event types
+save_log "watch-events"
 if grep -q "Connected to node WebSocket" "$OUTPUT"; then
     HAS_CREATED=$(grep -c "Block Created" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
     HAS_ADDED=$(grep -c "Block Added" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
     HAS_FINALIZED=$(grep -c "Block Finalized" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
-    # Ensure we have valid integers (default to 0 if empty)
+    HAS_NODE_STARTED=$(grep -c "Node Started" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
+    HAS_RUNNING=$(grep -c "Entered Running State" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
     HAS_CREATED=${HAS_CREATED:-0}
     HAS_ADDED=${HAS_ADDED:-0}
     HAS_FINALIZED=${HAS_FINALIZED:-0}
-    
+    HAS_NODE_STARTED=${HAS_NODE_STARTED:-0}
+    HAS_RUNNING=${HAS_RUNNING:-0}
+
+    SUMMARY="created:$HAS_CREATED, added:$HAS_ADDED, finalized:$HAS_FINALIZED"
+    if [ "$HAS_NODE_STARTED" -gt 0 ] || [ "$HAS_RUNNING" -gt 0 ]; then
+        SUMMARY="$SUMMARY, node-started:$HAS_NODE_STARTED, running:$HAS_RUNNING"
+    fi
+
     if [ "$HAS_CREATED" -gt 0 ] && [ "$HAS_ADDED" -gt 0 ] && [ "$HAS_FINALIZED" -gt 0 ]; then
-        echo -e "${GREEN}PASS${NC} (created:$HAS_CREATED, added:$HAS_ADDED, finalized:$HAS_FINALIZED) [$(format_duration $WB_MS)]"
+        echo -e "${GREEN}PASS${NC} ($SUMMARY) [$(format_duration $WB_MS)]"
         inc_pass
     elif [ "$HAS_CREATED" -gt 0 ] || [ "$HAS_ADDED" -gt 0 ] || [ "$HAS_FINALIZED" -gt 0 ]; then
-        echo -e "${YELLOW}PASS${NC} (partial: created:$HAS_CREATED, added:$HAS_ADDED, finalized:$HAS_FINALIZED) [$(format_duration $WB_MS)]"
+        echo -e "${YELLOW}PASS${NC} (partial: $SUMMARY) [$(format_duration $WB_MS)]"
         inc_pass
     else
         echo -e "${YELLOW}PASS${NC} (connected, no events in 10s - node may be idle) [$(format_duration $WB_MS)]"
@@ -548,7 +557,6 @@ elif grep -qE "error|Error|refused|failed" "$OUTPUT"; then
     head -5 "$OUTPUT" | sed 's/^/    /'
     inc_fail
 else
-    # No connection message - unexpected
     echo -e "${RED}FAIL${NC} (unexpected output) [$(format_duration $WB_MS)]"
     head -5 "$OUTPUT" | sed 's/^/    /'
     inc_fail
