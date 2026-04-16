@@ -348,7 +348,7 @@ echo -e "${BLUE}--- Node Inspection Commands (HTTP) ---${NC}"
 # status: Get node status and peer information
 run_test "status" \
     "cargo run -q --release -- status -H $HOST -p $HTTP_PORT" \
-    "Node status retrieved successfully|version"
+    "Node status retrieved successfully|Native Token:"
 
 # blocks: Get recent blocks
 run_test "blocks" \

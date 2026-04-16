@@ -8,11 +8,17 @@ Rust crate for interacting with F1r3fly blockchain nodes. Usable as a **library*
 # Build
 cargo build --release
 
+# Check node status and native token info
+cargo run --release -- status -H localhost -p 40413
+
 # Deploy and wait for result
 cargo run --release -- deploy-and-wait -f contract.rho
 
 # Read-only query
 cargo run --release -- exploratory-deploy -f query.rho -H localhost -p 40452
+
+# Query native token metadata from on-chain contract
+cargo run --release -- exploratory-deploy -f rho_examples/query_token_metadata.rho -H localhost -p 40452
 ```
 
 ## Documentation
