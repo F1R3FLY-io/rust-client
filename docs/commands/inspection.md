@@ -8,21 +8,43 @@ HTTP-based commands for querying node state.
 node_cli status [-H HOST] [-p HTTP_PORT]
 ```
 
-```
-$ node_cli status
+Queries the node's `/api/status` endpoint and displays node identity, network membership, and native token metadata.
 
-Node Status:
+```
+$ node_cli status -H localhost -p 40413
+
+  Address:       rnode://24f31580...@rnode.validator1?protocol=40400&discovery=40404
+  Network:       testnet
+  Shard:         root
+  Peers:         4
+  Nodes:         4
+  Min Phlo:      1
+  Native Token:  F1R3CAP (F1R3, 8 decimals)
+  Version:       {"api":"1","node":"F1r3node Rust 0.4.10 ()"}
+```
+
+The **Native Token** line shows the chain's native token identity configured at genesis:
+- **Name** — full display name (e.g. `F1R3CAP`)
+- **Symbol** — ticker symbol (e.g. `F1R3`)
+- **Decimals** — 1 token = 10^decimals dust (e.g. `8` means 100,000,000 dust per token)
+
+These values are baked into the on-chain `TokenMetadata` contract at genesis and are immutable. They can also be queried from Rholang via exploratory deploy (see [exploratory-deploy](./exploratory-deploy.md)).
+
+### Raw JSON response
+
+```json
 {
+  "version": {"api": "1", "node": "F1r3node Rust 0.4.10 ()"},
   "address": "rnode://24f31580...@rnode.validator1?protocol=40400&discovery=40404",
-  "nodes": 4,
+  "networkId": "testnet",
+  "shardId": "root",
   "peers": 4,
-  "version": "F1r3node Rust 0.4.10 ()",
-  "peerList": [
-    { "host": "rnode.validator2", "isConnected": true, ... },
-    { "host": "rnode.validator3", "isConnected": true, ... },
-    { "host": "rnode.bootstrap", "isConnected": true, ... },
-    { "host": "rnode.readonly", "isConnected": true, ... }
-  ]
+  "nodes": 4,
+  "minPhloPrice": 1,
+  "nativeTokenName": "F1R3CAP",
+  "nativeTokenSymbol": "F1R3",
+  "nativeTokenDecimals": 8,
+  "peerList": [...]
 }
 ```
 

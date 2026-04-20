@@ -12,6 +12,29 @@ use serde::{Deserialize, Serialize};
 pub use crate::grpc::query::extract_par_data;
 pub use crate::grpc::F1r3flyApi;
 
+/// Node status from `/api/status`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeStatus {
+    pub version: serde_json::Value,
+    pub address: String,
+    #[serde(rename = "networkId")]
+    pub network_id: String,
+    #[serde(rename = "shardId")]
+    pub shard_id: String,
+    pub peers: i32,
+    pub nodes: i32,
+    #[serde(rename = "minPhloPrice")]
+    pub min_phlo_price: i64,
+    #[serde(rename = "nativeTokenName")]
+    pub native_token_name: String,
+    #[serde(rename = "nativeTokenSymbol")]
+    pub native_token_symbol: String,
+    #[serde(rename = "nativeTokenDecimals")]
+    pub native_token_decimals: u32,
+    #[serde(rename = "peerList", default)]
+    pub peer_list: Vec<serde_json::Value>,
+}
+
 /// Deploy execution detail from the node's `/api/deploy/{id}` endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployDetail {
