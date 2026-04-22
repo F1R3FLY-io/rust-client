@@ -53,7 +53,7 @@ fn config_from_transfer_args(args: &TransferArgs) -> ConnectionConfig {
         args.http_port,
         &args.private_key,
         args.max_wait,
-        30,
+        args.max_wait, // Use max_wait for finalization too (no separate arg)
         args.check_interval,
         args.observer_host.as_deref(),
         args.observer_port,
@@ -67,7 +67,7 @@ fn config_from_bond_args(args: &BondValidatorArgs) -> ConnectionConfig {
         args.http_port,
         &args.private_key,
         args.max_wait,
-        30,
+        args.max_wait, // Use max_wait for finalization too (no separate arg)
         args.check_interval,
         args.observer_host.as_deref(),
         args.observer_port,
@@ -542,22 +542,34 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
             _ => {
                 println!("Deploy Information");
                 println!("----------------------------------------");
-                println!("Deploy ID:    {}", args.deploy_id);
+                println!("Deploy ID:    {}", detail.deploy_id);
                 println!("Block Hash:   {}", detail.block_hash);
                 println!("Block Number: {}", detail.block_number);
-                println!("Deployer:     {}", detail.deployer);
+                println!("Finalized:    {}", detail.is_finalized);
+                if let Some(ref deployer) = detail.deployer {
+                    println!("Deployer:     {}", deployer);
+                }
                 println!("Cost:         {}", detail.cost);
                 println!("Errored:      {}", detail.errored);
-                if !detail.system_deploy_error.is_empty() {
-                    println!("Error:        {}", detail.system_deploy_error);
+                if let Some(ref err) = detail.system_deploy_error {
+                    if !err.is_empty() {
+                        println!("Error:        {}", err);
+                    }
                 }
-                println!("Phlo Price:   {}", detail.phlo_price);
-                println!("Phlo Limit:   {}", detail.phlo_limit);
+                if let Some(price) = detail.phlo_price {
+                    println!("Phlo Price:   {}", price);
+                }
+                if let Some(limit) = detail.phlo_limit {
+                    println!("Phlo Limit:   {}", limit);
+                }
                 println!("Timestamp:    {}", detail.timestamp);
-                println!("Sig Algo:     {}", detail.sig_algorithm);
+                if let Some(ref algo) = detail.sig_algorithm {
+                    println!("Sig Algo:     {}", algo);
+                }
                 if args.verbose {
-                    println!("Signature:    {}", detail.sig);
-                    println!("VABN:         {}", detail.valid_after_block_number);
+                    if let Some(vabn) = detail.valid_after_block_number {
+                        println!("VABN:         {}", vabn);
+                    }
                 }
                 println!("Query time:   {:.2?}", duration);
             }

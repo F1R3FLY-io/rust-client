@@ -6,10 +6,11 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 /// F1R3FLY node event from WebSocket /ws/events endpoint.
 ///
-/// The node defines 9 event types in F1r3flyEvent:
+/// The node defines 10 event types in F1r3flyEvent:
 ///   Block lifecycle:  block-created, block-added, block-finalised
+///   Transfer:         transfers-available (readonly only, after block report)
 ///   Genesis ceremony: sent-unapproved-block, sent-approved-block,
-///                     block-approval-received, approved-block-received
+///                     approved-block-received
 ///   Node lifecycle:   entered-running-state, node-started
 ///
 /// The "started" variant is a WebSocket handshake (not an F1r3flyEvent).
@@ -36,7 +37,13 @@ pub enum NodeEvent {
     BlockFinalised {
         #[serde(rename = "schema-version")]
         schema_version: i32,
-        payload: FinalizedBlockPayload,
+        payload: BlockEventPayload,
+    },
+    // Transfer extraction (readonly only)
+    TransfersAvailable {
+        #[serde(rename = "schema-version")]
+        schema_version: i32,
+        payload: TransfersAvailablePayload,
     },
     // Genesis ceremony
     SentUnapprovedBlock {
@@ -48,11 +55,6 @@ pub enum NodeEvent {
         #[serde(rename = "schema-version")]
         schema_version: i32,
         payload: BlockHashPayload,
-    },
-    BlockApprovalReceived {
-        #[serde(rename = "schema-version")]
-        schema_version: i32,
-        payload: ApprovalPayload,
     },
     ApprovedBlockReceived {
         #[serde(rename = "schema-version")]
@@ -76,6 +78,8 @@ pub enum NodeEvent {
 #[serde(rename_all = "kebab-case")]
 pub struct BlockEventPayload {
     pub block_hash: String,
+    pub block_number: i64,
+    pub timestamp: i64,
     pub parent_hashes: Vec<String>,
     pub justification_hashes: Vec<(String, String)>,
     pub deploys: Vec<BlockEventDeploy>,
@@ -94,26 +98,32 @@ pub struct BlockEventDeploy {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct FinalizedBlockPayload {
+pub struct TransfersAvailablePayload {
     pub block_hash: String,
-    pub parent_hashes: Vec<String>,
-    pub justification_hashes: Vec<(String, String)>,
-    pub deploys: Vec<BlockEventDeploy>,
-    pub creator: String,
-    pub seq_num: i32,
+    pub block_number: i64,
+    pub deploys: Vec<DeployTransfers>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct DeployTransfers {
+    pub deploy_id: String,
+    pub transfers: Vec<TransferEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct TransferEvent {
+    pub from_addr: String,
+    pub to_addr: String,
+    pub amount: i64,
+    pub success: bool,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct BlockHashPayload {
     pub block_hash: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct ApprovalPayload {
-    pub block_hash: String,
-    pub sender: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,6 +137,7 @@ struct EventStats {
     created: u32,
     added: u32,
     finalized: u32,
+    transfers: u32,
     genesis: u32,
     lifecycle: u32,
     total: u32,
@@ -138,6 +149,7 @@ impl EventStats {
             created: 0,
             added: 0,
             finalized: 0,
+            transfers: 0,
             genesis: 0,
             lifecycle: 0,
             total: 0,
@@ -150,9 +162,9 @@ impl EventStats {
             NodeEvent::BlockCreated { .. } => self.created += 1,
             NodeEvent::BlockAdded { .. } => self.added += 1,
             NodeEvent::BlockFinalised { .. } => self.finalized += 1,
+            NodeEvent::TransfersAvailable { .. } => self.transfers += 1,
             NodeEvent::SentUnapprovedBlock { .. }
             | NodeEvent::SentApprovedBlock { .. }
-            | NodeEvent::BlockApprovalReceived { .. }
             | NodeEvent::ApprovedBlockReceived { .. } => self.genesis += 1,
             NodeEvent::EnteredRunningState { .. }
             | NodeEvent::NodeStarted { .. } => self.lifecycle += 1,
@@ -166,6 +178,9 @@ impl EventStats {
         println!(" - Created:    {}", self.created);
         println!(" - Added:      {}", self.added);
         println!(" - Finalized:  {}", self.finalized);
+        if self.transfers > 0 {
+            println!(" - Transfers:  {}", self.transfers);
+        }
         if self.genesis > 0 {
             println!(" - Genesis:    {}", self.genesis);
         }
@@ -293,9 +308,9 @@ fn handle_event(text: &str, args: &WatchEventsArgs, stats: &mut EventStats) -> R
             (NodeEvent::BlockCreated { .. }, "created") => true,
             (NodeEvent::BlockAdded { .. }, "added") => true,
             (NodeEvent::BlockFinalised { .. }, "finalized" | "finalised") => true,
+            (NodeEvent::TransfersAvailable { .. }, "transfers") => true,
             (NodeEvent::SentUnapprovedBlock { .. }, "genesis") => true,
             (NodeEvent::SentApprovedBlock { .. }, "genesis") => true,
-            (NodeEvent::BlockApprovalReceived { .. }, "genesis") => true,
             (NodeEvent::ApprovedBlockReceived { .. }, "genesis") => true,
             (NodeEvent::EnteredRunningState { .. }, "lifecycle") => true,
             (NodeEvent::NodeStarted { .. }, "lifecycle") => true,
@@ -327,18 +342,22 @@ fn display_pretty(event: &NodeEvent) {
         }
         NodeEvent::BlockFinalised { payload, .. } => {
             println!(" Block Finalized");
-            println!(" Hash:     {}", payload.block_hash);
-            println!(" Creator:  {}", payload.creator);
-            println!(" Seq Num:  {}", payload.seq_num);
-            println!(" Parents:  {}", payload.parent_hashes.len());
-            if !payload.deploys.is_empty() {
-                println!(
-                    " Deploys:  {} [{}]",
-                    payload.deploys.len(),
-                    payload.deploys.iter().map(|d| d.id.clone()).collect::<Vec<_>>().join(", ")
-                );
-            } else {
-                println!(" Deploys:  {}", payload.deploys.len());
+            display_block_payload(payload);
+        }
+        NodeEvent::TransfersAvailable { payload, .. } => {
+            println!(" Transfers Available");
+            println!(" Block:    {} (#{}))", payload.block_hash, payload.block_number);
+            println!(" Deploys:  {}", payload.deploys.len());
+            for dt in &payload.deploys {
+                println!("   Deploy: {}  ({} transfers)", &dt.deploy_id[..24.min(dt.deploy_id.len())], dt.transfers.len());
+                for t in &dt.transfers {
+                    println!("     {} -> {} : {} ({})",
+                        &t.from_addr[..16.min(t.from_addr.len())],
+                        &t.to_addr[..16.min(t.to_addr.len())],
+                        t.amount,
+                        if t.success { "ok" } else { "failed" },
+                    );
+                }
             }
             println!();
         }
@@ -350,12 +369,6 @@ fn display_pretty(event: &NodeEvent) {
         NodeEvent::SentApprovedBlock { payload, .. } => {
             println!(" Sent Approved Block");
             println!(" Hash: {}", payload.block_hash);
-            println!();
-        }
-        NodeEvent::BlockApprovalReceived { payload, .. } => {
-            println!(" Block Approval Received");
-            println!(" Hash:   {}", payload.block_hash);
-            println!(" Sender: {}", payload.sender);
             println!();
         }
         NodeEvent::ApprovedBlockReceived { payload, .. } => {
@@ -378,6 +391,8 @@ fn display_pretty(event: &NodeEvent) {
 
 fn display_block_payload(payload: &BlockEventPayload) {
     println!(" Hash:     {}", payload.block_hash);
+    println!(" Block #:  {}", payload.block_number);
+    println!(" Time:     {}", payload.timestamp);
     println!(" Creator:  {}", payload.creator);
     println!(" Seq Num:  {}", payload.seq_num);
     println!(" Parents:  {}", payload.parent_hashes.len());

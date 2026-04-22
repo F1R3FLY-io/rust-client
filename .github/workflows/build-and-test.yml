@@ -316,16 +316,19 @@ jobs:
             docker pull f1r3flyindustries/f1r3fly-scala-node:${IMAGE_TAG}
           fi
 
-      - name: Start standalone node
+      - name: Start node
         shell: bash -ex {0}
         env:
           IMAGE_TAG: ${{ needs.build_base.outputs.IMAGE_TAG }}
         run: |
-          cd system-integration/integration-tests
+          cd system-integration
           if [ "${{ matrix.node }}" = "rust" ]; then
+            # Shard: bootstrap + 3 validators + readonly (tests validator vs readonly behavior)
             F1R3FLY_RUST_IMAGE="f1r3flyindustries/f1r3fly-rust-node:${IMAGE_TAG}" \
-              docker compose -f docker-compose.standalone-rust.yml up -d
+              docker compose --env-file .env.node -f compose/f1r3node-rust.yml up -d
           else
+            # Scala: standalone (no shard compose available)
+            cd integration-tests
             F1R3FLY_SCALA_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${IMAGE_TAG}" \
               docker compose -f docker-compose.standalone-scala.yml up -d
           fi
@@ -333,21 +336,52 @@ jobs:
       - name: Wait for node healthy
         shell: bash {0}
         run: |
-          echo "Waiting for standalone node to become healthy..."
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:40463/api/status >/dev/null 2>&1; then
-              echo "Node is healthy after $((i * 5))s"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Node failed to become healthy after 300s"
-          docker logs rnode.standalone 2>&1 | tail -50
-          exit 1
+          if [ "${{ matrix.node }}" = "rust" ]; then
+            # Wait for validator1 to be ready (isReady=true via status API)
+            echo "Waiting for shard to become healthy..."
+            for i in $(seq 1 60); do
+              READY=$(curl -sf http://localhost:40413/api/status 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('isReady',False))" 2>/dev/null || echo "False")
+              if [ "$READY" = "True" ]; then
+                echo "Shard is healthy after $((i * 5))s"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Shard failed to become healthy after 300s"
+            docker logs rnode.validator1 2>&1 | tail -50
+            exit 1
+          else
+            echo "Waiting for standalone node to become healthy..."
+            for i in $(seq 1 60); do
+              if curl -sf http://localhost:40463/api/status >/dev/null 2>&1; then
+                echo "Node is healthy after $((i * 5))s"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Node failed to become healthy after 300s"
+            docker logs rnode.standalone 2>&1 | tail -50
+            exit 1
+          fi
 
-      - name: Run Smoke Tests
+      - name: Run Smoke Tests (bash)
         shell: bash -ex {0}
-        run: ./scripts/smoke_test.sh localhost 40462 40463
+        run: |
+          if [ "${{ matrix.node }}" = "rust" ]; then
+            # Shard: validator1 gRPC=40412, HTTP=40413, readonly gRPC=40452
+            ./scripts/smoke_test.sh localhost 40412 40413 40452
+          else
+            # Scala standalone: gRPC=40462, HTTP=40463
+            ./scripts/smoke_test.sh localhost 40462 40463
+          fi
+
+      - name: Run Integration Tests (Rust)
+        if: matrix.node == 'rust'
+        shell: bash -ex {0}
+        env:
+          F1R3FLY_HTTP_PORT: "40413"
+          F1R3FLY_OBSERVER_HTTP: "40453"
+        run: cargo test --test smoke --release -- --ignored
 
       - name: Upload Smoke Test Logs
         if: always()
@@ -362,7 +396,13 @@ jobs:
         shell: bash {0}
         run: |
           mkdir -p /tmp/docker-logs
-          docker logs rnode.standalone > /tmp/docker-logs/standalone.log 2>&1 || true
+          if [ "${{ matrix.node }}" = "rust" ]; then
+            for name in bootstrap validator1 validator2 validator3 readonly; do
+              docker logs rnode.${name} > /tmp/docker-logs/${name}.log 2>&1 || true
+            done
+          else
+            docker logs rnode.standalone > /tmp/docker-logs/standalone.log 2>&1 || true
+          fi
 
       - name: Upload Docker Logs
         if: always()
@@ -377,10 +417,11 @@ jobs:
         if: always()
         shell: bash {0}
         run: |
-          cd system-integration/integration-tests
           if [ "${{ matrix.node }}" = "rust" ]; then
-            docker compose -f docker-compose.standalone-rust.yml down -v
+            cd system-integration
+            docker compose --env-file .env.node -f compose/f1r3node-rust.yml down -v
           else
+            cd system-integration/integration-tests
             docker compose -f docker-compose.standalone-scala.yml down -v
           fi
 

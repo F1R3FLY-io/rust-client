@@ -33,31 +33,50 @@ pub struct NodeStatus {
     pub native_token_decimals: u32,
     #[serde(rename = "peerList", default)]
     pub peer_list: Vec<serde_json::Value>,
+    #[serde(rename = "lastFinalizedBlockNumber", default)]
+    pub last_finalized_block_number: i64,
+    #[serde(rename = "isValidator", default)]
+    pub is_validator: bool,
+    #[serde(rename = "isReadOnly", default)]
+    pub is_read_only: bool,
+    #[serde(rename = "isReady", default)]
+    pub is_ready: bool,
+    #[serde(rename = "currentEpoch", default)]
+    pub current_epoch: i64,
+    #[serde(rename = "epochLength", default)]
+    pub epoch_length: i32,
 }
 
-/// Deploy execution detail from the node's `/api/deploy/{id}` endpoint
+/// Deploy execution detail from the node's `/api/deploy/{id}` endpoint.
+/// Unified DeployResponse — full view includes all fields,
+/// summary view omits Optional fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployDetail {
+    #[serde(rename = "deployId")]
+    pub deploy_id: String,
     #[serde(rename = "blockHash")]
     pub block_hash: String,
     #[serde(rename = "blockNumber")]
     pub block_number: i64,
     pub timestamp: i64,
-    pub deployer: String,
-    pub term: String,
     pub cost: u64,
     pub errored: bool,
-    #[serde(rename = "systemDeployError")]
-    pub system_deploy_error: String,
-    #[serde(rename = "phloPrice")]
-    pub phlo_price: i64,
-    #[serde(rename = "phloLimit")]
-    pub phlo_limit: i64,
-    pub sig: String,
-    #[serde(rename = "sigAlgorithm")]
-    pub sig_algorithm: String,
-    #[serde(rename = "validAfterBlockNumber")]
-    pub valid_after_block_number: i64,
+    #[serde(rename = "isFinalized")]
+    pub is_finalized: bool,
+    #[serde(default)]
+    pub deployer: Option<String>,
+    #[serde(default)]
+    pub term: Option<String>,
+    #[serde(rename = "systemDeployError", default)]
+    pub system_deploy_error: Option<String>,
+    #[serde(rename = "phloPrice", default)]
+    pub phlo_price: Option<i64>,
+    #[serde(rename = "phloLimit", default)]
+    pub phlo_limit: Option<i64>,
+    #[serde(rename = "sigAlgorithm", default)]
+    pub sig_algorithm: Option<String>,
+    #[serde(rename = "validAfterBlockNumber", default)]
+    pub valid_after_block_number: Option<i64>,
 }
 
 /// Result of a full deploy-and-wait operation

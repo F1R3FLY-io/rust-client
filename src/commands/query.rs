@@ -36,6 +36,11 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
                     status.native_token_symbol,
                     status.native_token_decimals
                 );
+                println!("  LFB Number:    {}", status.last_finalized_block_number);
+                println!("  Validator:     {}", status.is_validator);
+                println!("  Read Only:     {}", status.is_read_only);
+                println!("  Ready:         {}", status.is_ready);
+                println!("  Epoch:         {} (length: {})", status.current_epoch, status.epoch_length);
                 println!("  Version:       {}", status.version);
             } else {
                 println!(" Failed to get node status: HTTP {}", response.status());

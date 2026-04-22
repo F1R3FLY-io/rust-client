@@ -57,7 +57,7 @@ impl<'a> F1r3flyApi<'a> {
         http_port: u16,
     ) -> Result<Option<DeployDetail>, Box<dyn std::error::Error>> {
         let url = format!(
-            "http://{}:{}/api/deploy/{}?view=detail",
+            "http://{}:{}/api/deploy/{}",
             self.node_host, http_port, deploy_id
         );
         let client = reqwest::Client::new();

@@ -20,33 +20,22 @@ $ node_cli status -H localhost -p 40413
   Nodes:         4
   Min Phlo:      1
   Native Token:  F1R3CAP (F1R3, 8 decimals)
+  LFB Number:    126
+  Validator:     false
+  Read Only:     false
+  Ready:         true
+  Epoch:         12 (length: 10)
   Version:       {"api":"1","node":"F1r3node Rust 0.4.10 ()"}
 ```
 
-The **Native Token** line shows the chain's native token identity configured at genesis:
-- **Name** — full display name (e.g. `F1R3CAP`)
-- **Symbol** — ticker symbol (e.g. `F1R3`)
-- **Decimals** — 1 token = 10^decimals dust (e.g. `8` means 100,000,000 dust per token)
-
-These values are baked into the on-chain `TokenMetadata` contract at genesis and are immutable. They can also be queried from Rholang via exploratory deploy (see [exploratory-deploy](./exploratory-deploy.md)).
-
-### Raw JSON response
-
-```json
-{
-  "version": {"api": "1", "node": "F1r3node Rust 0.4.10 ()"},
-  "address": "rnode://24f31580...@rnode.validator1?protocol=40400&discovery=40404",
-  "networkId": "testnet",
-  "shardId": "root",
-  "peers": 4,
-  "nodes": 4,
-  "minPhloPrice": 1,
-  "nativeTokenName": "F1R3CAP",
-  "nativeTokenSymbol": "F1R3",
-  "nativeTokenDecimals": 8,
-  "peerList": [...]
-}
-```
+| Field | Description |
+|-------|-------------|
+| Native Token | Name, symbol, decimals — baked into genesis, immutable |
+| LFB Number | Last finalized block number (-1 if not yet initialized) |
+| Validator | Whether this node can propose blocks |
+| Read Only | Whether this node is in read-only mode |
+| Ready | Whether the engine has entered Running state |
+| Epoch | Current epoch and epoch length from genesis config |
 
 ## blocks
 
@@ -64,16 +53,21 @@ $ node_cli blocks -n 1
 
 [
   {
-    "blockHash": "c6f93059d8bb3a0a...",
-    "blockNumber": 402,
-    "deployCount": 0,
-    "faultTolerance": 0.0,
-    "sender": "0457febafcc25dd3...",
-    "timestamp": 1775611821639,
-    ...
+    "blockInfo": {
+      "blockHash": "a47bdb405fc3ccba...",
+      "blockNumber": 128,
+      "isFinalized": true,
+      "faultTolerance": 1.0,
+      "sender": "0457febafcc25dd3...",
+      "timestamp": 1776898700000,
+      "deployCount": 0,
+      ...
+    }
   }
 ]
 ```
+
+Block list responses use the `blockInfo` wrapper (summary view by default, deploys omitted).
 
 ## last-finalized-block
 

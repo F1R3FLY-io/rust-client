@@ -42,6 +42,9 @@ cargo run --release -- exploratory-deploy -f rho_examples/query_token_metadata.r
 - [Events](docs/library/events.md) -- WebSocket deploy finalization
 - [Architecture](docs/architecture.md) -- module structure, deploy flow, node endpoints
 
+### Testing
+- [Testing guide](docs/testing.md) -- integration tests (`cargo test --test smoke`) and CLI smoke test
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |

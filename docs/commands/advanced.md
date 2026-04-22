@@ -49,7 +49,7 @@ Timeout:     0
 
 ## watch-events
 
-Monitor real-time node events via WebSocket. Connects to `/ws/events` and streams all 9 event types defined by the node. On connect, the node replays any startup events that occurred before the client connected.
+Monitor real-time node events via WebSocket. Connects to `/ws/events` and streams all 10 event types defined by the node. On connect, the node replays any startup events that occurred before the client connected.
 
 ```bash
 node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-forever]
@@ -57,22 +57,24 @@ node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-fore
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--filter` | all | `created`, `added`, `finalized`, `genesis`, or `lifecycle` |
+| `--filter` | all | `created`, `added`, `finalized`, `transfers`, `genesis`, or `lifecycle` |
 | `--retry-forever` | false | Reconnect indefinitely |
 
 ### Event types
 
 | Type | Filter | Description |
 |------|--------|-------------|
-| Block Created | `created` | Block proposed by a validator (hash, creator, seq-num, deploys) |
+| Block Created | `created` | Block proposed by a validator (hash, block#, timestamp, creator, deploys) |
 | Block Added | `added` | Block validated and added to the DAG |
 | Block Finalized | `finalized` | Block reached finalized status |
+| Transfers Available | `transfers` | Transfer extraction completed (readonly only, after block report) |
 | Sent Unapproved Block | `genesis` | Boot broadcasts genesis candidate to validators |
-| Block Approval Received | `genesis` | Boot receives approval from a validator |
 | Sent Approved Block | `genesis` | Boot broadcasts the approved genesis block |
 | Approved Block Received | `genesis` | Validator receives the approved genesis block |
 | Entered Running State | `lifecycle` | Node engine transitions to Running |
 | Node Started | `lifecycle` | Node HTTP server is ready |
+
+Block events include `Block #` (block number) and `Time` (timestamp). Transfer events show per-deploy transfer details (from/to/amount/success).
 
 ### Examples
 
@@ -80,27 +82,46 @@ node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-fore
 $ node_cli watch-events
 
  Node Started
- Address: rnode://871fc407...@localhost?protocol=40400&discovery=40404
-
- Entered Running State
- Block: 37115b862d...
+ Address: rnode://24f31580...@rnode.validator1?protocol=40400&discovery=40404
 
  Block Created
- Hash:     7d88a8f291...
- Creator:  04ffc01657...
- Seq Num:  1
- Parents:  1
+ Hash:     25ad58ad271df3e5...
+ Block #:  134
+ Time:     1776898716907
+ Creator:  04fa70d7be5eb750...
+ Seq Num:  113
+ Parents:  3
  Deploys:  0
 
  Block Finalized
- Hash:     7d88a8f291...
+ Hash:     6dcbb0d170f5be7b...
+ Block #:  132
+ Time:     1776898685324
+ Creator:  0457febafcc25dd3...
+ Seq Num:  118
+ Parents:  3
+ Deploys:  0
+```
+
+On readonly nodes, transfer events appear after block finalization:
+
+```
+$ node_cli watch-events --http-port 40453
+
+ Transfers Available
+ Block:    edc71efd1dd41be6... (#130)
+ Deploys:  1
+   Deploy: 3044022015f80a59...  (1 transfers)
+     1111AtahZeefej4t -> 111127RX5ZgiAdRa : 100000000 (ok)
 ```
 
 ```
 $ node_cli watch-events --filter finalized
 
  Block Finalized
- Hash:     7d88a8f291...
+ Hash:     6dcbb0d170f5be7b...
+ Block #:  132
+ ...
 ```
 
 Auto-reconnects on disconnect (10 retries by default, indefinitely with `--retry-forever`).

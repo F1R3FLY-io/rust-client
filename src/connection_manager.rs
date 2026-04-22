@@ -346,11 +346,7 @@ impl F1r3flyConnectionManager {
             cost: detail.as_ref().map(|d| d.cost),
             errored: detail.as_ref().map(|d| d.errored).unwrap_or(false),
             system_deploy_error: detail.and_then(|d| {
-                if d.system_deploy_error.is_empty() {
-                    None
-                } else {
-                    Some(d.system_deploy_error)
-                }
+                d.system_deploy_error.filter(|s| !s.is_empty())
             }),
             data,
         })
