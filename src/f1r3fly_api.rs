@@ -33,18 +33,20 @@ pub struct NodeStatus {
     pub native_token_decimals: u32,
     #[serde(rename = "peerList", default)]
     pub peer_list: Vec<serde_json::Value>,
+    // Numeric and bool fields use Option so a missing field (e.g. from an older
+    // Scala node) is distinguishable from a real zero/false value.
     #[serde(rename = "lastFinalizedBlockNumber", default)]
-    pub last_finalized_block_number: i64,
+    pub last_finalized_block_number: Option<i64>,
     #[serde(rename = "isValidator", default)]
-    pub is_validator: bool,
+    pub is_validator: Option<bool>,
     #[serde(rename = "isReadOnly", default)]
-    pub is_read_only: bool,
+    pub is_read_only: Option<bool>,
     #[serde(rename = "isReady", default)]
-    pub is_ready: bool,
+    pub is_ready: Option<bool>,
     #[serde(rename = "currentEpoch", default)]
-    pub current_epoch: i64,
+    pub current_epoch: Option<i64>,
     #[serde(rename = "epochLength", default)]
-    pub epoch_length: i32,
+    pub epoch_length: Option<i32>,
 }
 
 /// Deploy execution detail from the node's `/api/deploy/{id}` endpoint.

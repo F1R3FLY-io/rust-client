@@ -200,6 +200,25 @@ impl EventStats {
 
 /// Watch blocks command - connects to WebSocket and streams block events
 pub async fn watch_events_command(args: &WatchEventsArgs) -> Result<()> {
+    const VALID_FILTERS: &[&str] = &[
+        "created",
+        "added",
+        "finalized",
+        "finalised",
+        "transfers",
+        "genesis",
+        "lifecycle",
+    ];
+    if let Some(filter) = &args.filter {
+        if !VALID_FILTERS.contains(&filter.as_str()) {
+            return Err(NodeCliError::from(format!(
+                "Invalid --filter value '{}'. Valid values: {}",
+                filter,
+                VALID_FILTERS.join(", ")
+            )));
+        }
+    }
+
     let ws_url = format!("ws://{}:{}/ws/events", args.host, args.http_port);
 
     println!(" Connecting to F1r3fly node WebSocket...");

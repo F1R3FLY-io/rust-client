@@ -110,7 +110,8 @@ fn parse_block_json(json: &serde_json::Value) -> Option<DagBlock> {
 
     let deploy_count = info.get("deployCount")?.as_i64().unwrap_or(0) as u32;
 
-    // Use isFinalized field if available, otherwise assume finalized for historical blocks
+    // Blocks missing isFinalized are skipped so the gap is visible rather than silently
+    // assumed finalized — aligns with no-swallow principle.
     let is_finalized = info.get("isFinalized").and_then(|v| v.as_bool())?;
     let status = if is_finalized {
         BlockStatus::Finalized

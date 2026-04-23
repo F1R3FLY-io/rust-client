@@ -37,13 +37,20 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
                         status.native_token_decimals
                     );
                 }
-                println!("  LFB Number:    {}", status.last_finalized_block_number);
-                println!("  Validator:     {}", status.is_validator);
-                println!("  Read Only:     {}", status.is_read_only);
-                println!("  Ready:         {}", status.is_ready);
+                fn fmt<T: std::fmt::Display>(v: Option<T>) -> String {
+                    v.map(|x| x.to_string()).unwrap_or_else(|| "N/A".into())
+                }
+                println!(
+                    "  LFB Number:    {}",
+                    fmt(status.last_finalized_block_number)
+                );
+                println!("  Validator:     {}", fmt(status.is_validator));
+                println!("  Read Only:     {}", fmt(status.is_read_only));
+                println!("  Ready:         {}", fmt(status.is_ready));
                 println!(
                     "  Epoch:         {} (length: {})",
-                    status.current_epoch, status.epoch_length
+                    fmt(status.current_epoch),
+                    fmt(status.epoch_length)
                 );
                 println!("  Version:       {}", status.version);
             } else {

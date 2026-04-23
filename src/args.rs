@@ -792,7 +792,7 @@ pub struct WatchEventsArgs {
     #[arg(long, default_value_t = 40403)]
     pub http_port: u16,
 
-    /// Filter events by type: created, added, finalized, genesis, lifecycle
+    /// Filter events by type: created, added, finalized (or finalised), transfers, genesis, lifecycle
     #[arg(short, long)]
     pub filter: Option<String>,
 
