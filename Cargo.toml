@@ -13,10 +13,10 @@ required-features = ["cli"]
 
 [dependencies]
 # F1r3fly protocol — using local path for development; switch back to git tag for release
-f1r3fly-models = { package = "models", path = "../f1r3node-rust/models" }
-f1r3fly-shared = { package = "shared", path = "../f1r3node-rust/shared" }
-f1r3fly-crypto = { package = "crypto", path = "../f1r3node-rust/crypto" }
-f1r3fly-rholang = { package = "rholang", path = "../f1r3node-rust/rholang" }
+f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.13" }
+f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.13" }
+f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.13" }
+f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.13" }
 prost = "0.14"
 
 # gRPC
