@@ -72,13 +72,13 @@ mod tests {
     #[test]
     fn test_convert_expr_map() {
         let input = json!({
-            "ExprMap": {
-                "data": {
-                    "name": {"ExprString": {"data": "Alice"}},
-                    "age": {"ExprInt": {"data": 30}},
-                    "active": {"ExprBool": {"data": true}}
-                }
-            }
+        "ExprMap": {
+        "data": {
+        "name": {"ExprString": {"data": "Alice"}},
+        "age": {"ExprInt": {"data": 30}},
+        "active": {"ExprBool": {"data": true}}
+        }
+        }
         });
         let result = convert_rholang_to_json(&input).unwrap();
         assert_eq!(result, json!({"name": "Alice", "age": 30, "active": true}));
@@ -87,17 +87,17 @@ mod tests {
     #[test]
     fn test_convert_nested_map() {
         let input = json!({
-            "ExprMap": {
-                "data": {
-                    "user": {
-                        "ExprMap": {
-                            "data": {
-                                "name": {"ExprString": {"data": "Bob"}}
-                            }
-                        }
-                    }
-                }
-            }
+        "ExprMap": {
+        "data": {
+        "user": {
+        "ExprMap": {
+        "data": {
+        "name": {"ExprString": {"data": "Bob"}}
+        }
+        }
+        }
+        }
+        }
         });
         let result = convert_rholang_to_json(&input).unwrap();
         assert_eq!(result, json!({"user": {"name": "Bob"}}));
@@ -106,9 +106,9 @@ mod tests {
     #[test]
     fn test_convert_array() {
         let input = json!([
-            {"ExprString": {"data": "a"}},
-            {"ExprString": {"data": "b"}},
-            {"ExprInt": {"data": 1}}
+        {"ExprString": {"data": "a"}},
+        {"ExprString": {"data": "b"}},
+        {"ExprInt": {"data": 1}}
         ]);
         let result = convert_rholang_to_json(&input).unwrap();
         assert_eq!(result, json!(["a", "b", 1]));

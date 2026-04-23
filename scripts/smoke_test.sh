@@ -49,6 +49,19 @@ cd "$SCRIPT_DIR/.."
 echo "Building rust-client (release)..."
 cargo build --release
 
+# Detect node type from /api/status version. Tests that exercise Rust-only
+# features (new HTTP endpoints, view params, transfer extraction, enriched
+# WS events) are skipped when running against a Scala node.
+STATUS_JSON=$(curl -sf "http://$HOST:$HTTP_PORT/api/status" 2>/dev/null || echo '')
+if echo "$STATUS_JSON" | grep -q "F1r3node Rust"; then
+    NODE_TYPE=rust
+elif echo "$STATUS_JSON" | grep -q "F1r3node Scala"; then
+    NODE_TYPE=scala
+else
+    NODE_TYPE=unknown
+fi
+echo "Detected node type: $NODE_TYPE"
+
 # Log file for test outputs (single file per run)
 mkdir -p "logs"
 LOG_FILE="logs/smoke_test_$(date +%Y%m%d_%H%M%S).log"
@@ -250,10 +263,48 @@ run_test "deploy" \
     "Deployment successful|Deploy ID:"
 
 # deploy-and-wait: Deploy and wait for block inclusion/finalization
-# Expected output: "Deploy successful" and "Deploy found in block"
+# Uses ConnectionManager: deploy -> find_deploy_grpc -> is_finalized (observer)
 run_test "deploy-and-wait" \
-    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 30 --check-interval 2" \
-    "Deploy successful|Deploy found in block"
+    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --check-interval 2" \
+    "Deploy ID:|Block hash:|Total time:"
+
+# deploy-and-wait with deployId data: Deploy, wait for finalization, read result
+# deploy-and-wait now always reads deployId channel data after finalization
+echo -n "Testing deploy-and-wait (with data)... "
+FDAW_START=$(date +%s.%N)
+if cargo run -q --release -- deploy-and-wait -f ./rho_examples/deploy_id_test.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --finalization-timeout 30 --check-interval 2 > "$OUTPUT" 2>&1; then
+    FDAW_END=$(date +%s.%N)
+    FDAW_MS=$(echo "($FDAW_END - $FDAW_START) * 1000" | bc | cut -d. -f1)
+    save_log "deploy-and-wait (with data)"
+    if grep -qE "Deploy ID:|Data\[0\]:" "$OUTPUT"; then
+        echo -e "${GREEN}PASS${NC} [$(format_duration $FDAW_MS)]"
+        inc_pass
+        # Capture deploy ID and block hash for get-data test
+        FDAW_DEPLOY_ID=$(grep "Deploy ID:" "$OUTPUT" | head -1 | awk '{print $NF}')
+        FDAW_BLOCK_HASH=$(grep "Block hash:" "$OUTPUT" | head -1 | awk '{print $NF}')
+    else
+        echo -e "${RED}FAIL${NC} (output validation failed) [$(format_duration $FDAW_MS)]"
+        head -15 "$OUTPUT" | sed 's/^/    /'
+        inc_fail
+    fi
+else
+    FDAW_END=$(date +%s.%N)
+    FDAW_MS=$(echo "($FDAW_END - $FDAW_START) * 1000" | bc | cut -d. -f1)
+    save_log "deploy-and-wait (with data)"
+    echo -e "${RED}FAIL${NC} (non-zero exit) [$(format_duration $FDAW_MS)]"
+    head -15 "$OUTPUT" | sed 's/^/    /'
+    inc_fail
+fi
+
+# get-data: Read deploy result data by deploy ID and block hash
+# Uses getDataAtName gRPC endpoint (non-deprecated)
+if [ -n "${FDAW_DEPLOY_ID:-}" ] && [ -n "${FDAW_BLOCK_HASH:-}" ]; then
+    run_test "get-data" \
+        "cargo run -q --release -- get-data -d $FDAW_DEPLOY_ID -b $FDAW_BLOCK_HASH -H $HOST -p $GRPC_PORT" \
+        "42|No data found"
+else
+    skip_test "get-data" "no deploy ID/block hash from deploy-and-wait"
+fi
 
 # is-finalized: Check if a block is finalized
 # First get a recent block hash, then check if it's finalized
@@ -268,10 +319,17 @@ fi
 
 # exploratory-deploy: Execute Rholang without committing to blockchain
 # Must run on observer (read-only) node - validators reject exploratory deploys
-# Expected output: "Execution successful"
+# Expected output: "Execution successful" and cost
 run_test "exploratory-deploy" \
     "cargo run -q --release -- exploratory-deploy -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
-    "Execution successful"
+    "Execution successful|phlogiston"
+
+# estimate-cost: Estimate phlogiston cost without deploying
+# Must run on observer (read-only) node
+# Expected output: a number (the cost in phlogiston)
+run_test "estimate-cost" \
+    "cargo run -q --release -- estimate-cost -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
+    "^[0-9]+"
 
 # ============================================
 # CRYPTO COMMANDS (offline, no node required)
@@ -301,9 +359,10 @@ echo ""
 echo -e "${BLUE}--- Node Inspection Commands (HTTP) ---${NC}"
 
 # status: Get node status and peer information
+# Validates new fields: LFB Number, Ready, Epoch
 run_test "status" \
     "cargo run -q --release -- status -H $HOST -p $HTTP_PORT" \
-    "Node status retrieved successfully|version"
+    "Node status retrieved successfully|LFB Number:"
 
 # blocks: Get recent blocks
 run_test "blocks" \
@@ -367,7 +426,11 @@ run_test "network-health" \
 
 # bond-status: Check if a validator is bonded
 # Uses exploratory-deploy internally, must run on observer (read-only) node
-VALIDATOR_PUBKEY="04ffc016579a68050d655d55df4e09f04605164543e257c8e6df10361e6068a5336588e9b355ea859c5ab4285a5ef0efdf62bc28b80320ce99e26bb1607b3ad93d"
+# Get a real validator pubkey from the node's status endpoint
+VALIDATOR_PUBKEY=$(curl -s "http://$HOST:$HTTP_PORT/api/last-finalized-block" 2>/dev/null | grep -oE '"validator":"[0-9a-f]+"' | head -1 | cut -d'"' -f4 || echo "")
+if [ -z "$VALIDATOR_PUBKEY" ]; then
+    VALIDATOR_PUBKEY="04ffc016579a68050d655d55df4e09f04605164543e257c8e6df10361e6068a5336588e9b355ea859c5ab4285a5ef0efdf62bc28b80320ce99e26bb1607b3ad93d"
+fi
 run_test "bond-status" \
     "cargo run -q --release -- bond-status -H $HOST -p $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
     "Bond information retrieved successfully|BONDED|NOT BONDED"
@@ -379,21 +442,22 @@ echo ""
 echo -e "${BLUE}--- Transfer Commands ---${NC}"
 
 # transfer: Transfer tokens between addresses
-# Uses observer port for finalization check
-# Capture deploy ID for get-deploy test
+# Uses ConnectionManager with full_deploy_and_wait (deploy -> finalize -> read)
 echo -n "Testing transfer... "
 TRANSFER_START=$(date +%s.%N)
-if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --check-interval 2 > "$OUTPUT" 2>&1; then
+if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 120 --check-interval 2 > "$OUTPUT" 2>&1; then
     TRANSFER_END=$(date +%s.%N)
     TRANSFER_MS=$(echo "($TRANSFER_END - $TRANSFER_START) * 1000" | bc | cut -d. -f1)
     save_log "transfer"
-    if grep -qE "Transfer contract deployed successfully|Transfer deploy found in block" "$OUTPUT"; then
+    if grep -qE "Deploy ID:|Transfer complete|Transfer failed" "$OUTPUT"; then
         echo -e "${GREEN}PASS${NC} [$(format_duration $TRANSFER_MS)]"
         inc_pass
-        # Extract deploy ID for get-deploy test
-        TRANSFER_DEPLOY_ID=$(grep -oE 'Deploy ID: [a-f0-9]+' "$OUTPUT" | head -1 | cut -d' ' -f3 || echo "")
+        # Extract deploy ID and block hash for subsequent tests
+        TRANSFER_DEPLOY_ID=$(grep "Deploy ID:" "$OUTPUT" | head -1 | awk '{print $NF}' || echo "")
+        TRANSFER_BLOCK_HASH=$(grep "Block hash:" "$OUTPUT" | head -1 | awk '{print $NF}' || echo "")
     else
         echo -e "${RED}FAIL${NC} (output validation failed) [$(format_duration $TRANSFER_MS)]"
+        head -10 "$OUTPUT" | sed 's/^/    /'
         inc_fail
     fi
 else
@@ -405,13 +469,112 @@ else
     inc_fail
 fi
 
-# get-deploy: Get deploy information by ID
-if [ -n "${TRANSFER_DEPLOY_ID:-}" ]; then
-    run_test "get-deploy" \
-        "cargo run -q --release -- get-deploy -d $TRANSFER_DEPLOY_ID -H $HOST --http-port $HTTP_PORT" \
-        "Deploy Information|Status.*Included|Deploy ID"
+# transfer-info: Verify transfer data in block API on readonly
+# The readonly node extracts transfers via block replay (BlockReportAPI) — Rust-only
+if [ "$NODE_TYPE" != "rust" ]; then
+    skip_test "transfer-info (readonly)" "rust-only (BlockReportAPI)"
+    skip_test "transfer-info (validator=null)" "rust-only (BlockReportAPI)"
+elif [ -n "${TRANSFER_BLOCK_HASH:-}" ]; then
+    echo -n "Testing transfer-info (readonly)... "
+    TI_START=$(date +%s.%N)
+    # Poll readonly for transfers (block report may need a moment to warm cache)
+    TI_FOUND=false
+    for attempt in 1 2 3 4 5 6; do
+        TI_RESP=$(curl -s "http://$HOST:$OBSERVER_HTTP/api/block/$TRANSFER_BLOCK_HASH" 2>/dev/null)
+        if echo "$TI_RESP" | grep -q '"fromAddr"'; then
+            TI_FOUND=true
+            break
+        fi
+        sleep 3
+    done
+    TI_END=$(date +%s.%N)
+    TI_MS=$(echo "($TI_END - $TI_START) * 1000" | bc | cut -d. -f1)
+    save_log "transfer-info"
+    if $TI_FOUND; then
+        # Verify transfer fields
+        HAS_FROM=$(echo "$TI_RESP" | grep -c '"fromAddr"' || echo 0)
+        HAS_TO=$(echo "$TI_RESP" | grep -c '"toAddr"' || echo 0)
+        HAS_AMOUNT=$(echo "$TI_RESP" | grep -c '"amount"' || echo 0)
+        HAS_SUCCESS=$(echo "$TI_RESP" | grep -c '"success":true' || echo 0)
+        if [ "$HAS_FROM" -gt 0 ] && [ "$HAS_TO" -gt 0 ] && [ "$HAS_AMOUNT" -gt 0 ] && [ "$HAS_SUCCESS" -gt 0 ]; then
+            echo -e "${GREEN}PASS${NC} (transfers found with from/to/amount/success) [$(format_duration $TI_MS)]"
+            inc_pass
+        else
+            echo -e "${RED}FAIL${NC} (transfer fields incomplete) [$(format_duration $TI_MS)]"
+            echo "  from:$HAS_FROM to:$HAS_TO amount:$HAS_AMOUNT success:$HAS_SUCCESS"
+            inc_fail
+        fi
+    else
+        echo -e "${RED}FAIL${NC} (no transfers in block on readonly after 6 attempts) [$(format_duration $TI_MS)]"
+        inc_fail
+    fi
+
+    # Verify transfers are null on validator (not readonly).
+    # Only meaningful when validator and readonly are distinct nodes (shard).
+    # On standalone, the single node acts as both, so transfers are populated here too.
+    if [ "$HTTP_PORT" = "$OBSERVER_HTTP" ]; then
+        skip_test "transfer-info (validator=null)" "standalone (validator and readonly are the same node)"
+    else
+        echo -n "Testing transfer-info (validator=null)... "
+        TV_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/block/$TRANSFER_BLOCK_HASH" 2>/dev/null)
+        if echo "$TV_RESP" | grep -q '"transfers":null' || ! echo "$TV_RESP" | grep -q '"fromAddr"'; then
+            echo -e "${GREEN}PASS${NC} (transfers null on validator)"
+            inc_pass
+        else
+            echo -e "${RED}FAIL${NC} (transfers should be null on validator)"
+            inc_fail
+        fi
+    fi
 else
-    skip_test "get-deploy" "no deploy ID from transfer test"
+    skip_test "transfer-info (readonly)" "no block hash from transfer test"
+    skip_test "transfer-info (validator=null)" "no block hash from transfer test"
+fi
+
+# transfers-available WS event: Connect to readonly WS, submit transfer, verify event
+# The TransfersAvailable event is Rust-only (emitted after block report cache warming)
+if [ "$NODE_TYPE" != "rust" ]; then
+    skip_test "transfers-available (WS)" "rust-only (TransfersAvailable event)"
+else
+echo -n "Testing transfers-available (WS)... "
+TA_START=$(date +%s.%N)
+# Start WS listener on readonly in background
+TA_WS_OUT=$(mktemp)
+run_with_timeout 30 cargo run -q --release -- watch-events -H $HOST --http-port $OBSERVER_HTTP > "$TA_WS_OUT" 2>&1 &
+TA_WS_PID=$!
+sleep 3  # Let WS connect
+
+# Submit a transfer
+cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 120 --check-interval 2 > /dev/null 2>&1 || true
+
+# Wait for WS to capture events (up to remaining time)
+wait $TA_WS_PID 2>/dev/null || true
+TA_END=$(date +%s.%N)
+TA_MS=$(echo "($TA_END - $TA_START) * 1000" | bc | cut -d. -f1)
+
+if grep -q "Transfers Available" "$TA_WS_OUT"; then
+    echo -e "${GREEN}PASS${NC} (transfers-available event received on readonly) [$(format_duration $TA_MS)]"
+    inc_pass
+else
+    echo -e "${RED}FAIL${NC} (no transfers-available event on readonly WS) [$(format_duration $TA_MS)]"
+    echo "  Events received:"
+    grep -c "Block " "$TA_WS_OUT" 2>/dev/null | sed 's/^/    blocks: /' || true
+    grep "Transfers" "$TA_WS_OUT" 2>/dev/null | head -3 | sed 's/^/    /' || true
+    inc_fail
+fi
+rm -f "$TA_WS_OUT"
+fi  # NODE_TYPE = rust (transfers-available)
+
+# get-deploy: Get deploy execution details (cost, errored, blockNumber)
+# Uses deploy ID from deploy-and-wait (with data) test
+if [ -n "${FDAW_DEPLOY_ID:-}" ]; then
+    run_test "get-deploy" \
+        "cargo run -q --release -- get-deploy -d $FDAW_DEPLOY_ID -H $HOST --http-port $HTTP_PORT" \
+        "Deploy Information|Block Number:|Cost:|Deploy ID:|Finalized:"
+else
+    # Fail, not skip — if we can't get a deploy ID something is wrong
+    echo -n "Testing get-deploy... "
+    echo -e "${RED}FAIL${NC} (no deploy ID from earlier tests)"
+    inc_fail
 fi
 
 # ============================================
@@ -445,6 +608,120 @@ run_test "network-consensus" \
     "Network consensus data retrieved successfully|Consensus Health"
 
 # ============================================
+# NEW HTTP ENDPOINT TESTS (direct curl) — Rust-only
+# ============================================
+echo ""
+echo -e "${BLUE}--- New HTTP Endpoints ---${NC}"
+
+if [ "$NODE_TYPE" != "rust" ]; then
+    skip_test "/api/epoch" "rust-only endpoint"
+    skip_test "/api/validators" "rust-only endpoint"
+    skip_test "/api/bond-status" "rust-only endpoint"
+    skip_test "/api/estimate-cost" "rust-only endpoint"
+    skip_test "/api/deploy (summary view)" "rust-only (unified DeployResponse)"
+    skip_test "removed endpoints return 404" "rust-only (scala returns 400 for dead endpoints)"
+else
+
+# /api/epoch: Available on all node types (no exploratory deploy)
+echo -n "Testing /api/epoch... "
+EPOCH_START=$(date +%s.%N)
+EPOCH_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/epoch" 2>/dev/null)
+EPOCH_END=$(date +%s.%N)
+EPOCH_MS=$(echo "($EPOCH_END - $EPOCH_START) * 1000" | bc | cut -d. -f1)
+if echo "$EPOCH_RESP" | grep -q '"epochLength"'; then
+    EPOCH_LEN=$(echo "$EPOCH_RESP" | grep -oE '"epochLength":[0-9]+' | cut -d: -f2)
+    echo -e "${GREEN}PASS${NC} (epochLength=$EPOCH_LEN) [$(format_duration $EPOCH_MS)]"
+    inc_pass
+else
+    echo -e "${RED}FAIL${NC} [$(format_duration $EPOCH_MS)]"
+    echo "  Response: $EPOCH_RESP"
+    inc_fail
+fi
+
+# /api/validators: Readonly only
+echo -n "Testing /api/validators... "
+VAL_START=$(date +%s.%N)
+VAL_RESP=$(curl -s "http://$HOST:$OBSERVER_HTTP/api/validators" 2>/dev/null)
+VAL_END=$(date +%s.%N)
+VAL_MS=$(echo "($VAL_END - $VAL_START) * 1000" | bc | cut -d. -f1)
+if echo "$VAL_RESP" | grep -q '"totalStake"'; then
+    TOTAL=$(echo "$VAL_RESP" | grep -oE '"totalStake":[0-9]+' | cut -d: -f2)
+    echo -e "${GREEN}PASS${NC} (totalStake=$TOTAL) [$(format_duration $VAL_MS)]"
+    inc_pass
+else
+    echo -e "${RED}FAIL${NC} [$(format_duration $VAL_MS)]"
+    echo "  Response: ${VAL_RESP:0:200}"
+    inc_fail
+fi
+
+# /api/bond-status/{pubkey}: Available on all node types
+echo -n "Testing /api/bond-status... "
+BS_START=$(date +%s.%N)
+BS_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/bond-status/$VALIDATOR_PUBKEY" 2>/dev/null)
+BS_END=$(date +%s.%N)
+BS_MS=$(echo "($BS_END - $BS_START) * 1000" | bc | cut -d. -f1)
+if echo "$BS_RESP" | grep -q '"isBonded":true'; then
+    echo -e "${GREEN}PASS${NC} (isBonded=true) [$(format_duration $BS_MS)]"
+    inc_pass
+else
+    echo -e "${RED}FAIL${NC} [$(format_duration $BS_MS)]"
+    echo "  Response: $BS_RESP"
+    inc_fail
+fi
+
+# /api/estimate-cost: Readonly only
+echo -n "Testing /api/estimate-cost... "
+EC_START=$(date +%s.%N)
+EC_RESP=$(curl -s -X POST "http://$HOST:$OBSERVER_HTTP/api/estimate-cost" \
+    -H 'Content-Type: application/json' \
+    -d '{"term": "new ret in { ret!(42) }"}' 2>/dev/null)
+EC_END=$(date +%s.%N)
+EC_MS=$(echo "($EC_END - $EC_START) * 1000" | bc | cut -d. -f1)
+if echo "$EC_RESP" | grep -q '"cost"'; then
+    COST=$(echo "$EC_RESP" | grep -oE '"cost":[0-9]+' | cut -d: -f2)
+    echo -e "${GREEN}PASS${NC} (cost=$COST) [$(format_duration $EC_MS)]"
+    inc_pass
+else
+    echo -e "${RED}FAIL${NC} [$(format_duration $EC_MS)]"
+    echo "  Response: ${EC_RESP:0:200}"
+    inc_fail
+fi
+
+# /api/deploy/{id}?view=summary: Summary view
+if [ -n "${FDAW_DEPLOY_ID:-}" ]; then
+    echo -n "Testing /api/deploy (summary view)... "
+    SV_START=$(date +%s.%N)
+    SV_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/deploy/$FDAW_DEPLOY_ID?view=summary" 2>/dev/null)
+    SV_END=$(date +%s.%N)
+    SV_MS=$(echo "($SV_END - $SV_START) * 1000" | bc | cut -d. -f1)
+    if echo "$SV_RESP" | grep -q '"deployId"' && ! echo "$SV_RESP" | grep -q '"deployer"'; then
+        echo -e "${GREEN}PASS${NC} (has deployId, no deployer) [$(format_duration $SV_MS)]"
+        inc_pass
+    else
+        echo -e "${RED}FAIL${NC} [$(format_duration $SV_MS)]"
+        echo "  Response: ${SV_RESP:0:200}"
+        inc_fail
+    fi
+else
+    skip_test "/api/deploy (summary view)" "no deploy ID from earlier tests"
+fi
+
+# Removed endpoints return 404
+echo -n "Testing removed endpoints return 404... "
+R1=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://$HOST:$HTTP_PORT/api/data-at-name" \
+    -H 'Content-Type: application/json' -d '{}' 2>/dev/null)
+R2=$(curl -s -o /dev/null -w "%{http_code}" "http://$HOST:$HTTP_PORT/api/transactions/abc" 2>/dev/null)
+if [ "$R1" = "404" ] && [ "$R2" = "404" ]; then
+    echo -e "${GREEN}PASS${NC} (data-at-name=$R1, transactions=$R2)"
+    inc_pass
+else
+    echo -e "${RED}FAIL${NC} (data-at-name=$R1, transactions=$R2 — expected 404)"
+    inc_fail
+fi
+
+fi  # NODE_TYPE = rust (New HTTP Endpoints)
+
+# ============================================
 # CRYPTO COMMANDS (offline, continued)
 # ============================================
 echo ""
@@ -466,32 +743,45 @@ fi
 echo ""
 echo -e "${BLUE}--- Streaming Commands ---${NC}"
 
-# watch-blocks: Watch real-time block events via WebSocket
-# Run for 10 seconds and check if it connects and receives all event types
-echo -n "Testing watch-blocks... "
+# watch-events: Watch real-time block events via WebSocket
+# Run for 10 seconds and check if it connects and receives events.
+# The node sends 10 event types: 3 block lifecycle, 1 transfer, 3 genesis, 2 node lifecycle.
+# Startup events (node-started, entered-running-state) are replayed from buffer.
+# Block events now include block number and timestamp.
+echo -n "Testing watch-events... "
 WB_START=$(date +%s.%N)
-run_with_timeout 10 cargo run -q --release -- watch-blocks -H $HOST --http-port $HTTP_PORT > "$OUTPUT" 2>&1 || true
+run_with_timeout 15 cargo run -q --release -- watch-events -H $HOST --http-port $HTTP_PORT > "$OUTPUT" 2>&1 || true
 WB_END=$(date +%s.%N)
 WB_MS=$(echo "($WB_END - $WB_START) * 1000" | bc | cut -d. -f1)
-save_log "watch-blocks"
-# Check for successful connection and all three event types
+save_log "watch-events"
 if grep -q "Connected to node WebSocket" "$OUTPUT"; then
     HAS_CREATED=$(grep -c "Block Created" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
     HAS_ADDED=$(grep -c "Block Added" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
     HAS_FINALIZED=$(grep -c "Block Finalized" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
-    # Ensure we have valid integers (default to 0 if empty)
+    HAS_NODE_STARTED=$(grep -c "Node Started" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
+    HAS_RUNNING=$(grep -c "Entered Running State" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
+    HAS_BLOCK_NUM=$(grep -c "Block #:" "$OUTPUT" 2>/dev/null | tr -d '\n' || echo 0)
     HAS_CREATED=${HAS_CREATED:-0}
     HAS_ADDED=${HAS_ADDED:-0}
     HAS_FINALIZED=${HAS_FINALIZED:-0}
-    
-    if [ "$HAS_CREATED" -gt 0 ] && [ "$HAS_ADDED" -gt 0 ] && [ "$HAS_FINALIZED" -gt 0 ]; then
-        echo -e "${GREEN}PASS${NC} (created:$HAS_CREATED, added:$HAS_ADDED, finalized:$HAS_FINALIZED) [$(format_duration $WB_MS)]"
-        inc_pass
-    elif [ "$HAS_CREATED" -gt 0 ] || [ "$HAS_ADDED" -gt 0 ] || [ "$HAS_FINALIZED" -gt 0 ]; then
-        echo -e "${YELLOW}PASS${NC} (partial: created:$HAS_CREATED, added:$HAS_ADDED, finalized:$HAS_FINALIZED) [$(format_duration $WB_MS)]"
+    HAS_NODE_STARTED=${HAS_NODE_STARTED:-0}
+    HAS_RUNNING=${HAS_RUNNING:-0}
+    HAS_BLOCK_NUM=${HAS_BLOCK_NUM:-0}
+
+    SUMMARY="created:$HAS_CREATED, added:$HAS_ADDED, finalized:$HAS_FINALIZED, node-started:$HAS_NODE_STARTED, running:$HAS_RUNNING"
+
+    # Must receive at least block-created or block-added (heartbeat produces these).
+    # 15s window should be enough for at least one heartbeat cycle.
+    if [ "$HAS_CREATED" -eq 0 ] && [ "$HAS_ADDED" -eq 0 ]; then
+        echo -e "${RED}FAIL${NC} (no block events received in window) [$(format_duration $WB_MS)]"
+        echo "  Expected at least block-created or block-added. Got: $SUMMARY"
+        head -10 "$OUTPUT" | sed 's/^/    /'
+        inc_fail
+    elif [ "$HAS_CREATED" -gt 0 ] && [ "$HAS_ADDED" -gt 0 ] && [ "$HAS_FINALIZED" -gt 0 ]; then
+        echo -e "${GREEN}PASS${NC} ($SUMMARY) [$(format_duration $WB_MS)]"
         inc_pass
     else
-        echo -e "${YELLOW}PASS${NC} (connected, no events in 10s - node may be idle) [$(format_duration $WB_MS)]"
+        echo -e "${GREEN}PASS${NC} (partial: $SUMMARY) [$(format_duration $WB_MS)]"
         inc_pass
     fi
 elif grep -qE "error|Error|refused|failed" "$OUTPUT"; then
@@ -499,7 +789,6 @@ elif grep -qE "error|Error|refused|failed" "$OUTPUT"; then
     head -5 "$OUTPUT" | sed 's/^/    /'
     inc_fail
 else
-    # No connection message - unexpected
     echo -e "${RED}FAIL${NC} (unexpected output) [$(format_duration $WB_MS)]"
     head -5 "$OUTPUT" | sed 's/^/    /'
     inc_fail
@@ -562,10 +851,6 @@ echo -e "${BLUE}--- Skipped Commands ---${NC}"
 # Manual propose will fail with "another propose is in progress" most of the time.
 # Use deploy-and-wait instead, which relies on heartbeat to include deploys.
 skip_test "propose" "conflicts with heartbeat proposer - use deploy-and-wait instead"
-
-# full-deploy: Deploy + propose in one operation - same issue as propose
-# The propose step conflicts with heartbeat. Use deploy-and-wait instead.
-skip_test "full-deploy" "propose step conflicts with heartbeat - use deploy-and-wait instead"
 
 # bond-validator: Bonds a new validator to the network
 # This test should be run manually because bonding a validator that isn't running

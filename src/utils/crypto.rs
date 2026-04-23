@@ -1,8 +1,8 @@
 use crate::error::{NodeCliError, Result};
 use f1r3fly_crypto::rust::public_key::PublicKey;
-use hex;
-use rand::rngs::OsRng;
 use f1r3fly_rholang::rust::interpreter::util::vault_address::VaultAddress;
+use hex;
+use secp256k1::rand;
 use secp256k1::{PublicKey as Secp256k1PublicKey, Secp256k1, SecretKey};
 use std::fs;
 use std::path::Path;
@@ -13,16 +13,18 @@ impl CryptoUtils {
     /// Decode a hex-encoded private key
     pub fn decode_private_key(private_key_hex: &str) -> Result<SecretKey> {
         let private_key_bytes = hex::decode(private_key_hex)?;
+        let key_array: [u8; 32] = private_key_bytes
+            .try_into()
+            .map_err(|_| NodeCliError::crypto_invalid_private_key("key must be 32 bytes"))?;
 
-        SecretKey::from_slice(&private_key_bytes)
+        SecretKey::from_byte_array(key_array)
             .map_err(|e| NodeCliError::crypto_invalid_private_key(&e.to_string()))
     }
 
     /// Generate a new random key pair
     pub fn generate_key_pair() -> Result<(SecretKey, Secp256k1PublicKey)> {
         let secp = Secp256k1::new();
-        let mut rng = OsRng::default();
-        let secret_key = SecretKey::new(&mut rng);
+        let secret_key = SecretKey::new(&mut rand::rng());
         let public_key = secret_key.public_key(&secp);
         Ok((secret_key, public_key))
     }
@@ -96,7 +98,10 @@ impl CryptoUtils {
     /// Validate private key format
     pub fn is_valid_private_key(private_key_hex: &str) -> bool {
         if let Ok(bytes) = hex::decode(private_key_hex) {
-            SecretKey::from_slice(&bytes).is_ok()
+            let Ok(arr): std::result::Result<[u8; 32], _> = bytes.try_into() else {
+                return false;
+            };
+            SecretKey::from_byte_array(arr).is_ok()
         } else {
             false
         }

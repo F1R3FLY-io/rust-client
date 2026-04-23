@@ -38,7 +38,9 @@ pub async fn run_dag(args: &DagArgs) -> Result<(), NodeCliError> {
     }
 
     // Run the TUI
-    app.run().await.map_err(|e| NodeCliError::io_error(&e.to_string()))?;
+    app.run()
+        .await
+        .map_err(|e| NodeCliError::io_error(&e.to_string()))?;
 
     Ok(())
 }
@@ -81,16 +83,22 @@ async fn fetch_initial_blocks(
     Ok(blocks)
 }
 
-/// Parse a block from JSON
+/// Parse a block from JSON. Handles both flat LightBlockInfo (legacy)
+/// and wrapped BlockInfoSerde format ({"blockInfo": {...}}).
 fn parse_block_json(json: &serde_json::Value) -> Option<DagBlock> {
-    let hash = json.get("blockHash")?.as_str()?.to_string();
-    let block_number = json.get("blockNumber")?.as_i64()?;
-    let timestamp_ms = json.get("timestamp")?.as_i64().unwrap_or(0);
-    let timestamp = Utc.timestamp_millis_opt(timestamp_ms).single().unwrap_or_else(Utc::now);
-    let creator = json.get("sender")?.as_str()?.to_string();
-    let seq_num = json.get("seqNum")?.as_i64().unwrap_or(0);
+    // Unwrap blockInfo wrapper if present (new BlockInfoSerde format)
+    let info = json.get("blockInfo").unwrap_or(json);
+    let hash = info.get("blockHash")?.as_str()?.to_string();
+    let block_number = info.get("blockNumber")?.as_i64()?;
+    let timestamp_ms = info.get("timestamp")?.as_i64().unwrap_or(0);
+    let timestamp = Utc
+        .timestamp_millis_opt(timestamp_ms)
+        .single()
+        .unwrap_or_else(Utc::now);
+    let creator = info.get("sender")?.as_str()?.to_string();
+    let seq_num = info.get("seqNum")?.as_i64().unwrap_or(0);
 
-    let parents: Vec<String> = json
+    let parents: Vec<String> = info
         .get("parentsHashList")
         .and_then(|p| p.as_array())
         .map(|arr| {
@@ -100,10 +108,16 @@ fn parse_block_json(json: &serde_json::Value) -> Option<DagBlock> {
         })
         .unwrap_or_default();
 
-    let deploy_count = json.get("deployCount")?.as_i64().unwrap_or(0) as u32;
+    let deploy_count = info.get("deployCount")?.as_i64().unwrap_or(0) as u32;
 
-    // Assume finalized for historical blocks
-    let status = BlockStatus::Finalized;
+    // Blocks missing isFinalized are skipped so the gap is visible rather than silently
+    // assumed finalized — aligns with no-swallow principle.
+    let is_finalized = info.get("isFinalized").and_then(|v| v.as_bool())?;
+    let status = if is_finalized {
+        BlockStatus::Finalized
+    } else {
+        BlockStatus::Added
+    };
 
     let mut block = DagBlock::new(
         hash,
@@ -117,13 +131,13 @@ fn parse_block_json(json: &serde_json::Value) -> Option<DagBlock> {
     );
 
     // Optional fields
-    if let Some(shard) = json.get("shardId").and_then(|s| s.as_str()) {
+    if let Some(shard) = info.get("shardId").and_then(|s| s.as_str()) {
         block.shard_id = shard.to_string();
     }
-    if let Some(pre) = json.get("preStateHash").and_then(|s| s.as_str()) {
+    if let Some(pre) = info.get("preStateHash").and_then(|s| s.as_str()) {
         block.pre_state_hash = pre.to_string();
     }
-    if let Some(post) = json.get("postStateHash").and_then(|s| s.as_str()) {
+    if let Some(post) = info.get("postStateHash").and_then(|s| s.as_str()) {
         block.post_state_hash = post.to_string();
     }
 
@@ -153,16 +167,20 @@ async fn fetch_block_by_hash(api_base: &str, hash: &str) -> Option<DagBlock> {
     None
 }
 
-/// Parse a block from the /api/block/{hash} response format
-fn parse_block_info_json(json: &serde_json::Value) -> Option<DagBlock> {
-    let hash = json.get("blockHash")?.as_str()?.to_string();
-    let block_number = json.get("blockNumber")?.as_i64()?;
-    let timestamp_ms = json.get("timestamp")?.as_i64().unwrap_or(0);
-    let timestamp = Utc.timestamp_millis_opt(timestamp_ms).single().unwrap_or_else(Utc::now);
-    let creator = json.get("sender")?.as_str()?.to_string();
-    let seq_num = json.get("seqNum")?.as_i64().unwrap_or(0);
+/// Parse a block from the /api/block/{hash} response format.
+/// Receives the inner blockInfo object (already unwrapped by caller).
+fn parse_block_info_json(info: &serde_json::Value) -> Option<DagBlock> {
+    let hash = info.get("blockHash")?.as_str()?.to_string();
+    let block_number = info.get("blockNumber")?.as_i64()?;
+    let timestamp_ms = info.get("timestamp")?.as_i64().unwrap_or(0);
+    let timestamp = Utc
+        .timestamp_millis_opt(timestamp_ms)
+        .single()
+        .unwrap_or_else(Utc::now);
+    let creator = info.get("sender")?.as_str()?.to_string();
+    let seq_num = info.get("seqNum")?.as_i64().unwrap_or(0);
 
-    let parents: Vec<String> = json
+    let parents: Vec<String> = info
         .get("parentsHashList")
         .and_then(|p| p.as_array())
         .map(|arr| {
@@ -172,10 +190,14 @@ fn parse_block_info_json(json: &serde_json::Value) -> Option<DagBlock> {
         })
         .unwrap_or_default();
 
-    let deploy_count = json.get("deployCount")?.as_i64().unwrap_or(0) as u32;
+    let deploy_count = info.get("deployCount")?.as_i64().unwrap_or(0) as u32;
 
-    // Assume finalized for fetched blocks
-    let status = BlockStatus::Finalized;
+    let is_finalized = info.get("isFinalized").and_then(|v| v.as_bool())?;
+    let status = if is_finalized {
+        BlockStatus::Finalized
+    } else {
+        BlockStatus::Added
+    };
 
     let mut block = DagBlock::new(
         hash,
@@ -189,13 +211,13 @@ fn parse_block_info_json(json: &serde_json::Value) -> Option<DagBlock> {
     );
 
     // Optional fields
-    if let Some(shard) = json.get("shardId").and_then(|s| s.as_str()) {
+    if let Some(shard) = info.get("shardId").and_then(|s| s.as_str()) {
         block.shard_id = shard.to_string();
     }
-    if let Some(pre) = json.get("preStateHash").and_then(|s| s.as_str()) {
+    if let Some(pre) = info.get("preStateHash").and_then(|s| s.as_str()) {
         block.pre_state_hash = pre.to_string();
     }
-    if let Some(post) = json.get("postStateHash").and_then(|s| s.as_str()) {
+    if let Some(post) = info.get("postStateHash").and_then(|s| s.as_str()) {
         block.post_state_hash = post.to_string();
     }
 
@@ -222,7 +244,9 @@ async fn run_websocket_listener(
                     // to get the correct block number
                     let enriched_event = match &event {
                         DagEvent::BlockCreated(block) => {
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, &block.hash).await {
+                            if let Some(mut full_block) =
+                                fetch_block_by_hash(&api_base, &block.hash).await
+                            {
                                 full_block.status = BlockStatus::Created;
                                 DagEvent::BlockCreated(full_block)
                             } else {
@@ -232,7 +256,8 @@ async fn run_websocket_listener(
                         DagEvent::BlockAdded(hash) => {
                             // Fetch full block and return as BlockCreated with Added status
                             // This ensures we have block_number even if we missed BlockCreated
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await {
+                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
+                            {
                                 full_block.status = BlockStatus::Added;
                                 DagEvent::BlockCreated(full_block)
                             } else {
@@ -241,7 +266,8 @@ async fn run_websocket_listener(
                         }
                         DagEvent::BlockFinalized(hash) => {
                             // Fetch full block and return as BlockCreated with Finalized status
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await {
+                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
+                            {
                                 full_block.status = BlockStatus::Finalized;
                                 DagEvent::BlockCreated(full_block)
                             } else {
@@ -279,10 +305,7 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
         serde_json::from_str(text).map_err(|e| NodeCliError::parse_error(&e.to_string()))?;
 
     // Get event type (kebab-case)
-    let event_type = json
-        .get("event")
-        .and_then(|e| e.as_str())
-        .unwrap_or("");
+    let event_type = json.get("event").and_then(|e| e.as_str()).unwrap_or("");
 
     let payload = json.get("payload");
 
@@ -307,20 +330,33 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
                 }
             }
         }
-        "started" => {
-            // Initial connection event, ignore
-            return Err(NodeCliError::parse_error("Ignoring started event"));
+        // Non-block events: handshake, genesis ceremony, node lifecycle.
+        // Not relevant for DAG visualization.
+        "started"
+        | "sent-unapproved-block"
+        | "sent-approved-block"
+        | "block-approval-received"
+        | "approved-block-received"
+        | "entered-running-state"
+        | "node-started" => {
+            return Err(NodeCliError::parse_error("Non-block event, skipping"));
         }
         _ => {}
     }
 
-    Err(NodeCliError::parse_error(&format!("Unknown event type: {}", event_type)))
+    Err(NodeCliError::parse_error(&format!(
+        "Unknown event type: {}",
+        event_type
+    )))
 }
 
 /// Parse a block from WebSocket event payload (kebab-case fields)
 /// Note: WebSocket events contain seq-num (validator sequence) not block number.
 /// We set block_number to -1 to indicate it needs to be fetched.
-fn parse_event_block(payload: &serde_json::Value, status: BlockStatus) -> Result<DagBlock, NodeCliError> {
+fn parse_event_block(
+    payload: &serde_json::Value,
+    status: BlockStatus,
+) -> Result<DagBlock, NodeCliError> {
     let hash = payload
         .get("block-hash")
         .and_then(|h| h.as_str())
@@ -333,10 +369,7 @@ fn parse_event_block(payload: &serde_json::Value, status: BlockStatus) -> Result
         .unwrap_or("unknown")
         .to_string();
 
-    let seq_num = payload
-        .get("seq-num")
-        .and_then(|s| s.as_i64())
-        .unwrap_or(0);
+    let seq_num = payload.get("seq-num").and_then(|s| s.as_i64()).unwrap_or(0);
 
     let parents: Vec<String> = payload
         .get("parent-hashes")

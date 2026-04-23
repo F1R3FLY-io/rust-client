@@ -68,7 +68,7 @@ pub fn generate_insert_signed_signature(
     let message = Message::from_digest(hash.into());
 
     Secp256k1::new()
-        .sign_ecdsa(&message, key)
+        .sign_ecdsa(message, key)
         .serialize_der()
         .to_vec()
 }
@@ -121,8 +121,8 @@ mod tests {
         let secp = Secp256k1::new();
         let private_key_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
         let secret_key_bytes = hex::decode(private_key_hex).unwrap();
-        let secret_key = SecretKey::from_slice(&secret_key_bytes).unwrap();
-        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let secret_key = SecretKey::from_byte_array(secret_key_bytes.try_into().unwrap()).unwrap();
+        let public_key = secret_key.public_key(&secp);
 
         let uri1 = public_key_to_uri(&public_key);
         let uri2 = public_key_to_uri(&public_key);
@@ -134,8 +134,8 @@ mod tests {
         let secp = Secp256k1::new();
         let private_key_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
         let secret_key_bytes = hex::decode(private_key_hex).unwrap();
-        let secret_key = SecretKey::from_slice(&secret_key_bytes).unwrap();
-        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let secret_key = SecretKey::from_byte_array(secret_key_bytes.try_into().unwrap()).unwrap();
+        let public_key = secret_key.public_key(&secp);
 
         let uri = public_key_to_uri(&public_key);
         assert!(uri.starts_with("rho:id:"));
@@ -146,14 +146,14 @@ mod tests {
         let secp = Secp256k1::new();
 
         let key1_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-        let secret_key1 =
-            SecretKey::from_slice(&hex::decode(key1_hex).unwrap()).unwrap();
-        let public_key1 = PublicKey::from_secret_key(&secp, &secret_key1);
+        let key1_bytes: [u8; 32] = hex::decode(key1_hex).unwrap().try_into().unwrap();
+        let secret_key1 = SecretKey::from_byte_array(key1_bytes).unwrap();
+        let public_key1 = secret_key1.public_key(&secp);
 
         let key2_hex = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
-        let secret_key2 =
-            SecretKey::from_slice(&hex::decode(key2_hex).unwrap()).unwrap();
-        let public_key2 = PublicKey::from_secret_key(&secp, &secret_key2);
+        let key2_bytes: [u8; 32] = hex::decode(key2_hex).unwrap().try_into().unwrap();
+        let secret_key2 = SecretKey::from_byte_array(key2_bytes).unwrap();
+        let public_key2 = secret_key2.public_key(&secp);
 
         let uri1 = public_key_to_uri(&public_key1);
         let uri2 = public_key_to_uri(&public_key2);

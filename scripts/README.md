@@ -47,7 +47,7 @@ The smoke test validates 30+ commands across these categories:
 | **Network** | network-health, bond-status |
 | **Transfer** | transfer, get-deploy |
 | **PoS Queries** | epoch-info, epoch-rewards, validator-status, network-consensus |
-| **Streaming** | watch-blocks (verifies Block Created, Added, and Finalized events) |
+| **Streaming** | watch-events (verifies block lifecycle, genesis, and node lifecycle events) |
 | **Load Testing** | load-test (runs 3 transfers, requires 100% finalization) |
 
 ---

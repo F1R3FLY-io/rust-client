@@ -115,7 +115,7 @@ pub fn generate_vault_address_command(args: &GenerateVaultAddressArgs) -> Result
 }
 
 pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
-    use sha3::{Digest};
+    use sha3::Digest;
     use std::process::Command;
 
     // Determine which file to use
@@ -129,67 +129,79 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
         ));
     };
 
-    println!("🔑 Extracting node ID from {} file: {}", file_type, file_path);
+    println!(" Extracting node ID from {} file: {}", file_type, file_path);
 
     // Use appropriate OpenSSL command based on file type
     let openssl_output = if args.key_file.is_some() {
         // Extract public key from private key file
         let output = Command::new("openssl")
-            .args(&[
-                "ec", "-text", "-in", file_path, "-noout"
-            ])
+            .args(&["ec", "-text", "-in", file_path, "-noout"])
             .output()
-            .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {}", e)))?;
+            .map_err(|e| {
+                NodeCliError::crypto_invalid_private_key(&format!(
+                    "Failed to execute openssl: {}",
+                    e
+                ))
+            })?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(NodeCliError::crypto_invalid_private_key(&format!("OpenSSL error: {}", error_msg)));
+            return Err(NodeCliError::crypto_invalid_private_key(&format!(
+                "OpenSSL error: {}",
+                error_msg
+            )));
         }
 
         String::from_utf8_lossy(&output.stdout).to_string()
     } else {
         // Extract public key from certificate file
         let output = Command::new("openssl")
-            .args(&[
-                "x509", "-in", file_path, "-noout", "-text"
-            ])
+            .args(&["x509", "-in", file_path, "-noout", "-text"])
             .output()
-            .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {}", e)))?;
+            .map_err(|e| {
+                NodeCliError::crypto_invalid_private_key(&format!(
+                    "Failed to execute openssl: {}",
+                    e
+                ))
+            })?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(NodeCliError::crypto_invalid_private_key(&format!("OpenSSL error: {}", error_msg)));
+            return Err(NodeCliError::crypto_invalid_private_key(&format!(
+                "OpenSSL error: {}",
+                error_msg
+            )));
         }
 
         String::from_utf8_lossy(&output.stdout).to_string()
     };
 
     // Debug: Uncomment to see OpenSSL output
-    // println!("🔍 Debug: OpenSSL output:");
+    // println!(" Debug: OpenSSL output:");
     // println!("{}", openssl_output);
 
     // Extract public key from OpenSSL output
     let public_key_hex = extract_public_key_from_openssl_output(&openssl_output)?;
-    
+
     // Remove the '04' prefix as per F1R3FLY specification
     let cleaned_hex = if public_key_hex.starts_with("04") {
         &public_key_hex[2..]
     } else {
         &public_key_hex
     };
-    
+
     // Convert hex to bytes
     let public_key_bytes = hex::decode(cleaned_hex)
         .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Invalid hex: {}", e)))?;
-    
+
     // Calculate Keccac-256 hash
     let mut hasher = sha3::Keccak256::new();
     hasher.update(&public_key_bytes);
     let hash = hasher.finalize();
-    
+
     // Take last 20 bytes (40 hex characters) for node ID
     let node_id = hex::encode(&hash[hash.len() - 20..]);
-    
+
     // Output based on format
     match args.format.as_str() {
         "hex" => {
@@ -218,22 +230,24 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
 fn extract_public_key_from_openssl_output(output: &str) -> Result<String> {
     let mut in_pub_section = false;
     let mut public_key_hex = String::new();
-    
+
     for line in output.lines() {
         let trimmed = line.trim();
-        
+
         if trimmed == "pub:" {
             in_pub_section = true;
             continue;
         }
-        
+
         // Stop when we hit the next section (lines like "ASN1 OID:" or other non-hex lines)
-        if in_pub_section && (trimmed.contains("ASN1") || trimmed.contains("NIST") || trimmed.contains("OID")) {
+        if in_pub_section
+            && (trimmed.contains("ASN1") || trimmed.contains("NIST") || trimmed.contains("OID"))
+        {
             break;
         }
-        
+
         if in_pub_section {
-            // Extract hex bytes from lines like "    04:00:81:19:bf:90:eb:01:09:a0:ea:67:9f:df:5e:"
+            // Extract hex bytes from lines like " 04:00:81:19:bf:90:eb:01:09:a0:ea:67:9f:df:5e:"
             // Split by colon and process each part
             let parts: Vec<&str> = trimmed.split(':').collect();
             for part in parts {
@@ -245,12 +259,14 @@ fn extract_public_key_from_openssl_output(output: &str) -> Result<String> {
             }
         }
     }
-    
+
     if public_key_hex.is_empty() {
-        return Err(NodeCliError::crypto_invalid_private_key("Could not extract public key from OpenSSL output"));
+        return Err(NodeCliError::crypto_invalid_private_key(
+            "Could not extract public key from OpenSSL output",
+        ));
     }
-    
+
     // Debug: Uncomment to see extracted hex
-    // println!("🔍 Debug: Final extracted public key hex: {}", public_key_hex);
+    // println!(" Debug: Final extracted public key hex: {}", public_key_hex);
     Ok(public_key_hex)
 }

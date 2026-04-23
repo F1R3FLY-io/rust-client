@@ -101,17 +101,17 @@ impl DagBlock {
 #[derive(Clone, Debug)]
 pub struct GraphRow {
     pub block_hash: String,
-    pub node_column: usize,           // Which column has the node (●)
-    pub columns: Vec<GraphColumn>,    // State of each column
-    pub edges: Vec<GraphEdge>,        // Edges to draw on this row
+    pub node_column: usize,        // Which column has the node ()
+    pub columns: Vec<GraphColumn>, // State of each column
+    pub edges: Vec<GraphEdge>,     // Edges to draw on this row
 }
 
 /// What's in a graph column
 #[derive(Clone, Debug, PartialEq)]
 pub enum GraphColumn {
     Empty,
-    Line(String),      // Continuing line tracking a block hash
-    Node,              // The node for this row's block
+    Line(String), // Continuing line tracking a block hash
+    Node,         // The node for this row's block
 }
 
 /// An edge to draw (connects node to a parent)
@@ -128,7 +128,7 @@ pub struct Dag {
     pub children: HashMap<String, Vec<String>>, // parent -> children
     pub tips: Vec<String>,                      // Blocks with no children
     pub graph_rows: Vec<GraphRow>,
-    pub sorted_hashes: Vec<String>,             // Sorted by block number descending
+    pub sorted_hashes: Vec<String>, // Sorted by block number descending
     pub max_columns: usize,
 }
 
@@ -189,16 +189,16 @@ impl Dag {
 
     /// Sort blocks by block number (newest/highest first)
     fn sort_blocks(&mut self) {
-        let mut block_list: Vec<_> = self.blocks.iter()
+        let mut block_list: Vec<_> = self
+            .blocks
+            .iter()
             .map(|(hash, block)| (hash.clone(), block.block_number, block.timestamp))
             .collect();
 
         // Sort by block number descending, then by timestamp descending for same block number
-        block_list.sort_by(|a, b| {
-            match b.1.cmp(&a.1) {
-                std::cmp::Ordering::Equal => b.2.cmp(&a.2),
-                other => other,
-            }
+        block_list.sort_by(|a, b| match b.1.cmp(&a.1) {
+            std::cmp::Ordering::Equal => b.2.cmp(&a.2),
+            other => other,
         });
 
         self.sorted_hashes = block_list.into_iter().map(|(hash, _, _)| hash).collect();
@@ -234,11 +234,10 @@ impl Dag {
                 col
             } else {
                 // No child reserved us a spot - find first empty column or add new one
-                let col = columns.iter().position(|c| c.is_none())
-                    .unwrap_or_else(|| {
-                        columns.push(None);
-                        columns.len() - 1
-                    });
+                let col = columns.iter().position(|c| c.is_none()).unwrap_or_else(|| {
+                    columns.push(None);
+                    columns.len() - 1
+                });
                 col
             };
 
@@ -248,12 +247,13 @@ impl Dag {
             }
 
             // Build the row's column state before drawing edges
-            let mut row_columns: Vec<GraphColumn> = columns.iter().map(|c| {
-                match c {
+            let mut row_columns: Vec<GraphColumn> = columns
+                .iter()
+                .map(|c| match c {
                     Some(h) => GraphColumn::Line(h.clone()),
                     None => GraphColumn::Empty,
-                }
-            }).collect();
+                })
+                .collect();
 
             // Mark this column as having the node
             row_columns[node_col] = GraphColumn::Node;
@@ -280,7 +280,9 @@ impl Dag {
                         existing_col
                     } else {
                         // Find an empty column for this parent
-                        let col = columns.iter().enumerate()
+                        let col = columns
+                            .iter()
+                            .enumerate()
                             .position(|(idx, c)| c.is_none() && idx != node_col)
                             .unwrap_or_else(|| {
                                 columns.push(None);
@@ -337,7 +339,9 @@ impl Dag {
         }
 
         // Calculate max columns used
-        self.max_columns = self.graph_rows.iter()
+        self.max_columns = self
+            .graph_rows
+            .iter()
             .map(|r| r.columns.len())
             .max()
             .unwrap_or(1);
