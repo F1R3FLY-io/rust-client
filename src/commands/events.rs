@@ -1,18 +1,29 @@
-use crate::args::WatchBlocksArgs;
+use crate::args::WatchEventsArgs;
 use crate::error::{NodeCliError, Result};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-/// RChain blockchain event from WebSocket
+/// F1R3FLY node event from WebSocket /ws/events endpoint.
+///
+/// The node defines 10 event types in F1r3flyEvent:
+///   Block lifecycle:  block-created, block-added, block-finalised
+///   Transfer:         transfers-available (readonly only, after block report)
+///   Genesis ceremony: sent-unapproved-block, sent-approved-block,
+///                     approved-block-received
+///   Node lifecycle:   entered-running-state, node-started
+///
+/// The "started" variant is a WebSocket handshake (not an F1r3flyEvent).
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event")]
 #[serde(rename_all = "kebab-case")]
-pub enum RChainEvent {
+pub enum NodeEvent {
+    // WebSocket handshake
     Started {
         #[serde(rename = "schema-version")]
         schema_version: i32,
     },
+    // Block lifecycle
     BlockCreated {
         #[serde(rename = "schema-version")]
         schema_version: i32,
@@ -26,7 +37,40 @@ pub enum RChainEvent {
     BlockFinalised {
         #[serde(rename = "schema-version")]
         schema_version: i32,
-        payload: FinalizedBlockPayload,
+        payload: BlockEventPayload,
+    },
+    // Transfer extraction (readonly only)
+    TransfersAvailable {
+        #[serde(rename = "schema-version")]
+        schema_version: i32,
+        payload: TransfersAvailablePayload,
+    },
+    // Genesis ceremony
+    SentUnapprovedBlock {
+        #[serde(rename = "schema-version")]
+        schema_version: i32,
+        payload: BlockHashPayload,
+    },
+    SentApprovedBlock {
+        #[serde(rename = "schema-version")]
+        schema_version: i32,
+        payload: BlockHashPayload,
+    },
+    ApprovedBlockReceived {
+        #[serde(rename = "schema-version")]
+        schema_version: i32,
+        payload: BlockHashPayload,
+    },
+    // Node lifecycle
+    EnteredRunningState {
+        #[serde(rename = "schema-version")]
+        schema_version: i32,
+        payload: BlockHashPayload,
+    },
+    NodeStarted {
+        #[serde(rename = "schema-version")]
+        schema_version: i32,
+        payload: NodeStartedPayload,
     },
 }
 
@@ -34,6 +78,10 @@ pub enum RChainEvent {
 #[serde(rename_all = "kebab-case")]
 pub struct BlockEventPayload {
     pub block_hash: String,
+    #[serde(default)]
+    pub block_number: Option<i64>,
+    #[serde(default)]
+    pub timestamp: Option<i64>,
     pub parent_hashes: Vec<String>,
     pub justification_hashes: Vec<(String, String)>,
     pub deploys: Vec<BlockEventDeploy>,
@@ -52,8 +100,38 @@ pub struct BlockEventDeploy {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct FinalizedBlockPayload {
+pub struct TransfersAvailablePayload {
     pub block_hash: String,
+    pub block_number: i64,
+    pub deploys: Vec<DeployTransfers>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct DeployTransfers {
+    pub deploy_id: String,
+    pub transfers: Vec<TransferEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct TransferEvent {
+    pub from_addr: String,
+    pub to_addr: String,
+    pub amount: i64,
+    pub success: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct BlockHashPayload {
+    pub block_hash: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct NodeStartedPayload {
+    pub address: String,
 }
 
 /// Statistics for the watch session
@@ -61,6 +139,9 @@ struct EventStats {
     created: u32,
     added: u32,
     finalized: u32,
+    transfers: u32,
+    genesis: u32,
+    lifecycle: u32,
     total: u32,
 }
 
@@ -70,36 +151,74 @@ impl EventStats {
             created: 0,
             added: 0,
             finalized: 0,
+            transfers: 0,
+            genesis: 0,
+            lifecycle: 0,
             total: 0,
         }
     }
 
-    fn increment(&mut self, event: &RChainEvent) {
+    fn increment(&mut self, event: &NodeEvent) {
         self.total += 1;
         match event {
-            RChainEvent::BlockCreated { .. } => self.created += 1,
-            RChainEvent::BlockAdded { .. } => self.added += 1,
-            RChainEvent::BlockFinalised { .. } => self.finalized += 1,
-            RChainEvent::Started { .. } => {}
+            NodeEvent::BlockCreated { .. } => self.created += 1,
+            NodeEvent::BlockAdded { .. } => self.added += 1,
+            NodeEvent::BlockFinalised { .. } => self.finalized += 1,
+            NodeEvent::TransfersAvailable { .. } => self.transfers += 1,
+            NodeEvent::SentUnapprovedBlock { .. }
+            | NodeEvent::SentApprovedBlock { .. }
+            | NodeEvent::ApprovedBlockReceived { .. } => self.genesis += 1,
+            NodeEvent::EnteredRunningState { .. } | NodeEvent::NodeStarted { .. } => {
+                self.lifecycle += 1
+            }
+            NodeEvent::Started { .. } => {}
         }
     }
 
     fn print_summary(&self, duration: std::time::Duration) {
         println!("\n Event Statistics:");
         println!(" Total Events: {}", self.total);
-        println!(" - Created: {}", self.created);
-        println!(" - Added: {}", self.added);
-        println!(" - Finalized: {}", self.finalized);
-        println!(" Duration: {:.1}s", duration.as_secs_f64());
+        println!(" - Created:    {}", self.created);
+        println!(" - Added:      {}", self.added);
+        println!(" - Finalized:  {}", self.finalized);
+        if self.transfers > 0 {
+            println!(" - Transfers:  {}", self.transfers);
+        }
+        if self.genesis > 0 {
+            println!(" - Genesis:    {}", self.genesis);
+        }
+        if self.lifecycle > 0 {
+            println!(" - Lifecycle:  {}", self.lifecycle);
+        }
+        println!(" Duration:     {:.1}s", duration.as_secs_f64());
         if duration.as_secs() > 0 {
             let rate = self.total as f64 / duration.as_secs_f64();
-            println!(" Rate: {:.2} events/sec", rate);
+            println!(" Rate:         {:.2} events/sec", rate);
         }
     }
 }
 
 /// Watch blocks command - connects to WebSocket and streams block events
-pub async fn watch_blocks_command(args: &WatchBlocksArgs) -> Result<()> {
+pub async fn watch_events_command(args: &WatchEventsArgs) -> Result<()> {
+    const VALID_FILTERS: &[&str] = &[
+        "created",
+        "added",
+        "finalized",
+        "finalised",
+        "transfers",
+        "genesis",
+        "lifecycle",
+    ];
+    if let Some(filter) = &args.filter {
+        if !VALID_FILTERS.contains(&filter.as_str()) {
+            return Err(NodeCliError::from(format!(
+                "Invalid --filter value '{}'. Valid values: {}",
+                filter,
+                VALID_FILTERS.join(", ")
+            )));
+        }
+    }
+
     let ws_url = format!("ws://{}:{}/ws/events", args.host, args.http_port);
 
     println!(" Connecting to F1r3fly node WebSocket...");
@@ -119,13 +238,11 @@ pub async fn watch_blocks_command(args: &WatchBlocksArgs) -> Result<()> {
     loop {
         match connect_and_watch(&ws_url, args, &mut stats).await {
             Ok(_) => {
-                // Normal exit
                 break;
             }
             Err(e) => {
                 retry_count += 1;
 
-                // Check if we should stop retrying
                 if !args.retry_forever && retry_count > MAX_RETRIES {
                     println!(" Max reconnection attempts ({}) reached", MAX_RETRIES);
                     return Err(e);
@@ -159,7 +276,7 @@ pub async fn watch_blocks_command(args: &WatchBlocksArgs) -> Result<()> {
 
 async fn connect_and_watch(
     ws_url: &str,
-    args: &WatchBlocksArgs,
+    args: &WatchEventsArgs,
     stats: &mut EventStats,
 ) -> Result<()> {
     let (ws_stream, _) = connect_async(ws_url).await.map_err(|e| {
@@ -171,7 +288,6 @@ async fn connect_and_watch(
 
     let (mut _write, mut read) = ws_stream.split();
 
-    // Set up Ctrl+C handler
     let ctrl_c = tokio::signal::ctrl_c();
     tokio::pin!(ctrl_c);
 
@@ -205,16 +321,21 @@ async fn connect_and_watch(
     }
 }
 
-fn handle_event(text: &str, args: &WatchBlocksArgs, stats: &mut EventStats) -> Result<()> {
-    let event: RChainEvent = serde_json::from_str(text)
+fn handle_event(text: &str, args: &WatchEventsArgs, stats: &mut EventStats) -> Result<()> {
+    let event: NodeEvent = serde_json::from_str(text)
         .map_err(|e| NodeCliError::from(format!("Failed to parse event: {}", e)))?;
 
-    // Apply filter
     if let Some(filter) = &args.filter {
         let matches = match (&event, filter.as_str()) {
-            (RChainEvent::BlockCreated { .. }, "created") => true,
-            (RChainEvent::BlockAdded { .. }, "added") => true,
-            (RChainEvent::BlockFinalised { .. }, "finalized" | "finalised") => true,
+            (NodeEvent::BlockCreated { .. }, "created") => true,
+            (NodeEvent::BlockAdded { .. }, "added") => true,
+            (NodeEvent::BlockFinalised { .. }, "finalized" | "finalised") => true,
+            (NodeEvent::TransfersAvailable { .. }, "transfers") => true,
+            (NodeEvent::SentUnapprovedBlock { .. }, "genesis") => true,
+            (NodeEvent::SentApprovedBlock { .. }, "genesis") => true,
+            (NodeEvent::ApprovedBlockReceived { .. }, "genesis") => true,
+            (NodeEvent::EnteredRunningState { .. }, "lifecycle") => true,
+            (NodeEvent::NodeStarted { .. }, "lifecycle") => true,
             _ => false,
         };
 
@@ -224,68 +345,112 @@ fn handle_event(text: &str, args: &WatchBlocksArgs, stats: &mut EventStats) -> R
     }
 
     stats.increment(&event);
-
-    // Display in pretty format with deploys shown
     display_pretty(&event);
-
     Ok(())
 }
 
-fn display_pretty(event: &RChainEvent) {
+fn display_pretty(event: &NodeEvent) {
     match event {
-        RChainEvent::Started { .. } => {
+        NodeEvent::Started { .. } => {
             println!(" WebSocket connection started\n");
         }
-        RChainEvent::BlockCreated { payload, .. } => {
+        NodeEvent::BlockCreated { payload, .. } => {
             println!(" Block Created");
-            println!(" Hash: {}", payload.block_hash);
-            println!(" Creator: {}", payload.creator);
-            println!(" Seq Num: {}", payload.seq_num);
-            println!(" Parents: {}", payload.parent_hashes.len());
-
-            if !payload.deploys.is_empty() {
-                println!(
-                    " Deploys: {} [{}]",
-                    payload.deploys.len(),
-                    payload
-                        .deploys
-                        .iter()
-                        .map(|d| d.id.clone())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            } else {
-                println!(" Deploys: {}", payload.deploys.len());
-            }
-            println!();
+            display_block_payload(payload);
         }
-        RChainEvent::BlockAdded { payload, .. } => {
+        NodeEvent::BlockAdded { payload, .. } => {
             println!(" Block Added");
-            println!(" Hash: {}", payload.block_hash);
-            println!(" Creator: {}", payload.creator);
-            println!(" Seq Num: {}", payload.seq_num);
-            println!(" Parents: {}", payload.parent_hashes.len());
-
-            if !payload.deploys.is_empty() {
+            display_block_payload(payload);
+        }
+        NodeEvent::BlockFinalised { payload, .. } => {
+            println!(" Block Finalized");
+            display_block_payload(payload);
+        }
+        NodeEvent::TransfersAvailable { payload, .. } => {
+            println!(" Transfers Available");
+            println!(
+                " Block:    {} (#{}))",
+                payload.block_hash, payload.block_number
+            );
+            println!(" Deploys:  {}", payload.deploys.len());
+            for dt in &payload.deploys {
                 println!(
-                    " Deploys: {} [{}]",
-                    payload.deploys.len(),
-                    payload
-                        .deploys
-                        .iter()
-                        .map(|d| d.id.clone())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "   Deploy: {}  ({} transfers)",
+                    &dt.deploy_id[..24.min(dt.deploy_id.len())],
+                    dt.transfers.len()
                 );
-            } else {
-                println!(" Deploys: {}", payload.deploys.len());
+                for t in &dt.transfers {
+                    println!(
+                        "     {} -> {} : {} ({})",
+                        &t.from_addr[..16.min(t.from_addr.len())],
+                        &t.to_addr[..16.min(t.to_addr.len())],
+                        t.amount,
+                        if t.success { "ok" } else { "failed" },
+                    );
+                }
             }
             println!();
         }
-        RChainEvent::BlockFinalised { payload, .. } => {
-            println!(" Block Finalized");
+        NodeEvent::SentUnapprovedBlock { payload, .. } => {
+            println!(" Sent Unapproved Block");
             println!(" Hash: {}", payload.block_hash);
+            println!();
+        }
+        NodeEvent::SentApprovedBlock { payload, .. } => {
+            println!(" Sent Approved Block");
+            println!(" Hash: {}", payload.block_hash);
+            println!();
+        }
+        NodeEvent::ApprovedBlockReceived { payload, .. } => {
+            println!(" Approved Block Received");
+            println!(" Hash: {}", payload.block_hash);
+            println!();
+        }
+        NodeEvent::EnteredRunningState { payload, .. } => {
+            println!(" Entered Running State");
+            println!(" Block: {}", payload.block_hash);
+            println!();
+        }
+        NodeEvent::NodeStarted { payload, .. } => {
+            println!(" Node Started");
+            println!(" Address: {}", payload.address);
             println!();
         }
     }
+}
+
+fn display_block_payload(payload: &BlockEventPayload) {
+    println!(" Hash:     {}", payload.block_hash);
+    println!(
+        " Block #:  {}",
+        payload
+            .block_number
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    println!(
+        " Time:     {}",
+        payload
+            .timestamp
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    println!(" Creator:  {}", payload.creator);
+    println!(" Seq Num:  {}", payload.seq_num);
+    println!(" Parents:  {}", payload.parent_hashes.len());
+    if !payload.deploys.is_empty() {
+        println!(
+            " Deploys:  {} [{}]",
+            payload.deploys.len(),
+            payload
+                .deploys
+                .iter()
+                .map(|d| d.id.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    } else {
+        println!(" Deploys:  {}", payload.deploys.len());
+    }
+    println!();
 }

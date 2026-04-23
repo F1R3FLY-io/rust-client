@@ -8,7 +8,7 @@ use std::time::Instant;
 pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(" Getting node status from {}:{}", args.host, args.port);
 
-    let url = format!("http://{}:{}/status", args.host, args.port);
+    let url = format!("http://{}:{}/api/status", args.host, args.port);
     let client = reqwest::Client::new();
 
     let start_time = Instant::now();
@@ -18,12 +18,41 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
             let duration = start_time.elapsed();
             if response.status().is_success() {
                 let status_text = response.text().await?;
-                let status_json: serde_json::Value = serde_json::from_str(&status_text)?;
+                let status: crate::f1r3fly_api::NodeStatus = serde_json::from_str(&status_text)?;
 
                 println!(" Node status retrieved successfully!");
                 println!(" Time taken: {:.2?}", duration);
-                println!(" Node Status:");
-                println!("{}", serde_json::to_string_pretty(&status_json)?);
+                println!();
+                println!("  Address:       {}", status.address);
+                println!("  Network:       {}", status.network_id);
+                println!("  Shard:         {}", status.shard_id);
+                println!("  Peers:         {}", status.peers);
+                println!("  Nodes:         {}", status.nodes);
+                println!("  Min Phlo:      {}", status.min_phlo_price);
+                if !status.native_token_name.is_empty() {
+                    println!(
+                        "  Native Token:  {} ({}, {} decimals)",
+                        status.native_token_name,
+                        status.native_token_symbol,
+                        status.native_token_decimals
+                    );
+                }
+                fn fmt<T: std::fmt::Display>(v: Option<T>) -> String {
+                    v.map(|x| x.to_string()).unwrap_or_else(|| "N/A".into())
+                }
+                println!(
+                    "  LFB Number:    {}",
+                    fmt(status.last_finalized_block_number)
+                );
+                println!("  Validator:     {}", fmt(status.is_validator));
+                println!("  Read Only:     {}", fmt(status.is_read_only));
+                println!("  Ready:         {}", fmt(status.is_ready));
+                println!(
+                    "  Epoch:         {} (length: {})",
+                    fmt(status.current_epoch),
+                    fmt(status.epoch_length)
+                );
+                println!("  Version:       {}", status.version);
             } else {
                 println!(" Failed to get node status: HTTP {}", response.status());
                 println!("Error: {}", response.text().await?);

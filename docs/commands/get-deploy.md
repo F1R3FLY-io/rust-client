@@ -1,6 +1,6 @@
 # get-deploy
 
-Get deploy information by deploy ID. Tries the detail view first (Rust node v0.4.11+), falls back to basic view on older or Scala nodes.
+Get deploy information by deploy ID. Returns the unified `DeployResponse` with all execution details.
 
 ## Usage
 
@@ -16,77 +16,53 @@ node_cli get-deploy --deploy-id <ID> [OPTIONS]
 | `--host` | `-H` | `localhost` | Node hostname |
 | `--http-port` | | `40413` | HTTP port |
 | `--format` | | `pretty` | Output format: `pretty`, `json`, `summary` |
-| `--verbose` | `-v` | false | Show signature and VABN in pretty mode |
+| `--verbose` | `-v` | false | Show VABN in pretty mode |
 
-## Example: Detail view (Rust node v0.4.11+)
+## Example
 
 ```
-$ node_cli get-deploy --deploy-id 3044022075e51b8f...
+$ node_cli get-deploy -d 304502210085f163...
 
 Deploy Information
 ----------------------------------------
-Deploy ID:    3044022075e51b8f...
-Block Hash:   0519f656624c26e8a406ed4fd7f1fa9327f48128a0ad7758289bc09b8f646419
-Block Number: 314
+Deploy ID:    304502210085f163934f0de4c8eadb177d62b9527997100ff3b80d868dbfa702c2...
+Block Hash:   79d3560b36998644d139ba0f73a3883274f28f22b6f2016e973f3606be38bb56
+Block Number: 130
+Finalized:    true
 Deployer:     04ffc016579a68050d655d55df4e09f04605164543e257c8e6df10361e6068a533...
-Cost:         316
+Cost:         317
 Errored:      false
 Phlo Price:   1
 Phlo Limit:   50000
-Timestamp:    1775610628069
+Timestamp:    1776898667421
 Sig Algo:     secp256k1
-Query time:   30.57ms
+Query time:   15.38ms
 ```
 
-## Example: Basic view (older nodes / Scala)
+## Response Fields
 
-When the node doesn't support the detail view, the command falls back:
+| Field | Always present | Description |
+|-------|---------------|-------------|
+| `deployId` | Yes | Deploy signature ID |
+| `blockHash` | Yes | Containing block hash |
+| `blockNumber` | Yes | Block height |
+| `timestamp` | Yes | Block timestamp |
+| `cost` | Yes | Phlogiston consumed |
+| `errored` | Yes | Whether execution failed |
+| `isFinalized` | Yes | Whether containing block is finalized |
+| `deployer` | Full view | Deployer public key |
+| `term` | Full view | Rholang source |
+| `systemDeployError` | Full view | System deploy error (empty if none) |
+| `phloPrice` | Full view | Phlogiston price |
+| `phloLimit` | Full view | Phlogiston limit |
+| `sigAlgorithm` | Full view | Signature algorithm |
+| `validAfterBlockNumber` | Full view | Valid-after constraint |
+| `transfers` | Full view | Transfer list (null on validators, populated on readonly) |
 
-```
-$ node_cli get-deploy --deploy-id 3044022075e51b8f...
-
-Deploy Information (basic view)
-----------------------------------------
-Deploy ID:    3044022075e51b8f...
-Block Hash:   0519f656624c26e8...
-Block Number: 314
-Sender:       04ffc016579a6805...
-Timestamp:    1775610628069
-Query time:   12.31ms
-
-Note: deploy execution details (cost, errored) require Rust node v0.4.11+
-```
-
-## Example: JSON format
-
-On nodes with detail view, returns `DeployDetail`. On older nodes, returns raw block metadata JSON.
-
-```
-$ node_cli get-deploy --deploy-id 3044022075e51b8f... --format json
-
-{
-  "blockHash": "0519f656624c26e8...",
-  "blockNumber": 314,
-  "cost": 316,
-  "errored": false,
-  "deployer": "04ffc016579a680...",
-  ...
-}
-```
-
-## Example: Summary format
+## Summary format
 
 ```
-$ node_cli get-deploy --deploy-id 3044022075e51b8f... --format summary
+$ node_cli get-deploy -d 304502210085f163... --format summary
 
-Deploy 3044022075e51b8f... in block 0519f656... (#314) cost=316 errored=false
+Deploy 304502210085f163... in block 79d3560b... (#130) cost=317 errored=false finalized=true
 ```
-
-## Node Views
-
-The command tries views in order:
-
-| View | Endpoint | Available on | What it returns |
-|------|----------|-------------|-----------------|
-| detail | `?view=detail` | Rust v0.4.11+ | cost, errored, deployer, phlo, blockNumber |
-| default | (no param) | All nodes | blockHash, seqNum, sender, timestamp |

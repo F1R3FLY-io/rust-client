@@ -57,7 +57,7 @@ impl<'a> F1r3flyApi<'a> {
         http_port: u16,
     ) -> Result<Option<DeployDetail>, Box<dyn std::error::Error>> {
         let url = format!(
-            "http://{}:{}/api/deploy/{}?view=detail",
+            "http://{}:{}/api/deploy/{}",
             self.node_host, http_port, deploy_id
         );
         let client = reqwest::Client::new();
@@ -67,10 +67,10 @@ impl<'a> F1r3flyApi<'a> {
             return Ok(None);
         }
 
-        match response.json::<DeployDetail>().await {
-            Ok(detail) => Ok(Some(detail)),
-            Err(_) => Ok(None),
-        }
+        // None is reserved for 404 (handled above). A JSON parse error is a real
+        // problem — schema mismatch, malformed response, etc. — and must surface.
+        let detail = response.json::<DeployDetail>().await?;
+        Ok(Some(detail))
     }
 
     /// Get deploy info using the default view (works on all nodes).

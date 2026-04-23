@@ -8,23 +8,34 @@ HTTP-based commands for querying node state.
 node_cli status [-H HOST] [-p HTTP_PORT]
 ```
 
-```
-$ node_cli status
+Queries the node's `/api/status` endpoint and displays node identity, network membership, and native token metadata.
 
-Node Status:
-{
-  "address": "rnode://24f31580...@rnode.validator1?protocol=40400&discovery=40404",
-  "nodes": 4,
-  "peers": 4,
-  "version": "F1r3node Rust 0.4.10 ()",
-  "peerList": [
-    { "host": "rnode.validator2", "isConnected": true, ... },
-    { "host": "rnode.validator3", "isConnected": true, ... },
-    { "host": "rnode.bootstrap", "isConnected": true, ... },
-    { "host": "rnode.readonly", "isConnected": true, ... }
-  ]
-}
 ```
+$ node_cli status -H localhost -p 40413
+
+  Address:       rnode://24f31580...@rnode.validator1?protocol=40400&discovery=40404
+  Network:       testnet
+  Shard:         root
+  Peers:         4
+  Nodes:         4
+  Min Phlo:      1
+  Native Token:  F1R3CAP (F1R3, 8 decimals)
+  LFB Number:    126
+  Validator:     false
+  Read Only:     false
+  Ready:         true
+  Epoch:         12 (length: 10)
+  Version:       {"api":"1","node":"F1r3node Rust 0.4.10 ()"}
+```
+
+| Field | Description |
+|-------|-------------|
+| Native Token | Name, symbol, decimals — baked into genesis, immutable |
+| LFB Number | Last finalized block number (-1 if not yet initialized) |
+| Validator | Whether this node can propose blocks |
+| Read Only | Whether this node is in read-only mode |
+| Ready | Whether the engine has entered Running state |
+| Epoch | Current epoch and epoch length from genesis config |
 
 ## blocks
 
@@ -42,16 +53,21 @@ $ node_cli blocks -n 1
 
 [
   {
-    "blockHash": "c6f93059d8bb3a0a...",
-    "blockNumber": 402,
-    "deployCount": 0,
-    "faultTolerance": 0.0,
-    "sender": "0457febafcc25dd3...",
-    "timestamp": 1775611821639,
-    ...
+    "blockInfo": {
+      "blockHash": "a47bdb405fc3ccba...",
+      "blockNumber": 128,
+      "isFinalized": true,
+      "faultTolerance": 1.0,
+      "sender": "0457febafcc25dd3...",
+      "timestamp": 1776898700000,
+      "deployCount": 0,
+      ...
+    }
   }
 ]
 ```
+
+Block list responses use the `blockInfo` wrapper (summary view by default, deploys omitted).
 
 ## last-finalized-block
 

@@ -261,7 +261,7 @@ pub struct DagApp {
     selected_index: usize,
     viewport_height: usize,
     show_details: bool,
-    ws_receiver: mpsc::Receiver<RChainEvent>,
+    ws_receiver: mpsc::Receiver<NodeEvent>,
     running: bool,
 }
 
@@ -314,7 +314,7 @@ Reuse existing WebSocket code from `commands/events.rs`:
 ```rust
 pub async fn spawn_event_listener(
     ws_url: String,
-    sender: mpsc::Sender<RChainEvent>,
+    sender: mpsc::Sender<NodeEvent>,
 ) -> Result<JoinHandle<()>> {
     tokio::spawn(async move {
         loop {

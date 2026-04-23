@@ -12,11 +12,11 @@ name = "node_cli"
 required-features = ["cli"]
 
 [dependencies]
-# F1r3fly protocol
-f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.11" }
-f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.11" }
-f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.11" }
-f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.11" }
+# F1r3fly protocol types — pinned to a released f1r3node tag.
+f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.13" }
+f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.13" }
+f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.13" }
+f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node.git", tag = "rust-v0.4.13" }
 prost = "0.14"
 
 # gRPC

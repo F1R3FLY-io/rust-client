@@ -316,7 +316,7 @@ jobs:
             docker pull f1r3flyindustries/f1r3fly-scala-node:${IMAGE_TAG}
           fi
 
-      - name: Start standalone node
+      - name: Start node
         shell: bash -ex {0}
         env:
           IMAGE_TAG: ${{ needs.build_base.outputs.IMAGE_TAG }}
@@ -345,9 +345,17 @@ jobs:
           docker logs rnode.standalone 2>&1 | tail -50
           exit 1
 
-      - name: Run Smoke Tests
+      - name: Run Smoke Tests (bash)
         shell: bash -ex {0}
         run: ./scripts/smoke_test.sh localhost 40462 40463
+
+      - name: Run Integration Tests (Rust)
+        if: matrix.node == 'rust'
+        shell: bash -ex {0}
+        env:
+          F1R3FLY_HTTP_PORT: "40463"
+          F1R3FLY_OBSERVER_HTTP: "40463"
+        run: cargo test --test smoke --release -- --ignored
 
       - name: Upload Smoke Test Logs
         if: always()

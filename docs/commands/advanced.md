@@ -47,42 +47,81 @@ Orphaned:    0
 Timeout:     0
 ```
 
-## watch-blocks
+## watch-events
 
-Monitor real-time block events via WebSocket.
+Monitor real-time node events via WebSocket. Connects to `/ws/events` and streams all 10 event types defined by the node. On connect, the node replays any startup events that occurred before the client connected.
 
 ```bash
-node_cli watch-blocks [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-forever]
+node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-forever]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--filter` | all | `created`, `added`, or `finalized` |
+| `--filter` | all | `created`, `added`, `finalized`, `transfers`, `genesis`, or `lifecycle` |
 | `--retry-forever` | false | Reconnect indefinitely |
 
-Three event types are streamed:
+### Event types
 
-- **Block Created** -- new block proposed by a validator. Includes block hash, creator, sequence number, parent hashes, and deploy IDs.
-- **Block Added** -- block validated and added to the DAG by a receiving node. Same fields as Created.
-- **Block Finalized** -- block reached finalized status (confirmed by consensus). Includes block hash, deploys with cost and errored status.
+| Type | Filter | Description |
+|------|--------|-------------|
+| Block Created | `created` | Block proposed by a validator (hash, block#, timestamp, creator, deploys) |
+| Block Added | `added` | Block validated and added to the DAG |
+| Block Finalized | `finalized` | Block reached finalized status |
+| Transfers Available | `transfers` | Transfer extraction completed (readonly only, after block report) |
+| Sent Unapproved Block | `genesis` | Boot broadcasts genesis candidate to validators |
+| Sent Approved Block | `genesis` | Boot broadcasts the approved genesis block |
+| Approved Block Received | `genesis` | Validator receives the approved genesis block |
+| Entered Running State | `lifecycle` | Node engine transitions to Running |
+| Node Started | `lifecycle` | Node HTTP server is ready |
+
+Block events include `Block #` (block number) and `Time` (timestamp). Transfer events show per-deploy transfer details (from/to/amount/success).
+
+### Examples
 
 ```
-$ node_cli watch-blocks
+$ node_cli watch-events
 
-Connected to node WebSocket
-Watching for block events...
+ Node Started
+ Address: rnode://24f31580...@rnode.validator1?protocol=40400&discovery=40404
 
-Block Created: a1b2c3d4... (creator: 0457feba..., seq: 293, deploys: 0, parents: 3)
-Block Added: a1b2c3d4... (creator: 0457feba..., seq: 293, deploys: 0, parents: 3)
-Block Added: e5f6a7b8... (creator: 04837a4c..., seq: 297, deploys: 0, parents: 3)
-Block Finalized: 9c0d1e2f...
+ Block Created
+ Hash:     25ad58ad271df3e5...
+ Block #:  134
+ Time:     1776898716907
+ Creator:  04fa70d7be5eb750...
+ Seq Num:  113
+ Parents:  3
+ Deploys:  0
+
+ Block Finalized
+ Hash:     6dcbb0d170f5be7b...
+ Block #:  132
+ Time:     1776898685324
+ Creator:  0457febafcc25dd3...
+ Seq Num:  118
+ Parents:  3
+ Deploys:  0
+```
+
+On readonly nodes, transfer events appear after block finalization:
+
+```
+$ node_cli watch-events --http-port 40453
+
+ Transfers Available
+ Block:    edc71efd1dd41be6... (#130)
+ Deploys:  1
+   Deploy: 3044022015f80a59...  (1 transfers)
+     1111AtahZeefej4t -> 111127RX5ZgiAdRa : 100000000 (ok)
 ```
 
 ```
-$ node_cli watch-blocks --filter finalized
+$ node_cli watch-events --filter finalized
 
-Block Finalized: 9c0d1e2f...
-Block Finalized: 3a4b5c6d...
+ Block Finalized
+ Hash:     6dcbb0d170f5be7b...
+ Block #:  132
+ ...
 ```
 
 Auto-reconnects on disconnect (10 retries by default, indefinitely with `--retry-forever`).
