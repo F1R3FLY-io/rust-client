@@ -78,8 +78,10 @@ pub enum NodeEvent {
 #[serde(rename_all = "kebab-case")]
 pub struct BlockEventPayload {
     pub block_hash: String,
-    pub block_number: i64,
-    pub timestamp: i64,
+    #[serde(default)]
+    pub block_number: Option<i64>,
+    #[serde(default)]
+    pub timestamp: Option<i64>,
     pub parent_hashes: Vec<String>,
     pub justification_hashes: Vec<(String, String)>,
     pub deploys: Vec<BlockEventDeploy>,
@@ -400,8 +402,20 @@ fn display_pretty(event: &NodeEvent) {
 
 fn display_block_payload(payload: &BlockEventPayload) {
     println!(" Hash:     {}", payload.block_hash);
-    println!(" Block #:  {}", payload.block_number);
-    println!(" Time:     {}", payload.timestamp);
+    println!(
+        " Block #:  {}",
+        payload
+            .block_number
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    println!(
+        " Time:     {}",
+        payload
+            .timestamp
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
     println!(" Creator:  {}", payload.creator);
     println!(" Seq Num:  {}", payload.seq_num);
     println!(" Parents:  {}", payload.parent_hashes.len());

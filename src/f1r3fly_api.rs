@@ -25,11 +25,11 @@ pub struct NodeStatus {
     pub nodes: i32,
     #[serde(rename = "minPhloPrice")]
     pub min_phlo_price: i64,
-    #[serde(rename = "nativeTokenName")]
+    #[serde(rename = "nativeTokenName", default)]
     pub native_token_name: String,
-    #[serde(rename = "nativeTokenSymbol")]
+    #[serde(rename = "nativeTokenSymbol", default)]
     pub native_token_symbol: String,
-    #[serde(rename = "nativeTokenDecimals")]
+    #[serde(rename = "nativeTokenDecimals", default)]
     pub native_token_decimals: u32,
     #[serde(rename = "peerList", default)]
     pub peer_list: Vec<serde_json::Value>,

@@ -49,6 +49,19 @@ cd "$SCRIPT_DIR/.."
 echo "Building rust-client (release)..."
 cargo build --release
 
+# Detect node type from /api/status version. Tests that exercise Rust-only
+# features (new HTTP endpoints, view params, transfer extraction, enriched
+# WS events) are skipped when running against a Scala node.
+STATUS_JSON=$(curl -sf "http://$HOST:$HTTP_PORT/api/status" 2>/dev/null || echo '')
+if echo "$STATUS_JSON" | grep -q "F1r3node Rust"; then
+    NODE_TYPE=rust
+elif echo "$STATUS_JSON" | grep -q "F1r3node Scala"; then
+    NODE_TYPE=scala
+else
+    NODE_TYPE=unknown
+fi
+echo "Detected node type: $NODE_TYPE"
+
 # Log file for test outputs (single file per run)
 mkdir -p "logs"
 LOG_FILE="logs/smoke_test_$(date +%Y%m%d_%H%M%S).log"
@@ -457,8 +470,11 @@ else
 fi
 
 # transfer-info: Verify transfer data in block API on readonly
-# The readonly node extracts transfers via block replay (BlockReportAPI)
-if [ -n "${TRANSFER_BLOCK_HASH:-}" ]; then
+# The readonly node extracts transfers via block replay (BlockReportAPI) — Rust-only
+if [ "$NODE_TYPE" != "rust" ]; then
+    skip_test "transfer-info (readonly)" "rust-only (BlockReportAPI)"
+    skip_test "transfer-info (validator=null)" "rust-only (BlockReportAPI)"
+elif [ -n "${TRANSFER_BLOCK_HASH:-}" ]; then
     echo -n "Testing transfer-info (readonly)... "
     TI_START=$(date +%s.%N)
     # Poll readonly for transfers (block report may need a moment to warm cache)
@@ -509,6 +525,10 @@ else
 fi
 
 # transfers-available WS event: Connect to readonly WS, submit transfer, verify event
+# The TransfersAvailable event is Rust-only (emitted after block report cache warming)
+if [ "$NODE_TYPE" != "rust" ]; then
+    skip_test "transfers-available (WS)" "rust-only (TransfersAvailable event)"
+else
 echo -n "Testing transfers-available (WS)... "
 TA_START=$(date +%s.%N)
 # Start WS listener on readonly in background
@@ -536,6 +556,7 @@ else
     inc_fail
 fi
 rm -f "$TA_WS_OUT"
+fi  # NODE_TYPE = rust (transfers-available)
 
 # get-deploy: Get deploy execution details (cost, errored, blockNumber)
 # Uses deploy ID from deploy-and-wait (with data) test
@@ -581,10 +602,19 @@ run_test "network-consensus" \
     "Network consensus data retrieved successfully|Consensus Health"
 
 # ============================================
-# NEW HTTP ENDPOINT TESTS (direct curl)
+# NEW HTTP ENDPOINT TESTS (direct curl) — Rust-only
 # ============================================
 echo ""
 echo -e "${BLUE}--- New HTTP Endpoints ---${NC}"
+
+if [ "$NODE_TYPE" != "rust" ]; then
+    skip_test "/api/epoch" "rust-only endpoint"
+    skip_test "/api/validators" "rust-only endpoint"
+    skip_test "/api/bond-status" "rust-only endpoint"
+    skip_test "/api/estimate-cost" "rust-only endpoint"
+    skip_test "/api/deploy (summary view)" "rust-only (unified DeployResponse)"
+    skip_test "removed endpoints return 404" "rust-only (scala returns 400 for dead endpoints)"
+else
 
 # /api/epoch: Available on all node types (no exploratory deploy)
 echo -n "Testing /api/epoch... "
@@ -682,6 +712,8 @@ else
     echo -e "${RED}FAIL${NC} (data-at-name=$R1, transactions=$R2 — expected 404)"
     inc_fail
 fi
+
+fi  # NODE_TYPE = rust (New HTTP Endpoints)
 
 # ============================================
 # CRYPTO COMMANDS (offline, continued)

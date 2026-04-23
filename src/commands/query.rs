@@ -29,12 +29,14 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
                 println!("  Peers:         {}", status.peers);
                 println!("  Nodes:         {}", status.nodes);
                 println!("  Min Phlo:      {}", status.min_phlo_price);
-                println!(
-                    "  Native Token:  {} ({}, {} decimals)",
-                    status.native_token_name,
-                    status.native_token_symbol,
-                    status.native_token_decimals
-                );
+                if !status.native_token_name.is_empty() {
+                    println!(
+                        "  Native Token:  {} ({}, {} decimals)",
+                        status.native_token_name,
+                        status.native_token_symbol,
+                        status.native_token_decimals
+                    );
+                }
                 println!("  LFB Number:    {}", status.last_finalized_block_number);
                 println!("  Validator:     {}", status.is_validator);
                 println!("  Read Only:     {}", status.is_read_only);
