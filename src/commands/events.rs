@@ -166,8 +166,9 @@ impl EventStats {
             NodeEvent::SentUnapprovedBlock { .. }
             | NodeEvent::SentApprovedBlock { .. }
             | NodeEvent::ApprovedBlockReceived { .. } => self.genesis += 1,
-            NodeEvent::EnteredRunningState { .. }
-            | NodeEvent::NodeStarted { .. } => self.lifecycle += 1,
+            NodeEvent::EnteredRunningState { .. } | NodeEvent::NodeStarted { .. } => {
+                self.lifecycle += 1
+            }
             NodeEvent::Started { .. } => {}
         }
     }
@@ -346,12 +347,20 @@ fn display_pretty(event: &NodeEvent) {
         }
         NodeEvent::TransfersAvailable { payload, .. } => {
             println!(" Transfers Available");
-            println!(" Block:    {} (#{}))", payload.block_hash, payload.block_number);
+            println!(
+                " Block:    {} (#{}))",
+                payload.block_hash, payload.block_number
+            );
             println!(" Deploys:  {}", payload.deploys.len());
             for dt in &payload.deploys {
-                println!("   Deploy: {}  ({} transfers)", &dt.deploy_id[..24.min(dt.deploy_id.len())], dt.transfers.len());
+                println!(
+                    "   Deploy: {}  ({} transfers)",
+                    &dt.deploy_id[..24.min(dt.deploy_id.len())],
+                    dt.transfers.len()
+                );
                 for t in &dt.transfers {
-                    println!("     {} -> {} : {} ({})",
+                    println!(
+                        "     {} -> {} : {} ({})",
                         &t.from_addr[..16.min(t.from_addr.len())],
                         &t.to_addr[..16.min(t.to_addr.len())],
                         t.amount,
@@ -400,7 +409,12 @@ fn display_block_payload(payload: &BlockEventPayload) {
         println!(
             " Deploys:  {} [{}]",
             payload.deploys.len(),
-            payload.deploys.iter().map(|d| d.id.clone()).collect::<Vec<_>>().join(", ")
+            payload
+                .deploys
+                .iter()
+                .map(|d| d.id.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     } else {
         println!(" Deploys:  {}", payload.deploys.len());

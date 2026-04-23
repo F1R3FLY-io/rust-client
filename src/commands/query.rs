@@ -18,8 +18,7 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
             let duration = start_time.elapsed();
             if response.status().is_success() {
                 let status_text = response.text().await?;
-                let status: crate::f1r3fly_api::NodeStatus =
-                    serde_json::from_str(&status_text)?;
+                let status: crate::f1r3fly_api::NodeStatus = serde_json::from_str(&status_text)?;
 
                 println!(" Node status retrieved successfully!");
                 println!(" Time taken: {:.2?}", duration);
@@ -40,7 +39,10 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
                 println!("  Validator:     {}", status.is_validator);
                 println!("  Read Only:     {}", status.is_read_only);
                 println!("  Ready:         {}", status.is_ready);
-                println!("  Epoch:         {} (length: {})", status.current_epoch, status.epoch_length);
+                println!(
+                    "  Epoch:         {} (length: {})",
+                    status.current_epoch, status.epoch_length
+                );
                 println!("  Version:       {}", status.version);
             } else {
                 println!(" Failed to get node status: HTTP {}", response.status());
