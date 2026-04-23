@@ -509,15 +509,21 @@ elif [ -n "${TRANSFER_BLOCK_HASH:-}" ]; then
         inc_fail
     fi
 
-    # Verify transfers are null on validator (not readonly)
-    echo -n "Testing transfer-info (validator=null)... "
-    TV_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/block/$TRANSFER_BLOCK_HASH" 2>/dev/null)
-    if echo "$TV_RESP" | grep -q '"transfers":null' || ! echo "$TV_RESP" | grep -q '"fromAddr"'; then
-        echo -e "${GREEN}PASS${NC} (transfers null on validator)"
-        inc_pass
+    # Verify transfers are null on validator (not readonly).
+    # Only meaningful when validator and readonly are distinct nodes (shard).
+    # On standalone, the single node acts as both, so transfers are populated here too.
+    if [ "$HTTP_PORT" = "$OBSERVER_HTTP" ]; then
+        skip_test "transfer-info (validator=null)" "standalone (validator and readonly are the same node)"
     else
-        echo -e "${RED}FAIL${NC} (transfers should be null on validator)"
-        inc_fail
+        echo -n "Testing transfer-info (validator=null)... "
+        TV_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/block/$TRANSFER_BLOCK_HASH" 2>/dev/null)
+        if echo "$TV_RESP" | grep -q '"transfers":null' || ! echo "$TV_RESP" | grep -q '"fromAddr"'; then
+            echo -e "${GREEN}PASS${NC} (transfers null on validator)"
+            inc_pass
+        else
+            echo -e "${RED}FAIL${NC} (transfers should be null on validator)"
+            inc_fail
+        fi
     fi
 else
     skip_test "transfer-info (readonly)" "no block hash from transfer test"

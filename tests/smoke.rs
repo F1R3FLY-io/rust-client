@@ -381,7 +381,13 @@ async fn test_validators() {
     assert!(result["blockHash"].is_string());
 
     let validators = result["validators"].as_array().unwrap();
-    assert!(validators.len() >= 2, "should have at least 2 validators");
+    let min = if is_standalone() { 1 } else { 2 };
+    assert!(
+        validators.len() >= min,
+        "expected at least {} validators, got {}",
+        min,
+        validators.len()
+    );
 
     for v in validators {
         assert!(v["publicKey"].is_string());
