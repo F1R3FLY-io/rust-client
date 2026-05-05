@@ -35,6 +35,10 @@ This changelog is automatically generated from conventional commits.
 - support all 9 event types, rename watch-blocks to watch-events
 - align with f1r3node PR #398 - RevAddress → VaultAddress rename
 
+### Miscellaneous
+
+- increase default timeouts
+
 ### Refactoring
 
 - client library restructure, new commands, docs (#16)
