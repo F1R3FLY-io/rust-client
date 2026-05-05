@@ -114,12 +114,9 @@ jobs:
           fi
           echo "BRANCH=$BRANCH" >> $GITHUB_ENV
 
-          # Determine f1r3node Docker image tag based on branch
-          if [ "$BRANCH" = "main" ]; then
-            echo "IMAGE_TAG=latest" >> $GITHUB_ENV
-          else
-            echo "IMAGE_TAG=dev" >> $GITHUB_ENV
-          fi
+          # Determine f1r3node Docker image tag.
+          # Temporary: all branches use :dev until upstream cuts a :latest with the new API endpoints.
+          echo "IMAGE_TAG=dev" >> $GITHUB_ENV
 
       - name: Pack Working Tree
         shell: bash -ex {0}
