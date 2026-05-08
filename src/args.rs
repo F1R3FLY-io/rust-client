@@ -114,6 +114,9 @@ pub enum Commands {
 
     /// Get transfer information from a block's deploys
     BlockTransfers(BlockTransfersArgs),
+
+    /// Check canonical-state finalization status of a deploy by signature
+    DeployStatus(DeployStatusArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -225,6 +228,26 @@ pub struct GetDeployArgs {
     /// Show full deploy details
     #[arg(long = "verbose")]
     pub verbose: bool,
+}
+
+/// Arguments for deploy-status command
+#[derive(Parser)]
+pub struct DeployStatusArgs {
+    /// Deploy signature in hex (with or without 0x prefix)
+    #[arg(short = 's', long = "sig")]
+    pub sig: String,
+
+    /// Node hostname
+    #[arg(short = 'H', long = "host", default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port for API queries
+    #[arg(long = "http-port", default_value_t = 40413)]
+    pub http_port: u16,
+
+    /// Output format (json, pretty)
+    #[arg(short = 'f', long = "format", default_value = "pretty")]
+    pub format: String,
 }
 
 /// Arguments for deploy and full-deploy commands

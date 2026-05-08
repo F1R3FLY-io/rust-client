@@ -1,13 +1,14 @@
 # deploy-and-wait
 
-Deploy Rholang code, wait for block inclusion and finalization, then read the result.
+Deploy Rholang code, wait for canonical-state finalization, then read the result.
 
 This is the primary command for deploying contracts. It handles the full lifecycle:
 1. Deploy code via gRPC
-2. Poll until the deploy appears in a block
-3. Wait for the block to be finalized (via observer node)
-4. Read the `deployId` channel data from the finalized block
-5. Get deploy execution details (cost, errored)
+2. Poll the deploy signature via `/api/deploy-finalization-status` until terminal state (preferred path)
+3. Read the `deployId` channel data from the finalized block (using `latest_block_hash` from the status response)
+4. Get deploy execution details (cost, errored)
+
+**Note:** Step 2 used to be two separate phases (block inclusion + block finalization) using gRPC polling. That older path is still available as a fallback when the node doesn't expose `/api/deploy-finalization-status` (404), with a deprecation warning. Block-level polling can misreport success when a deploy is dropped during merge of a finalized block; sig-level polling is correct in that case.
 
 ## Usage
 
@@ -80,13 +81,16 @@ Block proposed: abc123...
 
 ## Timeouts
 
-The command has two timeout phases:
+On the preferred (sig-level) path, `--max-wait` and `--finalization-timeout` are summed into a single budget for sig polling at 2s intervals. The deploy must reach a terminal state (`Finalized`, `Failed`, or `Expired`) within that combined budget.
+
+- `Failed` → command exits with error indicating Rholang execution failure
+- `Expired` → command exits with error indicating the deploy never landed canonically
+- Timeout while still `Pending` → command exits with error
+
+On the legacy (block-hash) fallback path, the two timeouts apply separately as before:
 
 1. **Block inclusion** (`--max-wait`): polls `findDeploy` gRPC every `--check-interval` seconds until the deploy appears in a block. Default: 60s.
-
 2. **Finalization** (`--finalization-timeout`): polls `isFinalized` gRPC every 5 seconds on the observer node until the block is finalized. Default: 30s.
-
-If either timeout expires, the command exits with an error.
 
 ## Observer Node
 

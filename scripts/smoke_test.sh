@@ -577,6 +577,25 @@ else
     inc_fail
 fi
 
+# deploy-status: Canonical-state finalization status by deploy signature
+# Uses deploy ID from deploy-and-wait (which is the deploy signature in hex).
+# The deploy already finalized in that test, so state should be Finalized.
+if [ -n "${FDAW_DEPLOY_ID:-}" ]; then
+    run_test "deploy-status (finalized)" \
+        "cargo run -q --release -- deploy-status -s $FDAW_DEPLOY_ID -H $HOST --http-port $OBSERVER_HTTP" \
+        "Deploy Finalization Status|State:.*Finalized"
+else
+    echo -n "Testing deploy-status (finalized)... "
+    echo -e "${RED}FAIL${NC} (no deploy ID from earlier tests)"
+    inc_fail
+fi
+
+# deploy-status: Unknown sig should return Pending with no latest_block_hash.
+# Use a fixed all-zeros hex string (64 chars) — guaranteed unknown.
+run_test "deploy-status (unknown sig)" \
+    "cargo run -q --release -- deploy-status -s 0000000000000000000000000000000000000000000000000000000000000000 -H $HOST --http-port $OBSERVER_HTTP" \
+    "State:.*Pending"
+
 # ============================================
 # PoS QUERY COMMANDS
 # ============================================

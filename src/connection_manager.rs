@@ -250,12 +250,85 @@ impl F1r3flyConnectionManager {
         ))
     }
 
-    /// Wait for a block to be finalized (uses observer node if configured)
+    /// Observer HTTP port — convention is observer_grpc_port + 1.
+    fn observer_http_port(&self) -> u16 {
+        self.config.observer_grpc_port.saturating_add(1)
+    }
+
+    /// Wait for a deploy to reach a terminal finalization state via the
+    /// `/api/deploy-finalization-status/{sig}` endpoint (sig-level polling).
+    ///
+    /// Polling stops on any terminal state (`Finalized` / `Failed` / `Expired`)
+    /// or when the budget elapses. Returns the final status, or
+    /// `Ok(None)` if the endpoint is unavailable on the node (404) — caller
+    /// should fall back to the legacy block-hash flow.
+    pub async fn wait_for_deploy_finalization(
+        &self,
+        deploy_sig_hex: &str,
+        total_timeout_secs: u64,
+        poll_interval_secs: u64,
+    ) -> Result<Option<crate::f1r3fly_api::DeployFinalizationStatus>, ConnectionError> {
+        let api = self.observer_api()?;
+        let http_port = self.observer_http_port();
+        let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
+
+        for attempt in 1..=max_attempts {
+            match api
+                .deploy_finalization_status(deploy_sig_hex, http_port)
+                .await
+            {
+                Ok(Some(status)) => {
+                    if status.is_terminal() {
+                        tracing::debug!(
+                            deploy_sig = deploy_sig_hex,
+                            state = %status.state,
+                            attempt,
+                            "Deploy reached terminal state"
+                        );
+                        return Ok(Some(status));
+                    }
+                }
+                Ok(None) => {
+                    // 404 — endpoint not available on this node version.
+                    // Caller falls back to legacy flow.
+                    return Ok(None);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        deploy_sig = deploy_sig_hex,
+                        attempt,
+                        error = %e,
+                        "deploy-finalization-status query failed; will retry"
+                    );
+                }
+            }
+
+            if attempt < max_attempts {
+                tokio::time::sleep(tokio::time::Duration::from_secs(poll_interval_secs)).await;
+            }
+        }
+
+        Err(ConnectionError::OperationFailed(format!(
+            "Deploy {} did not reach terminal state within {}s",
+            deploy_sig_hex, total_timeout_secs
+        )))
+    }
+
+    /// Wait for a block to be finalized (uses observer node if configured).
+    ///
+    /// **Deprecated**: this performs block-level finalization polling, which
+    /// can mislead callers when a block finalizes but their deploy's effects
+    /// were dropped during merge. Use `wait_for_deploy_finalization` (sig-level)
+    /// when possible.
     pub async fn wait_for_finalization(
         &self,
         block_hash: &str,
         max_attempts: u32,
     ) -> Result<(), ConnectionError> {
+        tracing::warn!(
+            "wait_for_finalization is deprecated — block-level polling can miss \
+             merge-dropped deploys. Prefer wait_for_deploy_finalization."
+        );
         let api = self.observer_api()?;
         let retry_delay_sec = 5;
 
@@ -274,13 +347,16 @@ impl F1r3flyConnectionManager {
         }
     }
 
-    /// Deploy Rholang code, wait for finalization, and read result
+    /// Deploy Rholang code, wait for canonical-finalization, and read result.
     ///
-    /// 1. Deploy the code via gRPC
-    /// 2. Poll until the deploy appears in a block
-    /// 3. Wait for the block to be finalized (via observer)
-    /// 4. Read the deployId channel data from the finalized block
-    /// 5. Get deploy execution details (cost, errored)
+    /// Preferred path: sig-level polling via `/api/deploy-finalization-status`,
+    /// which reports whether the deploy's effects are in canonical state
+    /// (not just whether some containing block finalized).
+    ///
+    /// Legacy fallback: if the endpoint is unavailable (404), falls back to
+    /// the two-phase block-hash flow (find block + check block finalization)
+    /// with a deprecation warning. This older path can misreport success when
+    /// a deploy is dropped during merge of a finalized block.
     pub async fn deploy_and_wait(
         &self,
         rholang_code: &str,
@@ -296,22 +372,67 @@ impl F1r3flyConnectionManager {
             .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {}", e)))?;
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
 
-        // Phase 2: Wait for block inclusion
-        let max_block_wait =
-            (self.config.deploy_timeout_secs as u64 / self.config.poll_interval_secs) as u32;
-        let block_hash = self.wait_for_deploy(&deploy_id, max_block_wait).await?;
-        tracing::info!(block_hash = %block_hash, "Deploy included in block");
+        // Phase 2: Sig-level polling (preferred), fall back to legacy on 404
+        const SIG_POLL_INTERVAL_SECS: u64 = 2;
+        let total_timeout = (self.config.deploy_timeout_secs as u64)
+            .saturating_add(self.config.finalization_timeout_secs as u64);
 
-        // Phase 3: Wait for finalization (via observer)
-        let finalization_poll_secs: u64 = 5;
-        let max_finalization =
-            (self.config.finalization_timeout_secs as u64 / finalization_poll_secs) as u32;
-        let max_finalization = max_finalization.max(1);
-        self.wait_for_finalization(&block_hash, max_finalization)
-            .await?;
-        tracing::info!("Block finalized");
+        let block_hash = match self
+            .wait_for_deploy_finalization(&deploy_id, total_timeout, SIG_POLL_INTERVAL_SECS)
+            .await?
+        {
+            Some(status) => match status.state.as_str() {
+                "Finalized" => {
+                    let block_hash = status.latest_block_hash.ok_or_else(|| {
+                        ConnectionError::OperationFailed(
+                            "Finalized state without latest_block_hash (node bug)".to_string(),
+                        )
+                    })?;
+                    tracing::info!(block_hash = %block_hash, "Deploy canonically finalized");
+                    block_hash
+                }
+                "Failed" => {
+                    return Err(ConnectionError::OperationFailed(format!(
+                        "Deploy {} failed during execution (Rholang error or insufficient phlo)",
+                        deploy_id
+                    )));
+                }
+                "Expired" => {
+                    return Err(ConnectionError::OperationFailed(format!(
+                        "Deploy {} expired without canonical inclusion",
+                        deploy_id
+                    )));
+                }
+                other => {
+                    return Err(ConnectionError::OperationFailed(format!(
+                        "Deploy {} in unexpected non-terminal state {} after timeout",
+                        deploy_id, other
+                    )));
+                }
+            },
+            None => {
+                tracing::warn!(
+                    "deploy-finalization-status endpoint unavailable; falling back to \
+                     legacy block-hash polling. This path will be removed once all \
+                     supported nodes ship the new endpoint."
+                );
+                let max_block_wait = (self.config.deploy_timeout_secs as u64
+                    / self.config.poll_interval_secs) as u32;
+                let block_hash = self.wait_for_deploy(&deploy_id, max_block_wait).await?;
+                tracing::info!(block_hash = %block_hash, "Deploy included in block");
 
-        // Phase 4: Read deploy result AFTER finalization
+                let finalization_poll_secs: u64 = 5;
+                let max_finalization = ((self.config.finalization_timeout_secs as u64
+                    / finalization_poll_secs) as u32)
+                    .max(1);
+                self.wait_for_finalization(&block_hash, max_finalization)
+                    .await?;
+                tracing::info!("Block finalized (legacy path)");
+                block_hash
+            }
+        };
+
+        // Phase 3: Read deploy result AFTER finalization
         // Empty data is normal when the contract doesn't write to deployId
         let data = match api.get_data_at_deploy_id(&deploy_id, &block_hash).await {
             Ok(data) => data,
@@ -326,7 +447,7 @@ impl F1r3flyConnectionManager {
             }
         };
 
-        // Phase 5: Get deploy execution details
+        // Phase 4: Get deploy execution details
         // May fail on older nodes that don't support ?view=detail
         let detail = match api
             .get_deploy_detail(&deploy_id, self.config.http_port)

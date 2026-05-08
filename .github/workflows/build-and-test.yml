@@ -6,11 +6,13 @@ on:
     branches:
       - main
       - dev
+      - staging
     tags: "v**"
   pull_request:
     branches:
       - main
       - dev
+      - staging
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -115,8 +117,13 @@ jobs:
           echo "BRANCH=$BRANCH" >> $GITHUB_ENV
 
           # Determine f1r3node Docker image tag.
-          # Temporary: all branches use :dev until upstream cuts a :latest with the new API endpoints.
-          echo "IMAGE_TAG=dev" >> $GITHUB_ENV
+          # staging branch tracks rust/staging upstream → :staging image
+          # main / dev / tags use :dev (temporary: until upstream cuts a :latest with the new API endpoints)
+          if [ "$BRANCH" = "staging" ]; then
+            echo "IMAGE_TAG=staging" >> $GITHUB_ENV
+          else
+            echo "IMAGE_TAG=dev" >> $GITHUB_ENV
+          fi
 
       - name: Pack Working Tree
         shell: bash -ex {0}

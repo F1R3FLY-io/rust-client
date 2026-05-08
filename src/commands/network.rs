@@ -709,3 +709,54 @@ pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
 
     Ok(())
 }
+
+/// Check canonical-state finalization status of a deploy by signature.
+///
+/// Hits the node's `/api/deploy-finalization-status/{sig}` endpoint and
+/// renders the result. State is one of `Finalized`, `Failed`, `Pending`,
+/// `Expired` — see `DeployFinalizationStatus` for terminality semantics.
+pub async fn deploy_status_command(
+    args: &DeployStatusArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sig_hex = args.sig.trim_start_matches("0x");
+
+    // Reusing F1r3flyApi just for the HTTP method (port 0 is fine — never used here).
+    let api = F1r3flyApi::new(DEV_PRIVATE_KEY, &args.host, 0)?;
+    let start = Instant::now();
+
+    let status = match api
+        .deploy_finalization_status(sig_hex, args.http_port)
+        .await?
+    {
+        Some(s) => s,
+        None => {
+            return Err(format!(
+                "Endpoint /api/deploy-finalization-status not available on {}:{} \
+                 (404). This node may be running an older f1r3node version.",
+                args.host, args.http_port
+            )
+            .into());
+        }
+    };
+    let duration = start.elapsed();
+
+    match args.format.as_str() {
+        "json" => {
+            println!("{}", serde_json::to_string_pretty(&status)?);
+        }
+        _ => {
+            println!("Deploy Finalization Status");
+            println!("----------------------------------------");
+            println!("Sig:              {}", sig_hex);
+            println!("State:            {}", status.state);
+            println!("Rejection count:  {}", status.rejection_count);
+            match status.latest_block_hash.as_deref() {
+                Some(hash) => println!("Latest block:     {}", hash),
+                None => println!("Latest block:     (not yet included)"),
+            }
+            println!("Query time:       {:.2?}", duration);
+        }
+    }
+
+    Ok(())
+}
