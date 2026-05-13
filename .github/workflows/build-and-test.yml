@@ -96,7 +96,10 @@ jobs:
           VERSION="${VERSION#v}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-          # Find related HEAD branch
+          # Find related HEAD branch.
+          # For PRs, use the *target* (base) branch — image selection should
+          # match what the target branch will use post-merge, not what the
+          # source feature branch happens to be named.
           BRANCH=""
           if [[ $GITHUB_REF =~ ^refs/tags/ ]]; then
             # For tag pushes, determine release type from tag name
@@ -111,6 +114,8 @@ jobs:
             fi
           elif [[ $GITHUB_REF =~ ^refs/heads/ ]]; then
             BRANCH=${GITHUB_REF#refs/*/}
+          elif [ -n "$GITHUB_BASE_REF" ]; then
+            BRANCH=$GITHUB_BASE_REF
           else
             BRANCH=$GITHUB_HEAD_REF
           fi
