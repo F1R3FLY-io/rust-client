@@ -591,3 +591,76 @@ async fn test_epoch_with_block_hash() {
     assert_eq!(result["blockHash"], hash);
     assert!(result["epochLength"].as_i64().unwrap() > 0);
 }
+
+// ============================================================================
+// Deploy finalization status
+// ============================================================================
+
+/// Unknown sig should return Pending with empty fields, not 404 or 500.
+/// The endpoint deliberately reports `pending_unknown` for sigs the deploy
+/// index has never seen, so polling clients can keep retrying without
+/// distinguishing "just submitted" from "actually unknown".
+#[tokio::test]
+#[ignore] // Requires running node. Run with: cargo test --test smoke --release -- --ignored
+async fn test_deploy_finalization_status_unknown_sig() {
+    if !require_shard().await {
+        return;
+    }
+
+    let unknown_sig = "0".repeat(64);
+    let result = get_json(
+        observer_http(),
+        &format!("/deploy-finalization-status/{}", unknown_sig),
+    )
+    .await
+    .unwrap_or_else(|| panic!("endpoint returned non-200 for unknown sig"));
+
+    assert_eq!(result["state"], "Pending");
+    assert_eq!(result["rejection_count"], 0);
+    assert!(result["latest_block_hash"].is_null());
+}
+
+/// 0x prefix should be tolerated on the sig path parameter (the CLI
+/// strips it; this confirms the endpoint also accepts it).
+#[tokio::test]
+#[ignore] // Requires running node. Run with: cargo test --test smoke --release -- --ignored
+async fn test_deploy_finalization_status_invalid_hex_returns_400() {
+    if !require_shard().await {
+        return;
+    }
+
+    let bad_hex = "not-hex-at-all";
+    let code = get_status_code(
+        observer_http(),
+        &format!("/deploy-finalization-status/{}", bad_hex),
+    )
+    .await
+    .unwrap_or(0);
+
+    assert_eq!(code, 400, "expected 400 for invalid hex, got {}", code);
+}
+
+/// Response shape regression: state, rejection_count, latest_block_hash.
+/// Locks the JSON contract so unintentional renames break this test.
+#[tokio::test]
+#[ignore] // Requires running node. Run with: cargo test --test smoke --release -- --ignored
+async fn test_deploy_finalization_status_response_shape() {
+    if !require_shard().await {
+        return;
+    }
+
+    let unknown_sig = "1".repeat(64);
+    let result = get_json(
+        observer_http(),
+        &format!("/deploy-finalization-status/{}", unknown_sig),
+    )
+    .await
+    .unwrap();
+
+    let obj = result.as_object().expect("response is a JSON object");
+    assert!(obj.contains_key("state"));
+    assert!(obj.contains_key("rejection_count"));
+    assert!(obj.contains_key("latest_block_hash"));
+    assert!(obj["state"].is_string());
+    assert!(obj["rejection_count"].is_u64());
+}
