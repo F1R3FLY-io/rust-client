@@ -130,15 +130,61 @@ impl<'a> F1r3flyApi<'a> {
 }
 
 pub fn extract_par_data(par: &Par) -> Option<String> {
+    use f1r3fly_models::rhoapi::expr::ExprInstance;
+
     if !par.exprs.is_empty() && par.exprs[0].expr_instance.is_some() {
         let expr = &par.exprs[0];
         if let Some(instance) = &expr.expr_instance {
             match instance {
-                f1r3fly_models::rhoapi::expr::ExprInstance::GString(s) => {
-                    Some(format!("\"{}\"", s))
+                ExprInstance::GString(s) => Some(format!("\"{}\"", s)),
+                ExprInstance::GUri(u) => Some(format!("`{}`", u)),
+                ExprInstance::GInt(i) => Some(i.to_string()),
+                ExprInstance::GBool(b) => Some(b.to_string()),
+                ExprInstance::GByteArray(bytes) => Some(format!("0x{}", hex::encode(bytes))),
+                ExprInstance::EListBody(list) => {
+                    let items: Vec<String> = list
+                        .ps
+                        .iter()
+                        .map(|p| extract_par_data(p).unwrap_or_else(|| "?".to_string()))
+                        .collect();
+                    Some(format!("[{}]", items.join(", ")))
                 }
-                f1r3fly_models::rhoapi::expr::ExprInstance::GInt(i) => Some(i.to_string()),
-                f1r3fly_models::rhoapi::expr::ExprInstance::GBool(b) => Some(b.to_string()),
+                ExprInstance::ETupleBody(tup) => {
+                    let items: Vec<String> = tup
+                        .ps
+                        .iter()
+                        .map(|p| extract_par_data(p).unwrap_or_else(|| "?".to_string()))
+                        .collect();
+                    Some(format!("({})", items.join(", ")))
+                }
+                ExprInstance::ESetBody(set) => {
+                    let items: Vec<String> = set
+                        .ps
+                        .iter()
+                        .map(|p| extract_par_data(p).unwrap_or_else(|| "?".to_string()))
+                        .collect();
+                    Some(format!("Set({{{}}})", items.join(", ")))
+                }
+                ExprInstance::EMapBody(map) => {
+                    let items: Vec<String> = map
+                        .kvs
+                        .iter()
+                        .map(|kv| {
+                            let k = kv
+                                .key
+                                .as_ref()
+                                .and_then(extract_par_data)
+                                .unwrap_or_else(|| "?".to_string());
+                            let v = kv
+                                .value
+                                .as_ref()
+                                .and_then(extract_par_data)
+                                .unwrap_or_else(|| "?".to_string());
+                            format!("{}: {}", k, v)
+                        })
+                        .collect();
+                    Some(format!("{{{}}}", items.join(", ")))
+                }
                 _ => Some("Complex expression".to_string()),
             }
         } else {
