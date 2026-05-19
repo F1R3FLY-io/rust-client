@@ -323,7 +323,7 @@ jobs:
           SCALA_IMAGE_TAG: dev
         run: |
           if [ "${{ matrix.node }}" = "rust" ]; then
-            docker pull f1r3flyindustries/f1r3fly-rust-node:${IMAGE_TAG}
+            docker pull f1r3flyindustries/f1r3fly-rust:${IMAGE_TAG}
           else
             docker pull f1r3flyindustries/f1r3fly-scala-node:${SCALA_IMAGE_TAG}
           fi
@@ -336,7 +336,7 @@ jobs:
         run: |
           cd system-integration/integration-tests
           if [ "${{ matrix.node }}" = "rust" ]; then
-            F1R3FLY_RUST_IMAGE="f1r3flyindustries/f1r3fly-rust-node:${IMAGE_TAG}" \
+            F1R3FLY_RUST_IMAGE="f1r3flyindustries/f1r3fly-rust:${IMAGE_TAG}" \
               docker compose -f docker-compose.standalone-rust.yml up -d
           else
             F1R3FLY_SCALA_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${SCALA_IMAGE_TAG}" \
