@@ -1,11 +1,6 @@
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Well-known bootstrap validator private key used in dev/test Docker setups.
-/// NOT for production use.
-pub const DEV_PRIVATE_KEY: &str =
-    "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-
 /// Command-line interface for interacting with F1r3fly nodes
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -125,9 +120,9 @@ pub struct DeployAndWaitArgs {
     #[arg(short, long)]
     pub file: String,
 
-    /// Private key for deploy (defaults to well-known dev key)
-    #[arg(short = 'k', long = "private-key")]
-    pub private_key: Option<String>,
+    /// Private key for deploy (--private-key or FIREFLY_PRIVATE_KEY env)
+    #[arg(short = 'k', long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
+    pub private_key: String,
 
     /// Node hostname
     #[arg(short = 'H', long = "host", default_value = "localhost")]
@@ -189,14 +184,6 @@ pub struct GetDataArgs {
     /// Block hash containing the deploy
     #[arg(short = 'b', long = "block-hash")]
     pub block_hash: String,
-
-    /// Private key (defaults to well-known dev key)
-    #[arg(
-        short = 'k',
-        long = "private-key",
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
 
     /// Node hostname
     #[arg(short = 'H', long = "host", default_value = "localhost")]
@@ -260,7 +247,7 @@ pub struct DeployArgs {
     /// Private key in hex format
     #[arg(
         long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+        env = "FIREFLY_PRIVATE_KEY"
     )]
     pub private_key: String,
 
@@ -290,13 +277,6 @@ pub struct DeployArgs {
 /// Arguments for propose command
 #[derive(Parser)]
 pub struct ProposeArgs {
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
-
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
@@ -312,13 +292,6 @@ pub struct IsFinalizedArgs {
     /// Block hash to check
     #[arg(short, long)]
     pub block_hash: String,
-
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
 
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
@@ -344,13 +317,6 @@ pub struct ExploratoryDeployArgs {
     #[arg(short, long)]
     pub file: PathBuf,
 
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
-
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
@@ -375,7 +341,7 @@ pub struct GeneratePublicKeyArgs {
     #[arg(
         short,
         long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+        env = "FIREFLY_PRIVATE_KEY"
     )]
     pub private_key: String,
 
@@ -408,11 +374,7 @@ pub struct GenerateVaultAddressArgs {
     pub public_key: Option<String>,
 
     /// Private key in hex format (will derive public key from this)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
-        conflicts_with = "public_key"
-    )]
+    #[arg(long, conflicts_with = "public_key")]
     pub private_key: Option<String>,
 }
 
@@ -462,13 +424,6 @@ pub struct ShowMainChainArgs {
     /// Number of blocks to fetch from main chain (default: 10)
     #[arg(short, long, default_value_t = 10)]
     pub depth: u32,
-
-    /// Private key in hex format (required for gRPC)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
 }
 
 /// Arguments for get-blocks-by-height command
@@ -489,13 +444,6 @@ pub struct GetBlocksByHeightArgs {
     /// End block number (inclusive)
     #[arg(short, long)]
     pub end_block_number: i64,
-
-    /// Private key in hex format (required for gRPC)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
 }
 
 /// Arguments for wallet-balance command
@@ -630,7 +578,7 @@ pub struct TransferArgs {
     /// Private key for signing the transfer (hex format)
     #[arg(
         long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+        env = "FIREFLY_PRIVATE_KEY"
     )]
     pub private_key: String,
 
@@ -703,7 +651,7 @@ pub struct LoadTestArgs {
     /// Private key for signing (hex format)
     #[arg(
         long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
+        env = "FIREFLY_PRIVATE_KEY"
     )]
     pub private_key: String,
 
