@@ -1,4 +1,5 @@
 use crate::args::*;
+use crate::commands::query::query_node_status;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use crate::f1r3fly_api::{F1r3flyApi, ProposeResult};
 use std::fs;
@@ -414,7 +415,25 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     validate_vault_address(&from_address)?;
     validate_vault_address(&args.to_address)?;
 
-    let amount_dust = args.amount * 100_000_000;
+    let amount_dust = if args.whole_tokens {
+        // Whole-token mode: ask the node how many decimals the native token has.
+        let (status_json, _) =
+            query_node_status(&reqwest::Client::new(), &args.host, args.http_port, false).await?;
+        let decimals = status_json
+            .get("nativeTokenDecimals")
+            .and_then(|v| v.as_u64())
+            .ok_or("node did not report token decimals; cannot convert whole tokens")?
+            as u32;
+        let factor = 10u64
+            .checked_pow(decimals)
+            .ok_or("token decimals too large for u64 multiplier")?;
+        args.amount
+            .checked_mul(factor)
+            .ok_or("amount overflows u64 after applying token decimals")?
+    } else {
+        args.amount
+    };
+
     println!(
         "Transfer: {} -> {} ({} dust)",
         from_address, args.to_address, amount_dust
