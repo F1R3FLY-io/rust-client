@@ -268,12 +268,13 @@ impl F1r3flyConnectionManager {
         total_timeout_secs: u64,
         poll_interval_secs: u64,
     ) -> Result<Option<crate::f1r3fly_api::DeployFinalizationStatus>, ConnectionError> {
-        let api = self.observer_api()?;
+        let observer_api = self.observer_api()?;
+        let node_api = self.api();
         let http_port = self.observer_http_port();
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
 
         for attempt in 1..=max_attempts {
-            match api
+            match observer_api
                 .deploy_finalization_status(deploy_sig_hex, http_port)
                 .await
             {
@@ -295,41 +296,44 @@ impl F1r3flyConnectionManager {
                 }
                 Err(e) => {
                     // Observer is unavailable => fallback to deploy-node (its HTTP port).
-                    if let Ok(node_api) = self.api() {
-                        match node_api
-                            .deploy_finalization_status(deploy_sig_hex, self.config.http_port)
-                            .await
-                        {
-                            Ok(Some(status)) if status.is_terminal() => {
-                                tracing::debug!(
-                                    deploy_sig = deploy_sig_hex,
-                                    state = %status.state,
-                                    attempt,
-                                    "Deploy reached terminal state (node API)"
-                                );
-                                return Ok(Some(status));
-                            }
-                            // Non-terminal status from node API is expected while polling.
-                            // Keep silent and continue to the next poll attempt.
-                            Ok(Some(_)) => {}
-                            Ok(None) => return Ok(None),
-                            Err(node_err) => {
-                                tracing::warn!(
-                                    deploy_sig = deploy_sig_hex,
-                                    attempt,
-                                    observer_error = %e,
-                                    node_error = %node_err,
-                                    "deploy-finalization-status failed on observer and fallback node; will retry"
-                                );
+                    match &node_api {
+                        Ok(na) => {
+                            match na
+                                .deploy_finalization_status(deploy_sig_hex, self.config.http_port)
+                                .await
+                            {
+                                Ok(Some(status)) if status.is_terminal() => {
+                                    tracing::debug!(
+                                        deploy_sig = deploy_sig_hex,
+                                        state = %status.state,
+                                        attempt,
+                                        "Deploy reached terminal state (node API)"
+                                    );
+                                    return Ok(Some(status));
+                                }
+                                // Non-terminal status from node API is expected while polling.
+                                // Keep silent and continue to the next poll attempt.
+                                Ok(Some(_)) => {}
+                                Ok(None) => return Ok(None),
+                                Err(node_err) => {
+                                    tracing::warn!(
+                                        deploy_sig = deploy_sig_hex,
+                                        attempt,
+                                        observer_error = %e,
+                                        node_error = %node_err,
+                                        "deploy-finalization-status failed on observer and fallback node; will retry"
+                                    );
+                                }
                             }
                         }
-                    } else {
-                        tracing::warn!(
-                            deploy_sig = deploy_sig_hex,
-                            attempt,
-                            observer_error = %e,
-                            "deploy-finalization-status failed on observer and no fallback node connection; will retry"
-                        );
+                        Err(_) => {
+                            tracing::warn!(
+                                deploy_sig = deploy_sig_hex,
+                                attempt,
+                                observer_error = %e,
+                                "deploy-finalization-status failed on observer and no fallback node connection; will retry"
+                            );
+                        }
                     }
                 }
             }
