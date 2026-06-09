@@ -323,7 +323,7 @@ jobs:
           SCALA_IMAGE_TAG: dev
         run: |
           if [ "${{ matrix.node }}" = "rust" ]; then
-            docker pull f1r3flyindustries/f1r3fly-rust-node:${IMAGE_TAG}
+            docker pull f1r3flyindustries/f1r3fly-rust:${IMAGE_TAG}
           else
             docker pull f1r3flyindustries/f1r3fly-scala-node:${SCALA_IMAGE_TAG}
           fi
@@ -334,13 +334,13 @@ jobs:
           IMAGE_TAG: ${{ needs.build_base.outputs.IMAGE_TAG }}
           SCALA_IMAGE_TAG: dev
         run: |
-          cd system-integration/integration-tests
+          cd system-integration
           if [ "${{ matrix.node }}" = "rust" ]; then
-            F1R3FLY_RUST_IMAGE="f1r3flyindustries/f1r3fly-rust-node:${IMAGE_TAG}" \
-              docker compose -f docker-compose.standalone-rust.yml up -d
+            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-rust:${IMAGE_TAG}" \
+              docker compose -f compose/f1r3node-rust-standalone.yml up -d
           else
-            F1R3FLY_SCALA_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${SCALA_IMAGE_TAG}" \
-              docker compose -f docker-compose.standalone-scala.yml up -d
+            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${SCALA_IMAGE_TAG}" \
+              docker compose -f compose/f1r3node-standalone.yml up -d
           fi
 
       - name: Wait for node healthy
@@ -348,7 +348,7 @@ jobs:
         run: |
           echo "Waiting for standalone node to become healthy..."
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:40463/api/status >/dev/null 2>&1; then
+            if curl -sf http://localhost:40403/api/status >/dev/null 2>&1; then
               echo "Node is healthy after $((i * 5))s"
               exit 0
             fi
@@ -360,14 +360,14 @@ jobs:
 
       - name: Run Smoke Tests (bash)
         shell: bash -ex {0}
-        run: ./scripts/smoke_test.sh localhost 40462 40463
+        run: ./scripts/smoke_test.sh localhost 40402 40403
 
       - name: Run Integration Tests (Rust)
         if: matrix.node == 'rust'
         shell: bash -ex {0}
         env:
-          F1R3FLY_HTTP_PORT: "40463"
-          F1R3FLY_OBSERVER_HTTP: "40463"
+          F1R3FLY_HTTP_PORT: "40403"
+          F1R3FLY_OBSERVER_HTTP: "40403"
         run: cargo test --test smoke --release -- --ignored
 
       - name: Upload Smoke Test Logs
@@ -398,11 +398,11 @@ jobs:
         if: always()
         shell: bash {0}
         run: |
-          cd system-integration/integration-tests
+          cd system-integration
           if [ "${{ matrix.node }}" = "rust" ]; then
-            docker compose -f docker-compose.standalone-rust.yml down -v
+            docker compose -f compose/f1r3node-rust-standalone.yml down -v
           else
-            docker compose -f docker-compose.standalone-scala.yml down -v
+            docker compose -f compose/f1r3node-standalone.yml down -v
           fi
 
   # GitHub Release with compiled binaries and changelog.
