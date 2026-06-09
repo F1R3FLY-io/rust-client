@@ -1,7 +1,6 @@
-# Auto-release — bumps version on merge to main or dev
+# Auto-release — bumps the patch version on merge to main
 #
-# - main: bumps minor (0.1.0 -> 0.2.0)
-# - dev:  bumps patch (0.1.0 -> 0.1.1)
+# - main: bumps patch (0.2.1 -> 0.2.2)
 #
 # Determines the next version from the latest v* tag, bumps Cargo.toml,
 # generates CHANGELOG.md via git-cliff, commits, and pushes. The tag is
@@ -17,7 +16,6 @@ on:
   push:
     branches:
       - main
-      - dev
   workflow_dispatch:
 
 jobs:
@@ -54,11 +52,7 @@ jobs:
         run: |
           source scripts/version.sh
           BRANCH="${GITHUB_REF#refs/heads/}"
-          if [ "$BRANCH" = "main" ]; then
-            bump_version minor
-          else
-            bump_version patch
-          fi
+          bump_version patch
           echo "NEXT_VERSION=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "BRANCH=$BRANCH" >> "$GITHUB_OUTPUT"
