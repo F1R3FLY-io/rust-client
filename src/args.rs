@@ -245,10 +245,7 @@ pub struct DeployArgs {
     pub file: PathBuf,
 
     /// Private key in hex format
-    #[arg(
-        long,
-        env = "FIREFLY_PRIVATE_KEY"
-    )]
+    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
     /// Host address
@@ -338,11 +335,7 @@ pub struct ExploratoryDeployArgs {
 #[derive(Parser)]
 pub struct GeneratePublicKeyArgs {
     /// Private key in hex format
-    #[arg(
-        short,
-        long,
-        env = "FIREFLY_PRIVATE_KEY"
-    )]
+    #[arg(short, long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
     /// Output public key in compressed format (shorter)
@@ -576,10 +569,7 @@ pub struct TransferArgs {
     pub amount: u64,
 
     /// Private key for signing the transfer (hex format)
-    #[arg(
-        long,
-        env = "FIREFLY_PRIVATE_KEY"
-    )]
+    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
     /// Host address
@@ -649,10 +639,7 @@ pub struct LoadTestArgs {
     pub interval: u64,
 
     /// Private key for signing (hex format)
-    #[arg(
-        long,
-        env = "FIREFLY_PRIVATE_KEY"
-    )]
+    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
     /// Host address
