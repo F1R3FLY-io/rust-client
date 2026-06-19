@@ -626,7 +626,7 @@ pub struct TransferArgs {
     /// Amount to transfer
     #[arg(short, long)]
     pub amount: u64,
-    /// Treat amount as a whole token(*10^decimals). Without it amount in base units (dust).
+    /// Treat --amount as whole tokens, scaled by the native token's decimals from node status (default: base units / dust)
     #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
     pub whole_tokens: bool,
 
@@ -698,6 +698,10 @@ pub struct LoadTestArgs {
     /// Amount per transfer
     #[arg(long, default_value_t = 1)]
     pub amount: u64,
+
+    /// Treat --amount as whole tokens, scaled by the native token's decimals from node status (default: base units / dust)
+    #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
+    pub whole_tokens: bool,
 
     /// Seconds between tests
     #[arg(long, default_value_t = 10)]

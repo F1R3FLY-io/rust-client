@@ -65,6 +65,7 @@ println!("Estimated cost: {} phlogiston", cost);
 ### Transfer
 
 ```rust
+// amount is in base units (dust); use the CLI --whole-tokens flag for whole-token amounts
 let transfer = manager.transfer("1111recipient...", 100_000_000).await?;
 println!("TX: {} in block {}", transfer.deploy_id, transfer.block_hash);
 ```
