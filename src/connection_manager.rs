@@ -354,7 +354,7 @@ impl F1r3flyConnectionManager {
             deploy_sig_hex, total_timeout_secs
         )))
     }
-    
+
     /// Wait for a block to be finalized (uses observer node if configured).
     ///
     /// **Deprecated**: this performs block-level finalization polling, which
