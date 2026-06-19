@@ -30,7 +30,7 @@ pub struct NodeStatus {
     #[serde(rename = "nativeTokenSymbol", default)]
     pub native_token_symbol: String,
     #[serde(rename = "nativeTokenDecimals", default)]
-    pub native_token_decimals: u32,
+    pub native_token_decimals: Option<u32>,
     #[serde(rename = "peerList", default)]
     pub peer_list: Vec<serde_json::Value>,
     // Numeric and bool fields use Option so a missing field (e.g. from an older

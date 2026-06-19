@@ -12,7 +12,8 @@ node_cli load-test --to-address <ADDR> --num-tests <N> --amount <AMT> [OPTIONS]
 |------|---------|-------------|
 | `--to-address` | required | Recipient address |
 | `--num-tests` | required | Number of transfers to send |
-| `--amount` | required | Amount per transfer (tokens) |
+| `--amount` | required | Amount per transfer in base units (dust). Use `--whole-tokens`/`-d` for whole tokens. |
+| `--whole-tokens` | `-d` | false | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status (default: base units / dust) |
 | `--interval` | `5` | Seconds between deploys |
 | `--inclusion-timeout` | `120` | Max seconds for block inclusion |
 | `--finalization-timeout` | `120` | Max seconds for finalization |
@@ -21,11 +22,11 @@ node_cli load-test --to-address <ADDR> --num-tests <N> --amount <AMT> [OPTIONS]
 | `--readonly-port` | same as port | Read-only gRPC port for balance check |
 
 ```
-$ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 1
+$ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000
 
 F1R3FLY Load Test
 Tests: 3
-Amount: 1
+Amount: 100000000 dust
 Interval: 5s
 
 Test 1/3

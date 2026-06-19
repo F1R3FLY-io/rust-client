@@ -567,6 +567,9 @@ pub struct TransferArgs {
     /// Amount to transfer
     #[arg(short, long)]
     pub amount: u64,
+    /// Treat --amount as whole tokens, scaled by the native token's decimals from node status (default: base units / dust)
+    #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
+    pub whole_tokens: bool,
 
     /// Private key for signing the transfer (hex format)
     #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
@@ -633,6 +636,10 @@ pub struct LoadTestArgs {
     /// Amount per transfer
     #[arg(long, default_value_t = 1)]
     pub amount: u64,
+
+    /// Treat --amount as whole tokens, scaled by the native token's decimals from node status (default: base units / dust)
+    #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
+    pub whole_tokens: bool,
 
     /// Seconds between tests
     #[arg(long, default_value_t = 10)]

@@ -34,7 +34,7 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
                         "  Native Token:  {} ({}, {} decimals)",
                         status.native_token_name,
                         status.native_token_symbol,
-                        status.native_token_decimals
+                        fmt(status.native_token_decimals)
                     );
                 }
                 fn fmt<T: std::fmt::Display>(v: Option<T>) -> String {
@@ -547,7 +547,7 @@ impl DiscoveredPeer {
 }
 
 // Helper function to query a node's status and return full JSON response
-async fn query_node_status(
+pub(crate) async fn query_node_status(
     client: &reqwest::Client,
     host: &str,
     port: u16,
