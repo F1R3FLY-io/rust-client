@@ -254,11 +254,15 @@ impl<'a> F1r3flyApi<'a> {
         let serialized = projection.encode_to_vec();
         let digest = blake2b_256_hash(&serialized);
 
+        let signing_key = self
+            .signing_key
+            .as_ref()
+            .expect("build_deploy_msg requires a signing key");
         let secp = Secp256k1::new();
         let message = Secp256k1Message::from_digest(digest.into());
-        let signature = secp.sign_ecdsa(message, &self.signing_key);
+        let signature = secp.sign_ecdsa(message, signing_key);
         let sig_bytes = signature.serialize_der().to_vec();
-        let public_key = self.signing_key.public_key(&secp);
+        let public_key = signing_key.public_key(&secp);
         let pub_key_bytes = public_key.serialize_uncompressed().to_vec();
 
         DeployDataProto {

@@ -21,6 +21,14 @@ cargo run --release -- exploratory-deploy -f query.rho -H localhost -p 40452
 cargo run --release -- exploratory-deploy -f rho_examples/query_token_metadata.rho -H localhost -p 40452
 ```
 
+## Local development
+
+Commands need a signing key, provided via `--private-key` or the `FIREFLY_PRIVATE_KEY` environment variable; if neither is set, the command exits with an error. Local dev/test Docker node setups are funded with a well-known development key (not a secret — it ships in those Docker configs). Export it when running against a local node:
+
+```bash
+export FIREFLY_PRIVATE_KEY=5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657
+```
+
 ## Documentation
 
 ### Commands

@@ -20,6 +20,7 @@ HTTP_PORT="${3:-40403}"      # HTTP port for status/query operations
 OBSERVER_GRPC="${4:-$GRPC_PORT}"  # Observer gRPC port (defaults to same as GRPC_PORT)
 OBSERVER_HTTP=$((OBSERVER_GRPC + 1))  # Observer HTTP port (gRPC + 1)
 PRIVATE_KEY="${5:-5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657}"  # Signing key
+export FIREFLY_PRIVATE_KEY="$PRIVATE_KEY"
 
 # Recipient address for transfers (secondary test address from genesis)
 TO_ADDR="11112oRqNpmKjfFCGgH6bw5csjBqVgb4PVRP5S98tTNjDeqdWNJr2L"
