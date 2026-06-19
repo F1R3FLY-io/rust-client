@@ -349,7 +349,7 @@ run_test "generate-key-pair" \
 
 # generate-vault-address: Generate vault address from key
 run_test "generate-vault-address" \
-    "cargo run -q --release -- generate-vault-address" \
+    "cargo run -q --release -- generate-vault-address --private-key $PRIVATE_KEY" \
     "Vault address.*1111[a-zA-Z0-9]+"
 
 # ============================================
