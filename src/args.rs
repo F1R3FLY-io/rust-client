@@ -160,7 +160,9 @@ pub struct DeployAndWaitArgs {
     #[arg(long = "observer-host")]
     pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
+    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
+    /// pass an observer port whose +1 equals the node's HTTP port.
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
 
@@ -510,7 +512,9 @@ pub struct BondValidatorArgs {
     #[arg(long = "observer-host")]
     pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
+    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
+    /// pass an observer port whose +1 equals the node's HTTP port.
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
 
@@ -607,7 +611,9 @@ pub struct TransferArgs {
     #[arg(long = "observer-host")]
     pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
+    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
+    /// pass an observer port whose +1 equals the node's HTTP port.
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
 
