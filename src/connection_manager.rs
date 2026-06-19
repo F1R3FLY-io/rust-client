@@ -258,10 +258,11 @@ impl F1r3flyConnectionManager {
     /// Wait for a deploy to reach a terminal finalization state via the
     /// `/api/deploy-finalization-status/{sig}` endpoint (sig-level polling).
     ///
-    /// Polling stops on any terminal state (`Finalized` / `Failed` / `Expired`)
-    /// or when the budget elapses. Returns the final status, or
-    /// `Ok(None)` if the endpoint is unavailable on the node (404) — caller
-    /// should fall back to the legacy block-hash flow.
+    /// Queries the observer first; on 404 or network error, falls back to the
+    /// deploy node. Polling stops on any terminal state (`Finalized` / `Failed`
+    /// / `Expired`) or when the budget elapses. Returns the final status, or
+    /// `Ok(None)` if the endpoint is unavailable (404) on both observer and node —
+    /// caller should fall back to the legacy block-hash flow.
     pub async fn wait_for_deploy_finalization(
         &self,
         deploy_sig_hex: &str,
@@ -274,10 +275,11 @@ impl F1r3flyConnectionManager {
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
 
         for attempt in 1..=max_attempts {
-            match observer_api
+            let observer_result = observer_api
                 .deploy_finalization_status(deploy_sig_hex, http_port)
-                .await
-            {
+                .await;
+
+            match &observer_result {
                 Ok(Some(status)) if status.is_terminal() => {
                     tracing::debug!(
                         deploy_sig = deploy_sig_hex,
@@ -285,17 +287,18 @@ impl F1r3flyConnectionManager {
                         attempt,
                         "Deploy reached terminal state"
                     );
-                    return Ok(Some(status));
+                    return Ok(Some(status.clone()));
                 }
                 // Non-terminal status — keep polling to the next attempt.
                 Ok(Some(_)) => {}
-                Ok(None) => {
-                    // 404 — endpoint not available on this node version.
-                    // Caller falls back to legacy flow.
-                    return Ok(None);
-                }
-                Err(e) => {
-                    // Observer is unavailable => fallback to deploy-node (its HTTP port).
+                Ok(None) | Err(_) => {
+                    // Observer returned 404 or error — try the node before falling back to legacy.
+                    let observer_issue = match &observer_result {
+                        Ok(None) => "observer returned 404".to_string(),
+                        Err(e) => format!("observer error: {e}"),
+                        _ => unreachable!(),
+                    };
+
                     match &node_api {
                         Ok(na) => {
                             match na
@@ -311,15 +314,13 @@ impl F1r3flyConnectionManager {
                                     );
                                     return Ok(Some(status));
                                 }
-                                // Non-terminal status from node API is expected while polling.
-                                // Keep silent and continue to the next poll attempt.
                                 Ok(Some(_)) => {}
                                 Ok(None) => return Ok(None),
                                 Err(node_err) => {
                                     tracing::warn!(
                                         deploy_sig = deploy_sig_hex,
                                         attempt,
-                                        observer_error = %e,
+                                        observer = %observer_issue,
                                         node_error = %node_err,
                                         "deploy-finalization-status failed on observer and fallback node; will retry"
                                     );
@@ -327,11 +328,16 @@ impl F1r3flyConnectionManager {
                             }
                         }
                         Err(_) => {
+                            // No node connection available — if observer had 404, fall back to legacy.
+                            // If observer had an error, warn and retry.
+                            if matches!(&observer_result, Ok(None)) {
+                                return Ok(None);
+                            }
                             tracing::warn!(
                                 deploy_sig = deploy_sig_hex,
                                 attempt,
-                                observer_error = %e,
-                                "deploy-finalization-status failed on observer and no fallback node connection; will retry"
+                                observer = %observer_issue,
+                                "deploy-finalization-status failed on observer and no fallback node; will retry"
                             );
                         }
                     }
@@ -348,7 +354,7 @@ impl F1r3flyConnectionManager {
             deploy_sig_hex, total_timeout_secs
         )))
     }
-
+    
     /// Wait for a block to be finalized (uses observer node if configured).
     ///
     /// **Deprecated**: this performs block-level finalization polling, which

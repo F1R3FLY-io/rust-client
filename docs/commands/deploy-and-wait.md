@@ -8,7 +8,7 @@ This is the primary command for deploying contracts. It handles the full lifecyc
 3. Read the `deployId` channel data from the finalized block (using `latest_block_hash` from the status response)
 4. Get deploy execution details (cost, errored)
 
-**Note:** Step 2 used to be two separate phases (block inclusion + block finalization) using gRPC polling. That older path is still available as a fallback when the node doesn't expose `/api/deploy-finalization-status` (404), with a deprecation warning. Block-level polling can misreport success when a deploy is dropped during merge of a finalized block; sig-level polling is correct in that case.
+**Note:** Step 2 queries the observer first. On 404 (endpoint missing) or network error, it falls back to the deploy node's own HTTP endpoint. If both lack the endpoint (404 from both), the legacy path is used with a deprecation warning. Block-level polling can misreport success when a deploy is dropped during merge of a finalized block; sig-level polling is correct in that case.
 
 ## Usage
 
