@@ -147,24 +147,54 @@ pub async fn exploratory_deploy_command(
 }
 
 pub async fn estimate_cost_command(
-    args: &ExploratoryDeployArgs,
+    args: &EstimateCostArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
 
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
+    let deployer_hex = resolve_deployer(&args.deployer, &args.private_key)?;
 
-    let (_result, _block_info, cost) = f1r3fly_api
-        .exploratory_deploy(
+    if deployer_hex.is_none() {
+        eprintln!(
+            " Warning: no deployer identity supplied. The estimate may be significantly \
+             lower than the real cost for identity-dependent terms (e.g. vault transfers). \
+             Pass --deployer <PUBKEY> or --private-key <PRIVKEY> to fix this."
+        );
+    }
+
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.http_port);
+
+    let response = f1r3fly_api
+        .estimate_cost(
             &rholang_code,
+            deployer_hex.as_deref(),
             args.block_hash.as_deref(),
-            args.use_pre_state,
+            args.http_port,
         )
         .await?;
 
-    println!("{}", cost);
+    println!("{}", response);
 
     Ok(())
+}
+
+/// Resolve the deployer public key hex from CLI arguments.
+///
+/// Priority: `--deployer` directly, or derive from `--private-key`, or `None`.
+fn resolve_deployer(
+    deployer: &Option<String>,
+    private_key: &Option<String>,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    if let Some(pk) = deployer {
+        return Ok(Some(pk.clone()));
+    }
+    if let Some(sk_hex) = private_key {
+        let secret_key = crate::utils::CryptoUtils::decode_private_key(sk_hex)?;
+        let public_key = crate::utils::CryptoUtils::derive_public_key(&secret_key);
+        let pub_hex = crate::utils::CryptoUtils::serialize_public_key(&public_key, false);
+        return Ok(Some(pub_hex));
+    }
+    Ok(None)
 }
 
 pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -743,7 +773,8 @@ pub async fn deploy_status_command(
 
     let status = match api
         .deploy_finalization_status(sig_hex, args.http_port)
-        .await?
+        .await
+        .map_err(|e| e as Box<dyn std::error::Error>)?
     {
         Some(s) => s,
         None => {

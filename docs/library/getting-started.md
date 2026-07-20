@@ -58,7 +58,11 @@ let result = manager.query(r#"new x in { x!(1 + 1) }"#).await?;
 ### Estimate cost
 
 ```rust
-let cost = manager.estimate_cost(r#"new x in { x!(1 + 1) }"#).await?;
+// Without deployer identity — may underestimate identity-dependent terms
+let cost = manager.estimate_cost(r#"new x in { x!(1 + 1) }", None).await?;
+
+// With deployer public key — accurate for identity-dependent contracts
+let cost = manager.estimate_cost(r#"new x in { x!(1 + 1) }", Some(&deployer_pubkey_hex)).await?;
 println!("Estimated cost: {} phlogiston", cost);
 ```
 
