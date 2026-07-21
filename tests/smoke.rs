@@ -2,11 +2,11 @@
 //!
 //! Works against both standalone nodes and multi-validator shards.
 //! Configure via environment variables:
-//!   F1R3FLY_HOST          (default: localhost)
-//!   F1R3FLY_HTTP_PORT     (default: 40413, validator1 HTTP)
-//!   F1R3FLY_OBSERVER_HTTP (default: 40453, readonly HTTP)
+//!   FIREFLY_HOST          (default: localhost)
+//!   FIREFLY_HTTP_PORT     (default: 40413, validator1 HTTP)
+//!   FIREFLY_OBSERVER_HTTP (default: 40453, readonly HTTP)
 //!
-//! Standalone (CI):  F1R3FLY_HTTP_PORT=40463 F1R3FLY_OBSERVER_HTTP=40463
+//! Standalone (CI):  FIREFLY_HTTP_PORT=40463 FIREFLY_OBSERVER_HTTP=40463
 //! Shard (local):    defaults work (40413 validator, 40453 readonly)
 //!
 //! Run: cargo test --test smoke --release
@@ -16,16 +16,16 @@ use reqwest::Client;
 use serde_json::Value;
 
 fn host() -> String {
-    std::env::var("F1R3FLY_HOST").unwrap_or_else(|_| "localhost".into())
+    std::env::var("FIREFLY_HOST").unwrap_or_else(|_| "localhost".into())
 }
 fn http_port() -> u16 {
-    std::env::var("F1R3FLY_HTTP_PORT")
+    std::env::var("FIREFLY_HTTP_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(40413)
 }
 fn observer_http() -> u16 {
-    std::env::var("F1R3FLY_OBSERVER_HTTP")
+    std::env::var("FIREFLY_OBSERVER_HTTP")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(40453)

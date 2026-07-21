@@ -329,7 +329,7 @@ run_test "exploratory-deploy" \
 # Must run on observer (read-only) node
 # Expected output: a number (the cost in phlogiston)
 run_test "estimate-cost" \
-    "cargo run -q --release -- estimate-cost -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
+    "cargo run -q --release -- estimate-cost -f ./rho_examples/stdout.rho -H $HOST --http_port $OBSERVER_HTTP" \
     "^[0-9]+"
 
 # ============================================

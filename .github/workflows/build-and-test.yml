@@ -366,8 +366,8 @@ jobs:
         if: matrix.node == 'rust'
         shell: bash -ex {0}
         env:
-          F1R3FLY_HTTP_PORT: "40403"
-          F1R3FLY_OBSERVER_HTTP: "40403"
+          FIREFLY_HTTP_PORT: "40403"
+          FIREFLY_OBSERVER_HTTP: "40403"
         run: cargo test --test smoke --release -- --ignored
 
       - name: Upload Smoke Test Logs
