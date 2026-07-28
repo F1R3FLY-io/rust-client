@@ -1,31 +1,30 @@
 # Contributing to rust-client
 
-Thanks for contributing! This repo follows a `staging → dev → main` flow.
+Thanks for contributing! This repo follows a `dev → main` flow.
 
 ## Branching policy
 
 ```
-feature/your-change ──► staging ──► dev ──► main
+feature/your-change ──► dev ──► main
 ```
 
-- **All feature/fix PRs target `staging`.** This is the default branch.
-- **Maintainers** periodically merge `staging` into `dev` to prepare a release.
+- **All feature/fix PRs target `dev`.** This is the default branch.
 - **Maintainers** cut releases by merging `dev` into `main`.
 
-Do not open PRs directly against `dev` or `main`. They are protected and reserved for release flow.
+Do not open PRs directly against `main`. It is protected and reserved for release flow.
 
 ## Opening a PR
 
 1. Fork the repo (or create a feature branch if you have write access).
-2. Create your branch from the latest `staging`:
+2. Create your branch from the latest `dev`:
    ```bash
-   git checkout staging
-   git pull origin staging
+   git checkout dev
+   git pull origin dev
    git checkout -b feature/short-description
    ```
 3. Make your changes. Keep commits focused; write clear messages.
 4. Update documentation as needed — `README.md`, files under `docs/`, command-specific docs in `docs/commands/`, and any inline doc comments. Docs and code should ship in the same PR.
-5. Push and open a PR. The base branch should default to `staging` — leave it as is.
+5. Push and open a PR. The base branch should default to `dev` — leave it as is.
 
 ## Quality checks
 
@@ -45,7 +44,7 @@ CI runs these on every PR. Failing CI blocks merge.
 
 ## Versioning & releases
 
-Versions bump automatically on merges to `dev` (patch) and `main` (minor) via the Release workflow. Do not manually edit `Cargo.toml` version or `CHANGELOG.md` — those are managed by the release pipeline.
+Versions bump automatically (patch) on merge to `main` via the Release workflow — `dev` does not release. Do not manually edit `Cargo.toml` version or `CHANGELOG.md` — those are managed by the release pipeline.
 
 ## Code style
 

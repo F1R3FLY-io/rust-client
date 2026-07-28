@@ -6,17 +6,20 @@ on:
     branches:
       - main
       - dev
-      - staging
     tags: "v**"
   pull_request:
     branches:
       - main
       - dev
-      - staging
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # Node images are pinned to :dev until upstream cuts a :latest with the
+  # new API endpoints.
+  NODE_IMAGE_TAG: dev
 
 jobs:
   # Format and lint checks: fast, runs in parallel with build_base.
@@ -57,8 +60,6 @@ jobs:
       || startsWith(github.ref, 'refs/tags/')
     outputs:
       VERSION: ${{ env.VERSION }}
-      BRANCH: ${{ env.BRANCH }}
-      IMAGE_TAG: ${{ env.IMAGE_TAG }}
     steps:
       - name: Clone Repository
         uses: actions/checkout@v4
@@ -95,40 +96,6 @@ jobs:
           # Strip tag prefix for clean version string
           VERSION="${VERSION#v}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-          # Find related HEAD branch.
-          # For PRs, use the *target* (base) branch — image selection should
-          # match what the target branch will use post-merge, not what the
-          # source feature branch happens to be named.
-          BRANCH=""
-          if [[ $GITHUB_REF =~ ^refs/tags/ ]]; then
-            # For tag pushes, determine release type from tag name
-            # patch .0 = main release, patch > 0 = dev release
-            TAG_NAME="${GITHUB_REF#refs/tags/}"
-            TAG_VERSION="${TAG_NAME#v}"
-            PATCH=$(echo "$TAG_VERSION" | cut -d. -f3)
-            if [ "$PATCH" = "0" ]; then
-              BRANCH="main"
-            else
-              BRANCH="dev"
-            fi
-          elif [[ $GITHUB_REF =~ ^refs/heads/ ]]; then
-            BRANCH=${GITHUB_REF#refs/*/}
-          elif [ -n "$GITHUB_BASE_REF" ]; then
-            BRANCH=$GITHUB_BASE_REF
-          else
-            BRANCH=$GITHUB_HEAD_REF
-          fi
-          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
-
-          # Determine f1r3node Docker image tag.
-          # staging branch tracks rust/staging upstream → :staging image
-          # main / dev / tags use :dev (temporary: until upstream cuts a :latest with the new API endpoints)
-          if [ "$BRANCH" = "staging" ]; then
-            echo "IMAGE_TAG=staging" >> $GITHUB_ENV
-          else
-            echo "IMAGE_TAG=dev" >> $GITHUB_ENV
-          fi
 
       - name: Pack Working Tree
         shell: bash -ex {0}
@@ -316,30 +283,22 @@ jobs:
 
       - name: Pull f1r3node Docker image
         shell: bash -ex {0}
-        env:
-          IMAGE_TAG: ${{ needs.build_base.outputs.IMAGE_TAG }}
-          # Scala node doesn't publish :staging — pin to :dev. Rust uses
-          # the dynamic IMAGE_TAG (:staging on staging, :dev elsewhere).
-          SCALA_IMAGE_TAG: dev
         run: |
           if [ "${{ matrix.node }}" = "rust" ]; then
-            docker pull f1r3flyindustries/f1r3fly-rust:${IMAGE_TAG}
+            docker pull f1r3flyindustries/f1r3fly-rust:${NODE_IMAGE_TAG}
           else
-            docker pull f1r3flyindustries/f1r3fly-scala-node:${SCALA_IMAGE_TAG}
+            docker pull f1r3flyindustries/f1r3fly-scala-node:${NODE_IMAGE_TAG}
           fi
 
       - name: Start node
         shell: bash -ex {0}
-        env:
-          IMAGE_TAG: ${{ needs.build_base.outputs.IMAGE_TAG }}
-          SCALA_IMAGE_TAG: dev
         run: |
           cd system-integration
           if [ "${{ matrix.node }}" = "rust" ]; then
-            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-rust:${IMAGE_TAG}" \
+            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-rust:${NODE_IMAGE_TAG}" \
               docker compose -f compose/f1r3node-rust-standalone.yml up -d
           else
-            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${SCALA_IMAGE_TAG}" \
+            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${NODE_IMAGE_TAG}" \
               docker compose -f compose/f1r3node-standalone.yml up -d
           fi
 
@@ -440,22 +399,11 @@ jobs:
           chmod +x /tmp/release/rust-client-linux-amd64
           chmod +x /tmp/release/rust-client-linux-arm64
 
-      - name: Determine release type
-        id: release_type
-        run: |
-          TAG="${GITHUB_REF#refs/tags/v}"
-          PATCH=$(echo "$TAG" | cut -d. -f3)
-          if [ "$PATCH" = "0" ]; then
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
           artifacts: /tmp/release/*
-          prerelease: ${{ steps.release_type.outputs.prerelease }}
+          prerelease: false
           draft: false
           allowUpdates: true
           omitBodyDuringUpdate: true
