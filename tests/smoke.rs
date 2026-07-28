@@ -15,6 +15,12 @@
 use reqwest::Client;
 use serde_json::Value;
 
+/// A structurally valid secp256k1 public key (the generator point G, i.e. the
+/// public key for private key 1) that no test shard ever bonds. The node
+/// validates key structure and rejects malformed keys with 400, so
+/// unknown-validator tests must send a real curve point.
+const UNBONDED_PUBKEY: &str = "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8";
+
 fn host() -> String {
     std::env::var("F1R3FLY_HOST").unwrap_or_else(|_| "localhost".into())
 }
@@ -422,8 +428,7 @@ async fn test_validator_unknown() {
         return;
     }
 
-    let fake = "aa".repeat(65);
-    let result = get_json(observer_http(), &format!("/validator/{}", fake))
+    let result = get_json(observer_http(), &format!("/validator/{}", UNBONDED_PUBKEY))
         .await
         .unwrap();
 
@@ -460,8 +465,7 @@ async fn test_bond_status_unknown() {
         return;
     }
 
-    let fake = "bb".repeat(65);
-    let result = get_json(http_port(), &format!("/bond-status/{}", fake))
+    let result = get_json(http_port(), &format!("/bond-status/{}", UNBONDED_PUBKEY))
         .await
         .unwrap();
 
