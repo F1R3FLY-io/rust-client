@@ -65,16 +65,3 @@ export FIREFLY_PRIVATE_KEY=5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a
 | `FIREFLY_OBSERVER_GRPC_PORT` | No | `40452` | Observer gRPC port |
 | `FIREFLY_DEPLOY_TIMEOUT` | No | `60` | Max seconds for block inclusion |
 | `FIREFLY_FINALIZATION_TIMEOUT` | No | `30` | Max seconds for finalization |
-
-## Dependencies
-
-| Crate | Version | Purpose |
-|-------|---------|---------|
-| `f1r3fly-models` | git (rust/dev) | Protobuf types |
-| `f1r3fly-shared` | git (rust/dev) | Event types |
-| `secp256k1` | 0.31 | ECDSA signing |
-| `reqwest` | 0.12 | HTTP client |
-| `tonic` | 0.14 | gRPC client |
-| `tokio-tungstenite` | 0.26 | WebSocket |
-| `tracing` | 0.1 | Structured logging |
-| `thiserror` | 2.0 | Error derives |
