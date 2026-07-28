@@ -4,6 +4,21 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.2.3] - 2026-07-28
+
+### CI
+
+- add clippy, cargo-deny, and markdown link checks
+
+### Documentation
+
+- remove stale dependencies section from README
+
+### Miscellaneous
+
+- point f1r3node deps at f1r3node-rust v0.4.23
+
+
 ## [0.2.2] - 2026-07-28
 
 ### Bug Fixes
