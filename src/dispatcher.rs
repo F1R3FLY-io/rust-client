@@ -15,7 +15,7 @@ impl Dispatcher {
             Commands::DeployAndWait(args) => deploy_and_wait_command(args)
                 .await
                 .map_err(NodeCliError::from),
-            Commands::GetData(args) => get_data_command(args).await.map_err(NodeCliError::from),
+            Commands::GetData(args) => get_data_command(args).await,
             Commands::IsFinalized(args) => {
                 is_finalized_command(args).await.map_err(NodeCliError::from)
             }
@@ -25,15 +25,9 @@ impl Dispatcher {
             Commands::EstimateCost(args) => estimate_cost_command(args)
                 .await
                 .map_err(NodeCliError::from),
-            Commands::GeneratePublicKey(args) => {
-                generate_public_key_command(args).map_err(NodeCliError::from)
-            }
-            Commands::GenerateKeyPair(args) => {
-                generate_key_pair_command(args).map_err(NodeCliError::from)
-            }
-            Commands::GenerateVaultAddress(args) => {
-                generate_vault_address_command(args).map_err(NodeCliError::from)
-            }
+            Commands::GeneratePublicKey(args) => generate_public_key_command(args),
+            Commands::GenerateKeyPair(args) => generate_key_pair_command(args),
+            Commands::GenerateVaultAddress(args) => generate_vault_address_command(args),
             Commands::Status(args) => status_command(args).await.map_err(NodeCliError::from),
             Commands::Blocks(args) => blocks_command(args).await.map_err(NodeCliError::from),
             Commands::Bonds(args) => bonds_command(args).await.map_err(NodeCliError::from),
@@ -75,10 +69,8 @@ impl Dispatcher {
             Commands::GetBlocksByHeight(args) => get_blocks_by_height_command(args)
                 .await
                 .map_err(NodeCliError::from),
-            Commands::GetNodeId(args) => get_node_id_command(args).map_err(NodeCliError::from),
-            Commands::WatchEvents(args) => {
-                watch_events_command(args).await.map_err(NodeCliError::from)
-            }
+            Commands::GetNodeId(args) => get_node_id_command(args),
+            Commands::WatchEvents(args) => watch_events_command(args).await,
             Commands::Dag(args) => run_dag(args).await,
             Commands::BlockTransfers(args) => block_transfers_command(args)
                 .await
@@ -101,25 +93,25 @@ impl Dispatcher {
     fn handle_error(error: &NodeCliError) {
         match error {
             NodeCliError::Network(net_err) => {
-                print_error(&format!("Network issue: {}", net_err));
+                print_error(&format!("Network issue: {net_err}"));
                 eprintln!(" Suggestion: Check your internet connection and node availability");
             }
             NodeCliError::Crypto(crypto_err) => {
-                print_error(&format!("Cryptographic issue: {}", crypto_err));
+                print_error(&format!("Cryptographic issue: {crypto_err}"));
                 eprintln!(" Suggestion: Verify your private/public key format and validity");
             }
             NodeCliError::File(file_err) => {
-                print_error(&format!("File operation failed: {}", file_err));
+                print_error(&format!("File operation failed: {file_err}"));
                 eprintln!(" Suggestion: Check file permissions and paths");
             }
             NodeCliError::Api(api_err) => {
-                print_error(&format!("API communication failed: {}", api_err));
+                print_error(&format!("API communication failed: {api_err}"));
                 eprintln!(
                     " Suggestion: Verify the node is running and API endpoints are accessible"
                 );
             }
             NodeCliError::Config(config_err) => {
-                print_error(&format!("Configuration issue: {}", config_err));
+                print_error(&format!("Configuration issue: {config_err}"));
                 eprintln!(" Suggestion: Check your command arguments and configuration");
             }
             NodeCliError::General(msg) => {

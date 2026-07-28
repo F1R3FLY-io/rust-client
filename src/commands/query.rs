@@ -21,7 +21,7 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
                 let status: crate::f1r3fly_api::NodeStatus = serde_json::from_str(&status_text)?;
 
                 println!(" Node status retrieved successfully!");
-                println!(" Time taken: {:.2?}", duration);
+                println!(" Time taken: {duration:.2?}");
                 println!();
                 println!("  Address:       {}", status.address);
                 println!("  Network:       {}", status.network_id);
@@ -60,7 +60,7 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
         }
         Err(e) => {
             println!(" Connection failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e.into());
         }
     }
@@ -73,7 +73,7 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
     let client = reqwest::Client::new();
 
     if let Some(block_hash) = &args.block_hash {
-        println!(" Getting specific block: {}", block_hash);
+        println!(" Getting specific block: {block_hash}");
         let url = format!(
             "http://{}:{}/api/block/{}",
             args.host, args.port, block_hash
@@ -87,7 +87,7 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
                     let block_json: serde_json::Value = serde_json::from_str(&block_text)?;
 
                     println!(" Block retrieved successfully!");
-                    println!(" Time taken: {:.2?}", duration);
+                    println!(" Time taken: {duration:.2?}");
                     println!(" Block Details:");
                     println!("{}", serde_json::to_string_pretty(&block_json)?);
                 } else {
@@ -97,7 +97,7 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
             }
             Err(e) => {
                 println!(" Connection failed!");
-                println!("Error: {}", e);
+                println!("Error: {e}");
                 return Err(e.into());
             }
         }
@@ -119,7 +119,7 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
                     let blocks_json: serde_json::Value = serde_json::from_str(&blocks_text)?;
 
                     println!(" Blocks retrieved successfully!");
-                    println!(" Time taken: {:.2?}", duration);
+                    println!(" Time taken: {duration:.2?}");
                     println!(" Recent Blocks:");
                     println!("{}", serde_json::to_string_pretty(&blocks_json)?);
                 } else {
@@ -129,7 +129,7 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
             }
             Err(e) => {
                 println!(" Connection failed!");
-                println!("Error: {}", e);
+                println!("Error: {e}");
                 return Err(e.into());
             }
         }
@@ -166,7 +166,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
                 let bonds_json: serde_json::Value = serde_json::from_str(&bonds_text)?;
 
                 println!(" Validator bonds retrieved successfully!");
-                println!(" Time taken: {:.2?}", duration);
+                println!(" Time taken: {duration:.2?}");
                 println!();
 
                 // Parse and display bonds data in a clean format
@@ -180,8 +180,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
                                 .sum();
 
                             println!(
-                                " Bonded Validators ({} total, {} total stake):",
-                                validator_count, total_stake
+                                " Bonded Validators ({validator_count} total, {total_stake} total stake):"
                             );
                             println!();
 
@@ -220,7 +219,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
         }
         Err(e) => {
             println!(" Connection failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e.into());
         }
     }
@@ -259,7 +258,7 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
                 let validators_json: serde_json::Value = serde_json::from_str(&validators_text)?;
 
                 println!(" Active validators retrieved successfully!");
-                println!(" Time taken: {:.2?}", duration);
+                println!(" Time taken: {duration:.2?}");
                 println!();
 
                 // Parse and display validator data in a clean format
@@ -273,8 +272,7 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
                                 .sum();
 
                             println!(
-                                " Active Validators ({} total, {} total stake):",
-                                validator_count, total_stake
+                                " Active Validators ({validator_count} total, {total_stake} total stake):"
                             );
                             println!();
 
@@ -316,7 +314,7 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
         }
         Err(e) => {
             println!(" Connection failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e.into());
         }
     }
@@ -364,14 +362,14 @@ pub async fn wallet_balance_command(
         Ok((result, block_info, _cost)) => {
             let duration = start_time.elapsed();
             println!("Wallet balance retrieved successfully!");
-            println!("Time taken: {:.2?}", duration);
+            println!("Time taken: {duration:.2?}");
             println!("Balance for {}: {}", args.address, result);
-            println!("{}", block_info);
+            println!("{block_info}");
         }
         Err(e) => {
             println!(" Failed to get wallet balance!");
-            println!("Error: {}", e);
-            return Err(e.into());
+            println!("Error: {e}");
+            return Err(e);
         }
     }
 
@@ -407,7 +405,7 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
                 let bonds_json: serde_json::Value = serde_json::from_str(&bonds_text)?;
 
                 println!(" Bond information retrieved successfully!");
-                println!(" Time taken: {:.2?}", duration);
+                println!(" Time taken: {duration:.2?}");
 
                 // Check if the public key exists in the bonds
                 let is_bonded = check_if_key_is_bonded(&bonds_json, &args.public_key);
@@ -429,7 +427,7 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
         }
         Err(e) => {
             println!(" Connection failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e.into());
         }
     }
@@ -474,7 +472,7 @@ pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::
                 let metrics_text = response.text().await?;
 
                 println!(" Node metrics retrieved successfully!");
-                println!(" Time taken: {:.2?}", duration);
+                println!(" Time taken: {duration:.2?}");
                 println!(" Node Metrics:");
 
                 // Filter and display key metrics
@@ -491,11 +489,11 @@ pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::
 
                 if lines.is_empty() {
                     println!(" All Metrics:");
-                    println!("{}", metrics_text);
+                    println!("{metrics_text}");
                 } else {
                     println!(" Key Metrics (peers, blocks, consensus):");
                     for line in lines {
-                        println!("{}", line);
+                        println!("{line}");
                     }
                     println!("\n Use --verbose flag (if implemented) to see all metrics");
                 }
@@ -506,7 +504,7 @@ pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::
         }
         Err(e) => {
             println!(" Connection failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e.into());
         }
     }
@@ -553,12 +551,12 @@ pub(crate) async fn query_node_status(
     port: u16,
     debug: bool,
 ) -> Result<(serde_json::Value, String), String> {
-    let url = format!("http://{}:{}/status", host, port);
+    let url = format!("http://{host}:{port}/status");
 
     if debug {
         println!("\n [DEBUG] HTTP Request:");
         println!(" Method: GET");
-        println!(" URL: {}", url);
+        println!(" URL: {url}");
     }
 
     match client.get(&url).send().await {
@@ -567,7 +565,7 @@ pub(crate) async fn query_node_status(
 
             if debug {
                 println!(" [DEBUG] HTTP Response:");
-                println!(" Status: {}", status_code);
+                println!(" Status: {status_code}");
                 println!(" Headers: {:#?}", response.headers());
             }
 
@@ -581,7 +579,7 @@ pub(crate) async fn query_node_status(
                                     .unwrap_or(serde_json::json!({})),
                             ) {
                                 for line in pretty.lines() {
-                                    println!(" {}", line);
+                                    println!(" {line}");
                                 }
                             }
                         }
@@ -593,12 +591,12 @@ pub(crate) async fn query_node_status(
                     Err(_) => Err("Failed to read response".to_string()),
                 }
             } else {
-                Err(format!("HTTP {}", status_code))
+                Err(format!("HTTP {status_code}"))
             }
         }
         Err(e) => {
             if debug {
-                println!(" [DEBUG] Error: {}", e);
+                println!(" [DEBUG] Error: {e}");
             }
             Err("Connection failed".to_string())
         }
@@ -637,7 +635,7 @@ pub async fn network_health_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Validate host and ports combination early
     if let Err(e) = validate_host_and_ports(&args.host, &args.custom_ports) {
-        println!(" {}", e);
+        println!(" {e}");
         return Err(e.into());
     }
 
@@ -708,9 +706,9 @@ pub async fn network_health_command(
 
             if let Some((host, port)) = queue.pop_front() {
                 total_nodes += 1;
-                let uri_key = format!("{}:{}", host, port);
+                let uri_key = format!("{host}:{port}");
 
-                print!(" Querying {}:{}: ", host, port);
+                print!(" Querying {host}:{port}: ");
 
                 match query_node_status(&client, &host, port, args.debug).await {
                     Ok((status_json, _raw_response)) => {
@@ -756,7 +754,7 @@ pub async fn network_health_command(
                         }
                     }
                     Err(e) => {
-                        println!(" {}", e);
+                        println!(" {e}");
                         node_status_map.push((uri_key, false, serde_json::json!({})));
                     }
                 }
@@ -764,7 +762,7 @@ pub async fn network_health_command(
         }
 
         println!("\n Recursive Discovery Summary:");
-        println!(" Healthy nodes: {}/{}", healthy_nodes, total_nodes);
+        println!(" Healthy nodes: {healthy_nodes}/{total_nodes}");
         println!(" Total discovered peers: {}", discovered_peers.len());
     } else {
         // Standard mode: just query specified ports
@@ -784,7 +782,7 @@ pub async fn network_health_command(
                         .and_then(|p| p.as_u64())
                         .unwrap_or(0);
 
-                    println!(" HEALTHY ({} peers)", peer_count);
+                    println!(" HEALTHY ({peer_count} peers)");
 
                     // Store the status and peer list
                     node_status_map.push((uri_key, true, status_json.clone()));
@@ -793,48 +791,46 @@ pub async fn network_health_command(
 
                     if args.verbose {
                         if let Some(peers_from_endpoint) = status_json.get("peers") {
-                            println!(" Peers count from endpoint: {}", peers_from_endpoint);
+                            println!(" Peers count from endpoint: {peers_from_endpoint}");
                         }
                         if let Some(version) = status_json.get("version") {
-                            println!(" Version: {}", version);
+                            println!(" Version: {version}");
                         }
                         if let Some(uptime) = status_json.get("uptime") {
-                            println!(" Uptime: {}", uptime);
+                            println!(" Uptime: {uptime}");
                         }
                     }
                 }
                 Err(e) => {
-                    println!(" {}", e);
+                    println!(" {e}");
                     node_status_map.push((uri_key, false, serde_json::json!({})));
                 }
             }
         }
 
         println!("\n Network Health Summary:");
-        println!(" Healthy nodes: {}/{}", healthy_nodes, total_nodes);
+        println!(" Healthy nodes: {healthy_nodes}/{total_nodes}");
     }
 
     // Display detailed peer information for each node
-    if !node_status_map.is_empty() && healthy_nodes > 0 {
-        if args.verbose {
-            println!("\n Detailed Peer Information:\n");
-            for (uri, is_healthy, status_json) in &node_status_map {
-                if *is_healthy {
-                    println!(" Node {}:", uri);
-                    let peers = extract_peers(status_json);
-                    if peers.is_empty() {
-                        println!(" No peers discovered");
-                    } else {
-                        for (i, peer) in peers.iter().enumerate() {
-                            println!(" Peer {}:", i + 1);
-                            display_peer_info(peer, " ");
-                            if i < peers.len() - 1 {
-                                println!();
-                            }
+    if !node_status_map.is_empty() && healthy_nodes > 0 && args.verbose {
+        println!("\n Detailed Peer Information:\n");
+        for (uri, is_healthy, status_json) in &node_status_map {
+            if *is_healthy {
+                println!(" Node {uri}:");
+                let peers = extract_peers(status_json);
+                if peers.is_empty() {
+                    println!(" No peers discovered");
+                } else {
+                    for (i, peer) in peers.iter().enumerate() {
+                        println!(" Peer {}:", i + 1);
+                        display_peer_info(peer, " ");
+                        if i < peers.len() - 1 {
+                            println!();
                         }
                     }
-                    println!();
                 }
+                println!();
             }
         }
     }
@@ -845,18 +841,18 @@ pub async fn network_health_command(
         let avg_peers = total_peer_count as f64 / all_peer_lists.len() as f64;
 
         println!(" Peer Statistics:");
-        println!(" Total peer entries: {}", total_peer_count);
-        println!(" Average peers per node: {:.1}", avg_peers);
+        println!(" Total peer entries: {total_peer_count}");
+        println!(" Average peers per node: {avg_peers:.1}");
 
         if args.verbose {
             let mut peer_counts_by_node: Vec<usize> =
                 all_peer_lists.iter().map(|p| p.len()).collect();
             peer_counts_by_node.sort();
             if let Some(min) = peer_counts_by_node.first() {
-                println!(" Minimum peers on a node: {}", min);
+                println!(" Minimum peers on a node: {min}");
             }
             if let Some(max) = peer_counts_by_node.last() {
-                println!(" Maximum peers on a node: {}", max);
+                println!(" Maximum peers on a node: {max}");
             }
 
             // Count peer connectivity status
@@ -869,7 +865,7 @@ pub async fn network_health_command(
                 })
                 .count();
             if connected_peers > 0 {
-                println!(" Connected peers: {}/{}", connected_peers, total_peer_count);
+                println!(" Connected peers: {connected_peers}/{total_peer_count}");
             }
         }
 
@@ -909,7 +905,7 @@ pub async fn last_finalized_block_command(
                 let block_json: serde_json::Value = serde_json::from_str(&block_text)?;
 
                 println!(" Last finalized block retrieved successfully!");
-                println!(" Time taken: {:.2?}", duration);
+                println!(" Time taken: {duration:.2?}");
 
                 // Extract key information from blockInfo
                 let block_info = block_json.get("blockInfo");
@@ -946,12 +942,12 @@ pub async fn last_finalized_block_command(
                     .unwrap_or(0.0);
 
                 println!(" Last Finalized Block Summary:");
-                println!(" Block Number: {}", block_number);
-                println!(" Block Hash: {}", block_hash);
-                println!(" Timestamp: {}", timestamp);
-                println!(" Deploy Count: {}", deploy_count);
-                println!(" Shard ID: {}", shard_id);
-                println!(" Fault Tolerance: {:.6}", fault_tolerance);
+                println!(" Block Number: {block_number}");
+                println!(" Block Hash: {block_hash}");
+                println!(" Timestamp: {timestamp}");
+                println!(" Deploy Count: {deploy_count}");
+                println!(" Shard ID: {shard_id}");
+                println!(" Fault Tolerance: {fault_tolerance:.6}");
             } else {
                 println!(
                     " Failed to get last finalized block: HTTP {}",
@@ -962,7 +958,7 @@ pub async fn last_finalized_block_command(
         }
         Err(e) => {
             println!(" Connection failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e.into());
         }
     }
@@ -988,7 +984,7 @@ pub async fn show_main_chain_command(
         Ok(blocks) => {
             let duration = start_time.elapsed();
             println!(" Main chain blocks retrieved successfully!");
-            println!(" Time taken: {:.2?}", duration);
+            println!(" Time taken: {duration:.2?}");
             println!(" Found {} blocks in main chain", blocks.len());
             println!();
 
@@ -1006,7 +1002,7 @@ pub async fn show_main_chain_command(
                     } else {
                         block.sender.clone()
                     };
-                    println!(" Sender: {}", sender_display);
+                    println!(" Sender: {sender_display}");
                     println!(" Timestamp: {}", block.timestamp);
                     println!(" Deploy Count: {}", block.deploy_count);
                     println!(" Fault Tolerance: {:.6}", block.fault_tolerance);
@@ -1018,7 +1014,7 @@ pub async fn show_main_chain_command(
         }
         Err(e) => {
             println!(" Failed to get main chain blocks!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e);
         }
     }
@@ -1091,7 +1087,7 @@ pub async fn validator_status_command(
     })?;
 
     println!(" Validator status retrieved successfully!");
-    println!(" Time taken: {:.2?}", duration);
+    println!(" Time taken: {duration:.2?}");
     println!();
 
     // Parse bonded validators from HTTP response
@@ -1115,7 +1111,7 @@ pub async fn validator_status_command(
                                 if validator == args.public_key {
                                     if let Some(stake) = bond.get("stake").and_then(|s| s.as_i64())
                                     {
-                                        println!(" Stake Amount: {}", stake);
+                                        println!(" Stake Amount: {stake}");
                                     }
                                     break;
                                 }
@@ -1147,8 +1143,8 @@ pub async fn validator_status_command(
 
     if is_bonded && !is_active {
         println!(" Status: In quarantine period");
-        println!(" Quarantine Length: {} blocks", quarantine_length);
-        println!(" Current Block: {}", current_block);
+        println!(" Quarantine Length: {quarantine_length} blocks");
+        println!(" Current Block: {current_block}");
         println!(" Next: Wait for epoch transition to become active");
     } else if is_active {
         println!(" Status: Fully operational");
@@ -1224,59 +1220,52 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
     let blocks_remaining = epoch_length - blocks_into_epoch;
 
     println!(" Epoch information retrieved successfully!");
-    println!(" Time taken: {:.2?}", duration);
+    println!(" Time taken: {duration:.2?}");
     println!();
 
     println!(" Current Epoch Status:");
-    println!(" Current Block: {}", current_block);
-    println!(" Current Epoch: {}", current_epoch);
-    println!(" Epoch Length: {} blocks", epoch_length);
-    println!(" Quarantine Length: {} blocks", quarantine_length);
+    println!(" Current Block: {current_block}");
+    println!(" Current Epoch: {current_epoch}");
+    println!(" Epoch Length: {epoch_length} blocks");
+    println!(" Quarantine Length: {quarantine_length} blocks");
     println!();
 
-    println!(" Epoch {} Details:", current_epoch);
-    println!(" Start Block: {}", epoch_start_block);
-    println!(" End Block: {}", epoch_end_block);
+    println!(" Epoch {current_epoch} Details:");
+    println!(" Start Block: {epoch_start_block}");
+    println!(" End Block: {epoch_end_block}");
     println!(
         " Progress: {}/{} blocks ({:.1}%)",
         blocks_into_epoch,
         epoch_length,
         (blocks_into_epoch as f64 / epoch_length as f64) * 100.0
     );
-    println!(" Remaining: {} blocks", blocks_remaining);
+    println!(" Remaining: {blocks_remaining} blocks");
     println!();
 
     if blocks_remaining <= 100 {
-        println!(
-            " Epoch transition approaching! ({} blocks remaining)",
-            blocks_remaining
-        );
+        println!(" Epoch transition approaching! ({blocks_remaining} blocks remaining)");
     } else if blocks_into_epoch <= 100 {
-        println!(
-            " Recently started new epoch! ({} blocks into epoch)",
-            blocks_into_epoch
-        );
+        println!(" Recently started new epoch! ({blocks_into_epoch} blocks into epoch)");
     }
 
     println!(" Next Epoch ({}):", current_epoch + 1);
     println!(" Will start at block: {}", epoch_end_block + 1);
-    println!(" Estimated blocks until transition: {}", blocks_remaining);
+    println!(" Estimated blocks until transition: {blocks_remaining}");
 
     // Show recent block activity
     println!();
     println!(" Recent Block Activity:");
-    for (_, block) in recent_blocks.iter().enumerate() {
+    for block in recent_blocks.iter() {
         let block_epoch = block.block_number / epoch_length;
         let epoch_marker = if block_epoch != current_epoch {
-            format!(" (Epoch {})", block_epoch)
+            format!(" (Epoch {block_epoch})")
         } else {
             String::new()
         };
 
         println!(
-            " Block {}: {} finalized{}",
-            block.block_number,
-            "", // All main chain blocks are considered finalized
+            " Block {}:  finalized{}",
+            block.block_number, // All main chain blocks are considered finalized
             epoch_marker
         );
     }
@@ -1311,15 +1300,15 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         println!(" Failed to get epoch rewards!");
-        println!("Error: HTTP {} {}", status, body);
-        return Err(format!("HTTP error: {}", status).into());
+        println!("Error: HTTP {status} {body}");
+        return Err(format!("HTTP error: {status}").into());
     }
 
     let response_json: serde_json::Value = response.json().await?;
     let duration = start_time.elapsed();
 
     println!(" Epoch rewards retrieved successfully!");
-    println!(" Time taken: {:.2?}", duration);
+    println!(" Time taken: {duration:.2?}");
 
     // Extract block info
     if let Some(block) = response_json.get("block") {
@@ -1331,10 +1320,7 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
             .get("blockNumber")
             .and_then(|v| v.as_i64())
             .unwrap_or(0);
-        println!(
-            " Block hash: {}, Block number: {}",
-            block_hash, block_number
-        );
+        println!(" Block hash: {block_hash}, Block number: {block_number}");
     }
 
     // Parse rewards from ExprMap: { validator_pubkey: ExprInt { data: reward } }
@@ -1369,11 +1355,11 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
                 } else {
                     key.to_string()
                 };
-                println!(" {} : {}", short_key, reward);
+                println!(" {short_key} : {reward}");
             }
 
             println!();
-            println!(" Total: {}", total_rewards);
+            println!(" Total: {total_rewards}");
         } else {
             println!(" Current Epoch Rewards:");
             println!("{}", serde_json::to_string_pretty(&response_json["expr"])?);
@@ -1472,7 +1458,7 @@ pub async fn network_consensus_command(
     let duration = start_time.elapsed();
 
     println!(" Network consensus data retrieved successfully!");
-    println!(" Time taken: {:.2?}", duration);
+    println!(" Time taken: {duration:.2?}");
     println!();
 
     // Parse and display network health
@@ -1496,11 +1482,11 @@ pub async fn network_consensus_command(
     let quarantine_count = total_bonded - total_active;
 
     println!(" Network Consensus Health:");
-    println!(" Current Block: {}", current_block);
-    println!(" Total Bonded Validators: {}", total_bonded);
-    println!(" Active Validators: {}", total_active);
-    println!(" Validators in Quarantine: {}", quarantine_count);
-    println!(" Quarantine Length: {} blocks", quarantine_length);
+    println!(" Current Block: {current_block}");
+    println!(" Total Bonded Validators: {total_bonded}");
+    println!(" Active Validators: {total_active}");
+    println!(" Validators in Quarantine: {quarantine_count}");
+    println!(" Quarantine Length: {quarantine_length} blocks");
 
     let consensus_health = if total_active >= 3 {
         " Healthy"
@@ -1510,11 +1496,11 @@ pub async fn network_consensus_command(
         " Critical"
     };
 
-    println!(" Consensus Status: {}", consensus_health);
+    println!(" Consensus Status: {consensus_health}");
 
     if total_active > 0 {
         let participation_rate = (total_active as f64 / total_bonded as f64) * 100.0;
-        println!(" Participation Rate: {:.1}%", participation_rate);
+        println!(" Participation Rate: {participation_rate:.1}%");
     }
 
     Ok(())
@@ -1594,7 +1580,7 @@ pub async fn get_blocks_by_height_command(
         Ok(blocks) => {
             let duration = start_time.elapsed();
             println!(" Blocks retrieved successfully!");
-            println!(" Time taken: {:.2?}", duration);
+            println!(" Time taken: {duration:.2?}");
             println!(" Found {} blocks in height range", blocks.len());
             println!();
 
@@ -1612,7 +1598,7 @@ pub async fn get_blocks_by_height_command(
                     } else {
                         block.sender.clone()
                     };
-                    println!(" Sender: {}", sender_display);
+                    println!(" Sender: {sender_display}");
                     println!(" Timestamp: {}", block.timestamp);
                     println!(" Deploy Count: {}", block.deploy_count);
                     println!(" Fault Tolerance: {:.6}", block.fault_tolerance);
@@ -1624,7 +1610,7 @@ pub async fn get_blocks_by_height_command(
         }
         Err(e) => {
             println!(" Failed to get blocks by height!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e);
         }
     }
@@ -1637,18 +1623,17 @@ fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<
     match (host, custom_ports) {
         // Remote host without custom ports - ERROR
         (h, None) if h != "localhost" && h != "127.0.0.1" => Err(format!(
-            "When using -H with remote host '{}', you must specify --custom-ports\n\
+            "When using -H with remote host '{h}', you must specify --custom-ports\n\
  \n\
  Remote hosts don't use standard F1r3fly ports. Specify the actual ports:\n\
  \n\
  Examples:\n\
- cargo run -- network-health -H {} --custom-ports \"8001,8002,9443\"\n\
- cargo run -- network-health -H {} --custom-ports \"7890\"\n\
+ cargo run -- network-health -H {h} --custom-ports \"8001,8002,9443\"\n\
+ cargo run -- network-health -H {h} --custom-ports \"7890\"\n\
  \n\
  For localhost, standard ports are assumed:\n\
  cargo run -- network-health -H localhost (uses standard ports)\n\
- cargo run -- network-health (uses localhost + standard ports)",
-            h, h, h
+ cargo run -- network-health (uses localhost + standard ports)"
         )),
         // All other combinations are valid
         _ => Ok(()),
@@ -1678,7 +1663,7 @@ pub async fn block_transfers_command(
     let block_json: serde_json::Value = response.json().await?;
 
     println!("Block retrieved successfully!");
-    println!("Time taken: {:.2?}", duration);
+    println!("Time taken: {duration:.2?}");
     println!();
 
     // Extract block info
@@ -1694,7 +1679,7 @@ pub async fn block_transfers_command(
         args.block_hash.clone()
     };
 
-    println!("Block #{} ({})", block_number, block_hash_display);
+    println!("Block #{block_number} ({block_hash_display})");
     println!();
 
     // Extract deploys and their transfers
@@ -1769,14 +1754,14 @@ pub async fn block_transfers_command(
                 let status = if success {
                     "Success".to_string()
                 } else {
-                    format!("Failed: {}", fail_reason)
+                    format!("Failed: {fail_reason}")
                 };
 
                 println!(" Transfer #{}:", j + 1);
-                println!(" From: {}", from);
-                println!(" To: {}", to);
-                println!(" Amount: {}", amount);
-                println!(" Status: {}", status);
+                println!(" From: {from}");
+                println!(" To: {to}");
+                println!(" Amount: {amount}");
+                println!(" Status: {status}");
             }
         }
         println!();
@@ -1785,11 +1770,11 @@ pub async fn block_transfers_command(
     // Summary
     println!("Summary:");
     println!(" Total deploys in block: {}", deploys.len());
-    println!(" Deploys with transfers: {}", deploys_with_transfers);
-    println!(" Total transfers: {}", total_transfers);
+    println!(" Deploys with transfers: {deploys_with_transfers}");
+    println!(" Total transfers: {total_transfers}");
     if total_transfers > 0 {
-        println!(" Successful: {}", successful_transfers);
-        println!(" Failed: {}", failed_transfers);
+        println!(" Successful: {successful_transfers}");
+        println!(" Failed: {failed_transfers}");
     }
 
     Ok(())

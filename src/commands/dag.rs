@@ -32,7 +32,7 @@ pub async fn run_dag(args: &DagArgs) -> Result<(), NodeCliError> {
         let tx_clone = tx.clone();
         tokio::spawn(async move {
             if let Err(e) = run_websocket_listener(ws_url, api_base, tx_clone).await {
-                eprintln!("WebSocket error: {}", e);
+                eprintln!("WebSocket error: {e}");
             }
         });
     }
@@ -51,7 +51,7 @@ async fn fetch_initial_blocks(
     port: u16,
     depth: usize,
 ) -> Result<Vec<DagBlock>, NodeCliError> {
-    let url = format!("http://{}:{}/api/blocks/{}", host, port, depth);
+    let url = format!("http://{host}:{port}/api/blocks/{depth}");
 
     let response = reqwest::get(&url)
         .await
@@ -152,7 +152,7 @@ async fn fetch_block_by_hash(api_base: &str, hash: &str) -> Option<DagBlock> {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
 
-        let url = format!("{}/api/block/{}", api_base, hash);
+        let url = format!("{api_base}/api/block/{hash}");
         if let Ok(response) = reqwest::get(&url).await {
             if let Ok(body) = response.json::<serde_json::Value>().await {
                 // Response format: {"blockInfo": {...}, "deploys": [...]}
@@ -248,7 +248,7 @@ async fn run_websocket_listener(
                                 fetch_block_by_hash(&api_base, &block.hash).await
                             {
                                 full_block.status = BlockStatus::Created;
-                                DagEvent::BlockCreated(full_block)
+                                DagEvent::BlockCreated(Box::new(full_block))
                             } else {
                                 event
                             }
@@ -259,7 +259,7 @@ async fn run_websocket_listener(
                             if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
                             {
                                 full_block.status = BlockStatus::Added;
-                                DagEvent::BlockCreated(full_block)
+                                DagEvent::BlockCreated(Box::new(full_block))
                             } else {
                                 event
                             }
@@ -269,7 +269,7 @@ async fn run_websocket_listener(
                             if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
                             {
                                 full_block.status = BlockStatus::Finalized;
-                                DagEvent::BlockCreated(full_block)
+                                DagEvent::BlockCreated(Box::new(full_block))
                             } else {
                                 event
                             }
@@ -313,7 +313,7 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
         "block-created" => {
             if let Some(p) = payload {
                 let block = parse_event_block(p, BlockStatus::Created)?;
-                return Ok(DagEvent::BlockCreated(block));
+                return Ok(DagEvent::BlockCreated(Box::new(block)));
             }
         }
         "block-added" => {
@@ -345,8 +345,7 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
     }
 
     Err(NodeCliError::parse_error(&format!(
-        "Unknown event type: {}",
-        event_type
+        "Unknown event type: {event_type}"
     )))
 }
 

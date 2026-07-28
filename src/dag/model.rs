@@ -38,6 +38,7 @@ pub struct DagBlock {
 }
 
 impl DagBlock {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         hash: String,
         block_number: i64,
@@ -156,7 +157,7 @@ impl Dag {
             for parent in &parents {
                 self.children
                     .entry(parent.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(hash.clone());
 
                 // Parent is no longer a tip

@@ -186,7 +186,7 @@ async fn test_block_by_hash() {
         .unwrap();
     let hash = lfb["blockInfo"]["blockHash"].as_str().unwrap();
 
-    let block = get_json(http_port(), &format!("/block/{}", hash))
+    let block = get_json(http_port(), &format!("/block/{hash}"))
         .await
         .unwrap();
 
@@ -207,7 +207,7 @@ async fn test_block_summary_view() {
         .unwrap();
     let hash = lfb["blockInfo"]["blockHash"].as_str().unwrap();
 
-    let block = get_json(http_port(), &format!("/block/{}?view=summary", hash))
+    let block = get_json(http_port(), &format!("/block/{hash}?view=summary"))
         .await
         .unwrap();
 
@@ -270,7 +270,7 @@ async fn test_blocks_by_height_range() {
     let lfb_num = lfb["blockInfo"]["blockNumber"].as_i64().unwrap();
     let start = (lfb_num - 2).max(0);
 
-    let blocks = get_json(http_port(), &format!("/blocks/{}/{}", start, lfb_num))
+    let blocks = get_json(http_port(), &format!("/blocks/{start}/{lfb_num}"))
         .await
         .unwrap();
     let arr = blocks.as_array().unwrap();
@@ -280,10 +280,7 @@ async fn test_blocks_by_height_range() {
         let bn = b["blockInfo"]["blockNumber"].as_i64().unwrap();
         assert!(
             bn >= start && bn <= lfb_num,
-            "block #{} outside range {}-{}",
-            bn,
-            start,
-            lfb_num
+            "block #{bn} outside range {start}-{lfb_num}"
         );
     }
 }
@@ -300,7 +297,7 @@ async fn test_is_finalized() {
         .unwrap();
     let hash = lfb["blockInfo"]["blockHash"].as_str().unwrap();
 
-    let result = get_json(http_port(), &format!("/is-finalized/{}", hash))
+    let result = get_json(http_port(), &format!("/is-finalized/{hash}"))
         .await
         .unwrap();
     assert_eq!(result, true);
@@ -412,7 +409,7 @@ async fn test_validator_bonded() {
     let validators = get_json(observer_http(), "/validators").await.unwrap();
     let pubkey = validators["validators"][0]["publicKey"].as_str().unwrap();
 
-    let result = get_json(observer_http(), &format!("/validator/{}", pubkey))
+    let result = get_json(observer_http(), &format!("/validator/{pubkey}"))
         .await
         .unwrap();
 
@@ -428,7 +425,7 @@ async fn test_validator_unknown() {
         return;
     }
 
-    let result = get_json(observer_http(), &format!("/validator/{}", UNBONDED_PUBKEY))
+    let result = get_json(observer_http(), &format!("/validator/{UNBONDED_PUBKEY}"))
         .await
         .unwrap();
 
@@ -450,7 +447,7 @@ async fn test_bond_status_bonded() {
     let pubkey = lfb["blockInfo"]["bonds"][0]["validator"].as_str().unwrap();
 
     // Works on all node types (no exploratory deploy)
-    let result = get_json(http_port(), &format!("/bond-status/{}", pubkey))
+    let result = get_json(http_port(), &format!("/bond-status/{pubkey}"))
         .await
         .unwrap();
 
@@ -465,7 +462,7 @@ async fn test_bond_status_unknown() {
         return;
     }
 
-    let result = get_json(http_port(), &format!("/bond-status/{}", UNBONDED_PUBKEY))
+    let result = get_json(http_port(), &format!("/bond-status/{UNBONDED_PUBKEY}"))
         .await
         .unwrap();
 
@@ -588,7 +585,7 @@ async fn test_epoch_with_block_hash() {
         .unwrap();
     let hash = lfb["blockInfo"]["blockHash"].as_str().unwrap();
 
-    let result = get_json(http_port(), &format!("/epoch?block_hash={}", hash))
+    let result = get_json(http_port(), &format!("/epoch?block_hash={hash}"))
         .await
         .unwrap();
 
@@ -614,7 +611,7 @@ async fn test_deploy_finalization_status_unknown_sig() {
     let unknown_sig = "0".repeat(64);
     let result = get_json(
         observer_http(),
-        &format!("/deploy-finalization-status/{}", unknown_sig),
+        &format!("/deploy-finalization-status/{unknown_sig}"),
     )
     .await
     .unwrap_or_else(|| panic!("endpoint returned non-200 for unknown sig"));
@@ -636,12 +633,12 @@ async fn test_deploy_finalization_status_invalid_hex_returns_400() {
     let bad_hex = "not-hex-at-all";
     let code = get_status_code(
         observer_http(),
-        &format!("/deploy-finalization-status/{}", bad_hex),
+        &format!("/deploy-finalization-status/{bad_hex}"),
     )
     .await
     .unwrap_or(0);
 
-    assert_eq!(code, 400, "expected 400 for invalid hex, got {}", code);
+    assert_eq!(code, 400, "expected 400 for invalid hex, got {code}");
 }
 
 /// Response shape regression: state, rejection_count, latest_block_hash.
@@ -656,7 +653,7 @@ async fn test_deploy_finalization_status_response_shape() {
     let unknown_sig = "1".repeat(64);
     let result = get_json(
         observer_http(),
-        &format!("/deploy-finalization-status/{}", unknown_sig),
+        &format!("/deploy-finalization-status/{unknown_sig}"),
     )
     .await
     .unwrap();

@@ -1,0 +1,130 @@
+# cargo-deny configuration for rust-client.
+# See https://embarkstudios.github.io/cargo-deny/ for documentation.
+
+# all-features = true to match CI: the cargo-deny-action runs with
+# --all-features. Keeping this in sync means `cargo deny check` locally
+# reproduces CI exactly.
+[graph]
+all-features = true
+no-default-features = false
+
+# ---------------------------------------------------------------------------
+# Security advisories — RustSec database.
+# ---------------------------------------------------------------------------
+[advisories]
+db-path = "$CARGO_HOME/advisory-db"
+db-urls = ["https://github.com/RustSec/advisory-db"]
+# Fail on yanked crates — a yank is often a pulled-for-security release.
+yanked = "deny"
+
+# Specific advisories knowingly accepted. Each entry MUST justify why.
+ignore = [
+  # Unmaintained advisories accepted for now (transitive deps we don't own).
+  # Track upstream remediation; revisit when bumping the f1r3node-rust pin.
+  "RUSTSEC-2021-0141", # dotenv (transitive via openai-api-rs)
+  "RUSTSEC-2024-0436", # paste proc-macro (transitive via node crates)
+  "RUSTSEC-2025-0134", # rustls-pemfile (transitive via reqwest/tonic)
+  "RUSTSEC-2025-0141", # bincode 1.x (transitive via node crates; bincode 2.0 is breaking)
+]
+
+# ---------------------------------------------------------------------------
+# Licenses — permissive-only baseline.
+# ---------------------------------------------------------------------------
+[licenses]
+confidence-threshold = 0.8
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "Zlib",
+  "MPL-2.0",
+  "BSL-1.0",
+  "OpenSSL",
+  "Unlicense",
+]
+
+# Per-crate exceptions for licenses outside the global allow list.
+exceptions = [
+  # zbase32 is a small permissively-spirited base32 encoder published under
+  # LGPL-3.0+. It is consumed as a dynamic dependency and contains no
+  # modifications, satisfying the LGPL linking exception.
+  { allow = ["LGPL-3.0-or-later"], crate = "zbase32" },
+]
+
+# Skip license checks for unpublished workspace members.
+private = { ignore = true }
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+# F1R3FLY-io git dependencies omit the `license` field in their Cargo.toml.
+# The source repos (f1r3node / f1r3node-rust / rholang-rs) are Apache-2.0.
+[[licenses.clarify]]
+name = "models"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+name = "shared"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+name = "crypto"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+name = "rholang"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+name = "rspace_plus_plus"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+name = "rholang-parser"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+name = "rholang-tree-sitter"
+expression = "Apache-2.0"
+license-files = []
+
+# ---------------------------------------------------------------------------
+# Bans — disallow specific crates / version patterns.
+# ---------------------------------------------------------------------------
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+highlight = "all"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Sources — crates.io plus the F1R3FLY-io git repos the node crates come from.
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+  "https://github.com/F1R3FLY-io/f1r3node",
+  "https://github.com/F1R3FLY-io/f1r3node-rust",
+  "https://github.com/F1R3FLY-io/rholang-rs",
+]

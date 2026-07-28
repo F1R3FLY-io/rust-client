@@ -78,7 +78,7 @@ pub fn generate_insert_signed_signature(
 /// The URI format is: `rho:id:<zbase32-encoded-hash-with-crc14>`
 pub fn public_key_to_uri(public_key: &PublicKey) -> String {
     let pubkey_bytes = public_key.serialize_uncompressed();
-    let hash = Blake2b::<U32>::new().chain_update(&pubkey_bytes).finalize();
+    let hash = Blake2b::<U32>::new().chain_update(pubkey_bytes).finalize();
     let crc_bytes = compute_crc14(&hash);
 
     let mut full_key = Vec::with_capacity(34);
@@ -87,7 +87,7 @@ pub fn public_key_to_uri(public_key: &PublicKey) -> String {
     full_key.push(crc_bytes[1] << 2);
 
     let encoded = zbase32::encode(&full_key, 270);
-    format!("rho:id:{}", encoded)
+    format!("rho:id:{encoded}")
 }
 
 /// Compute CRC14 checksum for URI generation

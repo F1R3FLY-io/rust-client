@@ -29,7 +29,7 @@ pub fn sign_deploy_data(
 ) -> Result<Vec<u8>, SigningError> {
     let mut hasher = Blake2b::<U32>::new();
     hasher.update(data);
-    hasher.update(&timestamp.to_le_bytes());
+    hasher.update(timestamp.to_le_bytes());
     let hash = hasher.finalize();
 
     let mut digest = [0u8; 32];
@@ -50,7 +50,7 @@ pub enum SigningError {
 impl std::fmt::Display for SigningError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SigningError::SigningFailed(msg) => write!(f, "Signing failed: {}", msg),
+            SigningError::SigningFailed(msg) => write!(f, "Signing failed: {msg}"),
         }
     }
 }

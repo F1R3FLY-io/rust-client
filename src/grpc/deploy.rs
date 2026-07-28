@@ -111,7 +111,7 @@ impl<'a> F1r3flyApi<'a> {
                 if Self::is_recoverable_propose_error(&error_message) {
                     Ok(ProposeResult::Skipped(error_message))
                 } else {
-                    Err(format!("Propose error: {:?}", error).into())
+                    Err(format!("Propose error: {error:?}").into())
                 }
             }
         }
@@ -202,7 +202,7 @@ impl<'a> F1r3flyApi<'a> {
                     return Ok(trimmed.to_string());
                 }
             }
-            Err(format!("Could not extract deploy ID from response: {}", result).into())
+            Err(format!("Could not extract deploy ID from response: {result}").into())
         } else {
             Ok(cleaned.to_string())
         }
@@ -259,7 +259,7 @@ impl<'a> F1r3flyApi<'a> {
             .as_ref()
             .expect("build_deploy_msg requires a signing key");
         let secp = Secp256k1::new();
-        let message = Secp256k1Message::from_digest(digest.into());
+        let message = Secp256k1Message::from_digest(digest);
         let signature = secp.sign_ecdsa(message, signing_key);
         let sig_bytes = signature.serialize_der().to_vec();
         let public_key = signing_key.public_key(&secp);
