@@ -1,7 +1,7 @@
-/// Helper functions for parsing Rholang responses from F1r3fly
-///
-/// Rholang expressions are returned in a structured format (ExprMap, ExprString, etc.)
-/// These helpers convert them to plain JSON for easier consumption.
+//! Helper functions for parsing Rholang responses from F1r3fly
+//!
+//! Rholang expressions are returned in a structured format (ExprMap, ExprString, etc.)
+//! These helpers convert them to plain JSON for easier consumption.
 
 /// Convert a Rholang expression (from explore-deploy) to plain JSON
 ///

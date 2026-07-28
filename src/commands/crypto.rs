@@ -20,7 +20,7 @@ pub fn generate_public_key_command(args: &GeneratePublicKeyArgs) -> Result<()> {
     } else {
         "uncompressed"
     };
-    print_key(&format!("Public key ({})", key_type), &public_key_hex);
+    print_key(&format!("Public key ({key_type})"), &public_key_hex);
 
     Ok(())
 }
@@ -40,7 +40,7 @@ pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> Result<()> {
             fs::create_dir_all(output_dir).map_err(|e| {
                 NodeCliError::file_write_failed(
                     &output_dir.display().to_string(),
-                    &format!("Failed to create directory: {}", e),
+                    &format!("Failed to create directory: {e}"),
                 )
             })?;
         }
@@ -74,7 +74,7 @@ pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> Result<()> {
         } else {
             "uncompressed"
         };
-        print_key(&format!("Public key ({})", key_type), &public_key_hex);
+        print_key(&format!("Public key ({key_type})"), &public_key_hex);
     }
 
     Ok(())
@@ -129,26 +129,22 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
         ));
     };
 
-    println!(" Extracting node ID from {} file: {}", file_type, file_path);
+    println!(" Extracting node ID from {file_type} file: {file_path}");
 
     // Use appropriate OpenSSL command based on file type
     let openssl_output = if args.key_file.is_some() {
         // Extract public key from private key file
         let output = Command::new("openssl")
-            .args(&["ec", "-text", "-in", file_path, "-noout"])
+            .args(["ec", "-text", "-in", file_path, "-noout"])
             .output()
             .map_err(|e| {
-                NodeCliError::crypto_invalid_private_key(&format!(
-                    "Failed to execute openssl: {}",
-                    e
-                ))
+                NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {e}"))
             })?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
             return Err(NodeCliError::crypto_invalid_private_key(&format!(
-                "OpenSSL error: {}",
-                error_msg
+                "OpenSSL error: {error_msg}"
             )));
         }
 
@@ -156,20 +152,16 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
     } else {
         // Extract public key from certificate file
         let output = Command::new("openssl")
-            .args(&["x509", "-in", file_path, "-noout", "-text"])
+            .args(["x509", "-in", file_path, "-noout", "-text"])
             .output()
             .map_err(|e| {
-                NodeCliError::crypto_invalid_private_key(&format!(
-                    "Failed to execute openssl: {}",
-                    e
-                ))
+                NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {e}"))
             })?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
             return Err(NodeCliError::crypto_invalid_private_key(&format!(
-                "OpenSSL error: {}",
-                error_msg
+                "OpenSSL error: {error_msg}"
             )));
         }
 
@@ -184,15 +176,11 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
     let public_key_hex = extract_public_key_from_openssl_output(&openssl_output)?;
 
     // Remove the '04' prefix as per F1R3FLY specification
-    let cleaned_hex = if public_key_hex.starts_with("04") {
-        &public_key_hex[2..]
-    } else {
-        &public_key_hex
-    };
+    let cleaned_hex = public_key_hex.strip_prefix("04").unwrap_or(&public_key_hex);
 
     // Convert hex to bytes
     let public_key_bytes = hex::decode(cleaned_hex)
-        .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Invalid hex: {}", e)))?;
+        .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Invalid hex: {e}")))?;
 
     // Calculate Keccac-256 hash
     let mut hasher = sha3::Keccak256::new();

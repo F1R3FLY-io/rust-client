@@ -47,7 +47,7 @@ impl<'a> F1r3flyApi<'a> {
                     }
                 }
             }
-            Err(e) => Err(format!("Network error: {}", e).into()),
+            Err(e) => Err(format!("Network error: {e}").into()),
         }
     }
 
@@ -97,7 +97,7 @@ impl<'a> F1r3flyApi<'a> {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(format!("HTTP {} from {}: {}", status, url, body).into());
+            return Err(format!("HTTP {status} from {url}: {body}").into());
         }
 
         let status = response.json::<DeployFinalizationStatus>().await?;
