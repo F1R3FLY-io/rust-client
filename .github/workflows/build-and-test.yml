@@ -17,9 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Node images are pinned to :dev until upstream cuts a :latest with the
-  # new API endpoints.
-  NODE_IMAGE_TAG: dev
+  # f1r3node images for smoke tests. Rust is pinned to a released version;
+  # the Scala node publishes no version tags, so it tracks :dev.
+  RUST_NODE_IMAGE_TAG: v0.4.23
+  SCALA_NODE_IMAGE_TAG: dev
 
 jobs:
   # Format and lint checks: fast, runs in parallel with build_base.
@@ -285,9 +286,9 @@ jobs:
         shell: bash -ex {0}
         run: |
           if [ "${{ matrix.node }}" = "rust" ]; then
-            docker pull f1r3flyindustries/f1r3fly-rust:${NODE_IMAGE_TAG}
+            docker pull f1r3flyindustries/f1r3fly-rust:${RUST_NODE_IMAGE_TAG}
           else
-            docker pull f1r3flyindustries/f1r3fly-scala-node:${NODE_IMAGE_TAG}
+            docker pull f1r3flyindustries/f1r3fly-scala-node:${SCALA_NODE_IMAGE_TAG}
           fi
 
       - name: Start node
@@ -295,10 +296,10 @@ jobs:
         run: |
           cd system-integration
           if [ "${{ matrix.node }}" = "rust" ]; then
-            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-rust:${NODE_IMAGE_TAG}" \
+            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-rust:${RUST_NODE_IMAGE_TAG}" \
               docker compose -f compose/f1r3node-rust-standalone.yml up -d
           else
-            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${NODE_IMAGE_TAG}" \
+            F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-scala-node:${SCALA_NODE_IMAGE_TAG}" \
               docker compose -f compose/f1r3node-standalone.yml up -d
           fi
 
