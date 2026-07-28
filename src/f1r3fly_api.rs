@@ -30,7 +30,7 @@ pub struct NodeStatus {
     #[serde(rename = "nativeTokenSymbol", default)]
     pub native_token_symbol: String,
     #[serde(rename = "nativeTokenDecimals", default)]
-    pub native_token_decimals: u32,
+    pub native_token_decimals: Option<u32>,
     #[serde(rename = "peerList", default)]
     pub peer_list: Vec<serde_json::Value>,
     // Numeric and bool fields use Option so a missing field (e.g. from an older
@@ -79,6 +79,28 @@ pub struct DeployDetail {
     pub sig_algorithm: Option<String>,
     #[serde(rename = "validAfterBlockNumber", default)]
     pub valid_after_block_number: Option<i64>,
+}
+
+/// Canonical-state finalization status for a deploy, from
+/// `/api/deploy-finalization-status/{sig}`.
+///
+/// `state` is one of:
+/// - `"Finalized"` — clean inclusion in canonical-finalized block. Terminal.
+/// - `"Failed"` — Rholang execution itself failed. Terminal.
+/// - `"Pending"` — not yet canonical-finalized, not expired. Keep polling.
+/// - `"Expired"` — `valid_after_block_number + deploy_lifespan` elapsed
+///   (LFB-anchored) without a clean canonical inclusion. Terminal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeployFinalizationStatus {
+    pub state: String,
+    pub rejection_count: u32,
+    pub latest_block_hash: Option<String>,
+}
+
+impl DeployFinalizationStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self.state.as_str(), "Finalized" | "Failed" | "Expired")
+    }
 }
 
 /// Result of a full deploy-and-wait operation

@@ -1,11 +1,6 @@
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Well-known bootstrap validator private key used in dev/test Docker setups.
-/// NOT for production use.
-pub const DEV_PRIVATE_KEY: &str =
-    "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-
 /// Command-line interface for interacting with F1r3fly nodes
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -114,6 +109,9 @@ pub enum Commands {
 
     /// Get transfer information from a block's deploys
     BlockTransfers(BlockTransfersArgs),
+
+    /// Check canonical-state finalization status of a deploy by signature
+    DeployStatus(DeployStatusArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -122,9 +120,9 @@ pub struct DeployAndWaitArgs {
     #[arg(short, long)]
     pub file: String,
 
-    /// Private key for deploy (defaults to well-known dev key)
-    #[arg(short = 'k', long = "private-key")]
-    pub private_key: Option<String>,
+    /// Private key for deploy (--private-key or FIREFLY_PRIVATE_KEY env)
+    #[arg(short = 'k', long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
+    pub private_key: String,
 
     /// Node hostname
     #[arg(short = 'H', long = "host", default_value = "localhost")]
@@ -147,11 +145,11 @@ pub struct DeployAndWaitArgs {
     pub propose: bool,
 
     /// Maximum seconds to wait for deploy inclusion in a block
-    #[arg(long = "max-wait", default_value_t = 60)]
+    #[arg(long = "max-wait", default_value_t = 300)]
     pub max_wait: u64,
 
     /// Maximum seconds to wait for block finalization
-    #[arg(long = "finalization-timeout", default_value_t = 30)]
+    #[arg(long = "finalization-timeout", default_value_t = 180)]
     pub finalization_timeout: u64,
 
     /// Check interval in seconds
@@ -162,7 +160,9 @@ pub struct DeployAndWaitArgs {
     #[arg(long = "observer-host")]
     pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
+    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
+    /// pass an observer port whose +1 equals the node's HTTP port.
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
 
@@ -186,14 +186,6 @@ pub struct GetDataArgs {
     /// Block hash containing the deploy
     #[arg(short = 'b', long = "block-hash")]
     pub block_hash: String,
-
-    /// Private key (defaults to well-known dev key)
-    #[arg(
-        short = 'k',
-        long = "private-key",
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
 
     /// Node hostname
     #[arg(short = 'H', long = "host", default_value = "localhost")]
@@ -227,6 +219,26 @@ pub struct GetDeployArgs {
     pub verbose: bool,
 }
 
+/// Arguments for deploy-status command
+#[derive(Parser)]
+pub struct DeployStatusArgs {
+    /// Deploy signature in hex (with or without 0x prefix)
+    #[arg(short = 's', long = "sig")]
+    pub sig: String,
+
+    /// Node hostname
+    #[arg(short = 'H', long = "host", default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port for API queries
+    #[arg(long = "http-port", default_value_t = 40413)]
+    pub http_port: u16,
+
+    /// Output format (json, pretty)
+    #[arg(short = 'f', long = "format", default_value = "pretty")]
+    pub format: String,
+}
+
 /// Arguments for deploy and full-deploy commands
 #[derive(Parser)]
 pub struct DeployArgs {
@@ -235,10 +247,7 @@ pub struct DeployArgs {
     pub file: PathBuf,
 
     /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
+    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
     /// Host address
@@ -267,13 +276,6 @@ pub struct DeployArgs {
 /// Arguments for propose command
 #[derive(Parser)]
 pub struct ProposeArgs {
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
-
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
@@ -289,13 +291,6 @@ pub struct IsFinalizedArgs {
     /// Block hash to check
     #[arg(short, long)]
     pub block_hash: String,
-
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
 
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
@@ -321,13 +316,6 @@ pub struct ExploratoryDeployArgs {
     #[arg(short, long)]
     pub file: PathBuf,
 
-    /// Private key in hex format
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
-
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
@@ -349,11 +337,7 @@ pub struct ExploratoryDeployArgs {
 #[derive(Parser)]
 pub struct GeneratePublicKeyArgs {
     /// Private key in hex format
-    #[arg(
-        short,
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
+    #[arg(short, long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
     /// Output public key in compressed format (shorter)
@@ -385,11 +369,7 @@ pub struct GenerateVaultAddressArgs {
     pub public_key: Option<String>,
 
     /// Private key in hex format (will derive public key from this)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657",
-        conflicts_with = "public_key"
-    )]
+    #[arg(long, conflicts_with = "public_key")]
     pub private_key: Option<String>,
 }
 
@@ -439,13 +419,6 @@ pub struct ShowMainChainArgs {
     /// Number of blocks to fetch from main chain (default: 10)
     #[arg(short, long, default_value_t = 10)]
     pub depth: u32,
-
-    /// Private key in hex format (required for gRPC)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
 }
 
 /// Arguments for get-blocks-by-height command
@@ -466,13 +439,6 @@ pub struct GetBlocksByHeightArgs {
     /// End block number (inclusive)
     #[arg(short, long)]
     pub end_block_number: i64,
-
-    /// Private key in hex format (required for gRPC)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
-    pub private_key: String,
 }
 
 /// Arguments for wallet-balance command
@@ -546,7 +512,9 @@ pub struct BondValidatorArgs {
     #[arg(long = "observer-host")]
     pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
+    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
+    /// pass an observer port whose +1 equals the node's HTTP port.
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
 
@@ -603,12 +571,12 @@ pub struct TransferArgs {
     /// Amount to transfer
     #[arg(short, long)]
     pub amount: u64,
+    /// Treat --amount as whole tokens, scaled by the native token's decimals from node status (default: base units / dust)
+    #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
+    pub whole_tokens: bool,
 
     /// Private key for signing the transfer (hex format)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
+    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
     /// Host address
@@ -643,7 +611,9 @@ pub struct TransferArgs {
     #[arg(long = "observer-host")]
     pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified)
+    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
+    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
+    /// pass an observer port whose +1 equals the node's HTTP port.
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
 
@@ -673,15 +643,16 @@ pub struct LoadTestArgs {
     #[arg(long, default_value_t = 1)]
     pub amount: u64,
 
+    /// Treat --amount as whole tokens, scaled by the native token's decimals from node status (default: base units / dust)
+    #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
+    pub whole_tokens: bool,
+
     /// Seconds between tests
     #[arg(long, default_value_t = 10)]
     pub interval: u64,
 
     /// Private key for signing (hex format)
-    #[arg(
-        long,
-        default_value = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657"
-    )]
+    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
     /// Host address

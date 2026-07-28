@@ -4,6 +4,22 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.2.1] - 2026-05-14
+
+### Documentation
+
+- add CONTRIBUTING and PR template; ci: pin all branches to :dev image
+
+### Features
+
+- deploy-status command and sig-level finalization polling (#20)
+- expand extract_par_data to handle URIs, bytes, and collections
+
+### Miscellaneous
+
+- increase default timeouts
+
+
 ## [0.1.3] - 2026-04-23
 
 ### Bug Fixes

@@ -83,6 +83,9 @@ impl Dispatcher {
             Commands::BlockTransfers(args) => block_transfers_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::DeployStatus(args) => deploy_status_command(args)
+                .await
+                .map_err(NodeCliError::from),
         };
 
         // Handle errors with better formatting
@@ -161,6 +164,7 @@ impl Dispatcher {
             Commands::WatchEvents(_) => "watch-events",
             Commands::Dag(_) => "dag",
             Commands::BlockTransfers(_) => "block-transfers",
+            Commands::DeployStatus(_) => "deploy-status",
 
             Commands::GetData(_) => "get-data",
         }

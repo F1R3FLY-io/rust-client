@@ -1,6 +1,6 @@
 [package]
 name = "node_cli"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 [features]
@@ -55,7 +55,7 @@ crc = "3"
 zbase32 = "0.1"
 
 # CLI-only (behind "cli" feature)
-clap = { version = "4.4.6", features = ["derive"], optional = true }
+clap = { version = "4.4.6", features = ["derive", "env"], optional = true }
 ratatui = { version = "0.28", optional = true }
 crossterm = { version = "0.28", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }

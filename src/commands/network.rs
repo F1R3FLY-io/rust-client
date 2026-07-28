@@ -1,10 +1,9 @@
 use crate::args::*;
+use crate::commands::query::query_node_status;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use crate::f1r3fly_api::{F1r3flyApi, ProposeResult};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-
-use crate::args::DEV_PRIVATE_KEY;
 
 fn build_config(
     host: &str,
@@ -32,7 +31,7 @@ fn build_config(
 }
 
 fn config_from_deploy_args(args: &DeployAndWaitArgs) -> ConnectionConfig {
-    let private_key = args.private_key.as_deref().unwrap_or(DEV_PRIVATE_KEY);
+    let private_key = args.private_key.as_str();
     build_config(
         &args.host,
         args.port,
@@ -101,7 +100,7 @@ pub async fn exploratory_deploy_command(
 
     // Initialize the F1r3fly API client
     println!(" Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
 
     // Execute the exploratory deployment
     println!(" Executing Rholang code (exploratory deploy)...");
@@ -153,7 +152,7 @@ pub async fn estimate_cost_command(
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
 
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
 
     let (_result, _block_info, cost) = f1r3fly_api
         .exploratory_deploy(
@@ -224,7 +223,7 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
 pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the F1r3fly API client
     println!(" Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
 
     // Propose a block
     println!(" Proposing a new block...");
@@ -316,7 +315,7 @@ pub async fn is_finalized_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize the F1r3fly API client
     println!(" Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
 
     // Check if the block is finalized
     println!(" Checking if block is finalized: {}", args.block_hash);
@@ -414,7 +413,25 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     validate_vault_address(&from_address)?;
     validate_vault_address(&args.to_address)?;
 
-    let amount_dust = args.amount * 100_000_000;
+    let amount_dust = if args.whole_tokens {
+        // Whole-token mode: ask the node how many decimals the native token has.
+        let (status_json, _) =
+            query_node_status(&reqwest::Client::new(), &args.host, args.http_port, false).await?;
+        let decimals = status_json
+            .get("nativeTokenDecimals")
+            .and_then(|v| v.as_u64())
+            .ok_or("node did not report token decimals; cannot convert whole tokens")?
+            as u32;
+        let factor = 10u64
+            .checked_pow(decimals)
+            .ok_or("token decimals too large for u64 multiplier")?;
+        args.amount
+            .checked_mul(factor)
+            .ok_or("amount overflows u64 after applying token decimals")?
+    } else {
+        args.amount
+    };
+
     println!(
         "Transfer: {} -> {} ({} dust)",
         from_address, args.to_address, amount_dust
@@ -503,7 +520,7 @@ pub async fn deploy_and_wait_command(
     println!("Total time: {:.2?}", start.elapsed());
 
     if args.propose {
-        let private_key = args.private_key.as_deref().unwrap_or(DEV_PRIVATE_KEY);
+        let private_key = args.private_key.as_str();
         let api = F1r3flyApi::new(private_key, &args.host, args.port)?;
         match api.propose().await {
             Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {}", hash),
@@ -516,7 +533,7 @@ pub async fn deploy_and_wait_command(
 }
 
 pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let f1r3fly_api = F1r3flyApi::new(DEV_PRIVATE_KEY, &args.host, 40412)?;
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, 40412);
     let start_time = Instant::now();
 
     // Try detail view first (Rust node with PR #472+)
@@ -684,7 +701,7 @@ in {{
 
 /// Read data at a deploy ID from a specific block
 pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
 
     let pars = f1r3fly_api
         .get_data_at_deploy_id(&args.deploy_id, &args.block_hash)
@@ -704,6 +721,57 @@ pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
             if i < pars.len() - 1 {
                 println!("---");
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// Check canonical-state finalization status of a deploy by signature.
+///
+/// Hits the node's `/api/deploy-finalization-status/{sig}` endpoint and
+/// renders the result. State is one of `Finalized`, `Failed`, `Pending`,
+/// `Expired` — see `DeployFinalizationStatus` for terminality semantics.
+pub async fn deploy_status_command(
+    args: &DeployStatusArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sig_hex = args.sig.trim_start_matches("0x");
+
+    // Reusing F1r3flyApi just for the HTTP method (port 0 is fine — never used here).
+    let api = F1r3flyApi::new_readonly(&args.host, 0);
+    let start = Instant::now();
+
+    let status = match api
+        .deploy_finalization_status(sig_hex, args.http_port)
+        .await?
+    {
+        Some(s) => s,
+        None => {
+            return Err(format!(
+                "Endpoint /api/deploy-finalization-status not available on {}:{} \
+                 (404). This node may be running an older f1r3node version.",
+                args.host, args.http_port
+            )
+            .into());
+        }
+    };
+    let duration = start.elapsed();
+
+    match args.format.as_str() {
+        "json" => {
+            println!("{}", serde_json::to_string_pretty(&status)?);
+        }
+        _ => {
+            println!("Deploy Finalization Status");
+            println!("----------------------------------------");
+            println!("Sig:              {}", sig_hex);
+            println!("State:            {}", status.state);
+            println!("Rejection count:  {}", status.rejection_count);
+            match status.latest_block_hash.as_deref() {
+                Some(hash) => println!("Latest block:     {}", hash),
+                None => println!("Latest block:     (not yet included)"),
+            }
+            println!("Query time:       {:.2?}", duration);
         }
     }
 

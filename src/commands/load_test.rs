@@ -1,4 +1,5 @@
 use crate::args::LoadTestArgs;
+use crate::commands::query::query_node_status;
 use crate::f1r3fly_api::F1r3flyApi;
 use chrono::Local;
 use std::time::{Duration, Instant};
@@ -17,11 +18,29 @@ pub struct TestResult {
 pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::error::Error>> {
     use crate::utils::CryptoUtils;
 
+    let amount_dust = if args.whole_tokens {
+        let (status_json, _) =
+            query_node_status(&reqwest::Client::new(), &args.host, args.http_port, false).await?;
+        let decimals = status_json
+            .get("nativeTokenDecimals")
+            .and_then(|v| v.as_u64())
+            .ok_or("node did not report token decimals; cannot convert whole tokens")?
+            as u32;
+        let factor = 10u64
+            .checked_pow(decimals)
+            .ok_or("token decimals too large for u64 multiplier")?;
+        args.amount
+            .checked_mul(factor)
+            .ok_or("amount overflows u64 after applying token decimals")?
+    } else {
+        args.amount
+    };
+
     println!("");
     println!(" F1R3FLY Load Test ");
     println!("");
     println!("Tests: {}", args.num_tests);
-    println!("Amount: {}", args.amount);
+    println!("Amount: {} dust", amount_dust);
     println!("Interval: {}s", args.interval);
     println!("Check interval: {}s (fast mode)", args.check_interval);
     println!("Target: {}:{}", args.host, args.port);
@@ -74,7 +93,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         println!("");
 
         // Run single test with detailed logging
-        let result = run_single_test(&api, args, test_num).await?;
+        let result = run_single_test(&api, args, test_num, amount_dust).await?;
 
         results.push(result);
 
@@ -98,6 +117,7 @@ async fn run_single_test(
     api: &F1r3flyApi<'_>,
     args: &LoadTestArgs,
     test_num: u32,
+    amount_dust: u64,
 ) -> Result<TestResult, Box<dyn std::error::Error>> {
     let test_start = Instant::now();
 
@@ -105,7 +125,7 @@ async fn run_single_test(
     println!(" [{}] Deploying transfer...", now_timestamp());
     let deploy_start = Instant::now();
 
-    let rholang = generate_transfer_contract(args);
+    let rholang = generate_transfer_contract(args, amount_dust);
     // Load tests don't use expiration timestamp (0 means no expiration)
     let deploy_id = api.deploy(&rholang, true, "rholang", 0).await?.to_string();
 
@@ -201,7 +221,7 @@ async fn run_single_test(
     })
 }
 
-fn generate_transfer_contract(args: &LoadTestArgs) -> String {
+fn generate_transfer_contract(args: &LoadTestArgs, amount_dust: u64) -> String {
     use crate::utils::CryptoUtils;
 
     // Derive sender address from private key
@@ -211,8 +231,6 @@ fn generate_transfer_contract(args: &LoadTestArgs) -> String {
     let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
     let from_address =
         CryptoUtils::generate_vault_address(&public_key_hex).expect("Failed to generate address");
-
-    let amount_dust = args.amount * 100_000_000;
 
     format!(
         r#"new 
@@ -224,7 +242,7 @@ fn generate_transfer_contract(args: &LoadTestArgs) -> String {
  toVaultCh,
  systemVaultKeyCh,
  resultCh
-in {{
+ in {{
  rl!(`rho:vault:system`, *systemVaultCh) |
  for (@(_, SystemVault) <- systemVaultCh) {{
  @SystemVault!("findOrCreate", "{}", *vaultCh) |
@@ -322,7 +340,7 @@ async fn get_balance_for_address(
     );
 
     // Create a separate API instance for read-only port
-    let readonly_api = F1r3flyApi::new(&args.private_key, &args.host, args.readonly_port)?;
+    let readonly_api = F1r3flyApi::new_readonly(&args.host, args.readonly_port);
 
     // Execute exploratory deploy to get balance on read-only node
     let (result, _block_info, _cost) = readonly_api

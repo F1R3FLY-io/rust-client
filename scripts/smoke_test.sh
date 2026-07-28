@@ -20,6 +20,7 @@ HTTP_PORT="${3:-40403}"      # HTTP port for status/query operations
 OBSERVER_GRPC="${4:-$GRPC_PORT}"  # Observer gRPC port (defaults to same as GRPC_PORT)
 OBSERVER_HTTP=$((OBSERVER_GRPC + 1))  # Observer HTTP port (gRPC + 1)
 PRIVATE_KEY="${5:-5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657}"  # Signing key
+export FIREFLY_PRIVATE_KEY="$PRIVATE_KEY"
 
 # Recipient address for transfers (secondary test address from genesis)
 TO_ADDR="11112oRqNpmKjfFCGgH6bw5csjBqVgb4PVRP5S98tTNjDeqdWNJr2L"
@@ -349,7 +350,7 @@ run_test "generate-key-pair" \
 
 # generate-vault-address: Generate vault address from key
 run_test "generate-vault-address" \
-    "cargo run -q --release -- generate-vault-address" \
+    "cargo run -q --release -- generate-vault-address --private-key $PRIVATE_KEY" \
     "Vault address.*1111[a-zA-Z0-9]+"
 
 # ============================================
@@ -573,6 +574,27 @@ if [ -n "${FDAW_DEPLOY_ID:-}" ]; then
 else
     # Fail, not skip — if we can't get a deploy ID something is wrong
     echo -n "Testing get-deploy... "
+    echo -e "${RED}FAIL${NC} (no deploy ID from earlier tests)"
+    inc_fail
+fi
+
+# deploy-status: Canonical-state finalization status by deploy signature.
+# Endpoint added in f1r3node PR #495+#504 — Rust-only.
+if [ "$NODE_TYPE" != "rust" ]; then
+    skip_test "deploy-status (finalized)" "rust-only (deploy-finalization-status endpoint)"
+    skip_test "deploy-status (unknown sig)" "rust-only (deploy-finalization-status endpoint)"
+elif [ -n "${FDAW_DEPLOY_ID:-}" ]; then
+    # Known sig from deploy-and-wait (with data) — should be Finalized.
+    run_test "deploy-status (finalized)" \
+        "cargo run -q --release -- deploy-status -s $FDAW_DEPLOY_ID -H $HOST --http-port $OBSERVER_HTTP" \
+        "Deploy Finalization Status|State:.*Finalized"
+
+    # Unknown sig: all-zeros hex (64 chars) — should be Pending with no latest_block_hash.
+    run_test "deploy-status (unknown sig)" \
+        "cargo run -q --release -- deploy-status -s 0000000000000000000000000000000000000000000000000000000000000000 -H $HOST --http-port $OBSERVER_HTTP" \
+        "State:.*Pending"
+else
+    echo -n "Testing deploy-status (finalized)... "
     echo -e "${RED}FAIL${NC} (no deploy ID from earlier tests)"
     inc_fail
 fi
