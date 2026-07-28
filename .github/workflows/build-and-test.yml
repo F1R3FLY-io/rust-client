@@ -38,7 +38,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-06-15
-          components: rustfmt
+          components: rustfmt, clippy
 
       - name: Install protobuf compiler
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -50,6 +50,52 @@ jobs:
         env:
           RUSTFLAGS: "-D warnings -C target-feature=+aes,+sse2"
         run: cargo check --features cli
+
+      - name: Run clippy
+        env:
+          RUSTFLAGS: "-D warnings -C target-feature=+aes,+sse2"
+        run: cargo clippy --all-targets --features cli
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      !startsWith(github.event.head_commit.message, 'chore(release)')
+      || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v4
+
+      - name: cargo-deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+
+  markdown_link_check:
+    name: Markdown Link Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      !startsWith(github.event.head_commit.message, 'chore(release)')
+      || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v4
+
+      - name: Link Checker
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # 429 (rate limited) does not prove a link is broken; a dead
+          # link returns 404/410.
+          args: >-
+            --no-progress
+            --exclude-loopback
+            --accept '200..=299,429'
+            --max-retries 2
+            --retry-wait-time 5
+            './**/*.md'
+          fail: true
 
   # Build base: version discovery and worktree packing.
   # Skip release commits on branch pushes — the tag push handles the release build.

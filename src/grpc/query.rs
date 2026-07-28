@@ -80,7 +80,7 @@ impl<'a> F1r3flyApi<'a> {
         let par = Par {
             unforgeables: vec![GUnforgeable {
                 unf_instance: Some(UnfInstance::GDeployIdBody(GDeployId {
-                    sig: deploy_id_bytes.into(),
+                    sig: deploy_id_bytes,
                 })),
             }],
             ..Default::default()
@@ -136,8 +136,8 @@ pub fn extract_par_data(par: &Par) -> Option<String> {
         let expr = &par.exprs[0];
         if let Some(instance) = &expr.expr_instance {
             match instance {
-                ExprInstance::GString(s) => Some(format!("\"{}\"", s)),
-                ExprInstance::GUri(u) => Some(format!("`{}`", u)),
+                ExprInstance::GString(s) => Some(format!("\"{s}\"")),
+                ExprInstance::GUri(u) => Some(format!("`{u}`")),
                 ExprInstance::GInt(i) => Some(i.to_string()),
                 ExprInstance::GBool(b) => Some(b.to_string()),
                 ExprInstance::GByteArray(bytes) => Some(format!("0x{}", hex::encode(bytes))),
@@ -180,7 +180,7 @@ pub fn extract_par_data(par: &Par) -> Option<String> {
                                 .as_ref()
                                 .and_then(extract_par_data)
                                 .unwrap_or_else(|| "?".to_string());
-                            format!("{}: {}", k, v)
+                            format!("{k}: {v}")
                         })
                         .collect();
                     Some(format!("{{{}}}", items.join(", ")))

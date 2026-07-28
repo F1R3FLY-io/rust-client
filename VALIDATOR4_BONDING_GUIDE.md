@@ -24,7 +24,7 @@ This guide provides complete step-by-step instructions for bonding validator4 to
 
 ### Network Credentials
 
-For all network credentials including wallet addresses, private keys, and public keys for Bootstrap Node, Validator_1, Validator_2, Validator_3, Validator_4, and the Autopropose Deploy Wallet, please refer to the [Docker README](../docker/README.md#wallet-information).
+For all network credentials including wallet addresses, private keys, and public keys for Bootstrap Node, Validator_1, Validator_2, Validator_3, Validator_4, and the Autopropose Deploy Wallet, please refer to the [Docker README](https://github.com/F1R3FLY-io/f1r3node-rust/blob/dev/docker/README.md#wallet-information).
 
 The Docker README contains the complete and up-to-date wallet information needed for this bonding guide.
 

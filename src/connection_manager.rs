@@ -110,8 +110,8 @@ impl std::fmt::Display for ConnectionError {
             Self::MissingPrivateKey => {
                 write!(f, "FIREFLY_PRIVATE_KEY environment variable not set")
             }
-            Self::ConnectionFailed(e) => write!(f, "Connection failed: {}", e),
-            Self::OperationFailed(e) => write!(f, "Operation failed: {}", e),
+            Self::ConnectionFailed(e) => write!(f, "Connection failed: {e}"),
+            Self::OperationFailed(e) => write!(f, "Operation failed: {e}"),
         }
     }
 }
@@ -236,8 +236,7 @@ impl F1r3flyConnectionManager {
                 None => {
                     if attempt >= max_attempts {
                         return Err(ConnectionError::OperationFailed(format!(
-                            "Deploy not included in block after {} attempts",
-                            max_attempts
+                            "Deploy not included in block after {max_attempts} attempts"
                         )));
                     }
                     tokio::time::sleep(tokio::time::Duration::from_secs(check_interval_sec)).await;
@@ -350,8 +349,7 @@ impl F1r3flyConnectionManager {
         }
 
         Err(ConnectionError::OperationFailed(format!(
-            "Deploy {} did not reach terminal state within {}s",
-            deploy_sig_hex, total_timeout_secs
+            "Deploy {deploy_sig_hex} did not reach terminal state within {total_timeout_secs}s"
         )))
     }
 
@@ -382,8 +380,7 @@ impl F1r3flyConnectionManager {
             Ok(())
         } else {
             Err(ConnectionError::OperationFailed(format!(
-                "Block {} not finalized after {} attempts",
-                block_hash, max_attempts
+                "Block {block_hash} not finalized after {max_attempts} attempts"
             )))
         }
     }
@@ -410,7 +407,7 @@ impl F1r3flyConnectionManager {
         let deploy_id = api
             .deploy(rholang_code, bigger_phlo, "rholang", expiration_timestamp)
             .await
-            .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {}", e)))?;
+            .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {e}")))?;
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
 
         // Phase 2: Sig-level polling (preferred), fall back to legacy on 404
@@ -434,20 +431,17 @@ impl F1r3flyConnectionManager {
                 }
                 "Failed" => {
                     return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {} failed during execution (Rholang error or insufficient phlo)",
-                        deploy_id
+                        "Deploy {deploy_id} failed during execution (Rholang error or insufficient phlo)"
                     )));
                 }
                 "Expired" => {
                     return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {} expired without canonical inclusion",
-                        deploy_id
+                        "Deploy {deploy_id} expired without canonical inclusion"
                     )));
                 }
                 other => {
                     return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {} in unexpected non-terminal state {} after timeout",
-                        deploy_id, other
+                        "Deploy {deploy_id} in unexpected non-terminal state {other} after timeout"
                     )));
                 }
             },
@@ -533,8 +527,7 @@ impl F1r3flyConnectionManager {
         to_address: &str,
         amount_dust: u64,
     ) -> Result<TransferResult, ConnectionError> {
-        crate::vault::validate_address(to_address)
-            .map_err(|e| ConnectionError::OperationFailed(e))?;
+        crate::vault::validate_address(to_address).map_err(ConnectionError::OperationFailed)?;
 
         let from_address = self.get_address()?;
 
