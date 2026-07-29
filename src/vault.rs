@@ -52,6 +52,7 @@ impl TransferResult {
 pub fn build_transfer_rholang(from_address: &str, to_address: &str, amount_dust: u64) -> String {
     format!(
         r#"new
+ deployId(`rho:rchain:deployId`),
  deployerId(`rho:system:deployerId`),
  rl(`rho:registry:lookup`),
  systemVaultCh,
@@ -74,9 +75,59 @@ in {{
  for (@(false, errorMsg) <- toVaultCh) {{
  resultCh!(("error", "Recipient vault error", errorMsg))
  }}
+ }} |
+ for (@result <- resultCh) {{
+ deployId!(result)
  }}
 }}"#
     )
+}
+
+/// Interpret the deployId-channel data of a transfer deploy.
+///
+/// The transfer contract forwards the vault's result tuple to the deployId
+/// channel: `(true, Nil)` on success, `(false, reason)` when the vault
+/// rejects the transfer (e.g. insufficient balance), and
+/// `("error", context, reason)` when a vault lookup fails. No result at all
+/// means the contract's joins never fired, which is also a failure — a
+/// transfer must never be reported successful without positive evidence.
+pub fn parse_transfer_result(data: &[f1r3fly_models::rhoapi::Par]) -> Result<(), String> {
+    use f1r3fly_models::rhoapi::expr::ExprInstance;
+
+    let par = data.first().ok_or_else(|| {
+        "no transfer result on the deployId channel — the transfer contract did not complete"
+            .to_string()
+    })?;
+
+    for expr in &par.exprs {
+        if let Some(ExprInstance::ETupleBody(tuple)) = &expr.expr_instance {
+            let first_is_true = tuple.ps.first().is_some_and(|p| {
+                p.exprs
+                    .iter()
+                    .any(|e| e.expr_instance == Some(ExprInstance::GBool(true)))
+            });
+            if first_is_true {
+                return Ok(());
+            }
+            let reasons: Vec<String> = tuple
+                .ps
+                .iter()
+                .skip(1)
+                .flat_map(|p| p.exprs.iter())
+                .filter_map(|e| match &e.expr_instance {
+                    Some(ExprInstance::GString(s)) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect();
+            let reason = if reasons.is_empty() {
+                format!("{tuple:?}")
+            } else {
+                reasons.join(": ")
+            };
+            return Err(format!("vault rejected the transfer: {reason}"));
+        }
+    }
+    Err(format!("unexpected transfer result shape: {par:?}"))
 }
 
 /// Build Rholang code to query vault balance

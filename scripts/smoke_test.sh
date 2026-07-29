@@ -450,7 +450,9 @@ if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAA
     TRANSFER_END=$(date +%s.%N)
     TRANSFER_MS=$(echo "($TRANSFER_END - $TRANSFER_START) * 1000" | bc | cut -d. -f1)
     save_log "transfer"
-    if grep -qE "Deploy ID:|Transfer complete|Transfer failed" "$OUTPUT"; then
+    # Success only: "Transfer failed" must FAIL this test — accepting it is
+    # how the 50k-phlo transfer regression stayed green in CI.
+    if grep -q "Transfer complete" "$OUTPUT"; then
         echo -e "${GREEN}PASS${NC} [$(format_duration $TRANSFER_MS)]"
         inc_pass
         # Extract deploy ID and block hash for subsequent tests
