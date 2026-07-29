@@ -30,7 +30,27 @@ impl<'a> F1r3flyApi<'a> {
         } else {
             50_000
         };
+        self.deploy_with_phlo_limit_and_expiration(
+            rho_code,
+            phlo_limit,
+            language,
+            expiration_timestamp,
+        )
+        .await
+    }
 
+    /// Deploy with an explicit phlo limit and expiration timestamp.
+    ///
+    /// Same pipeline as [`deploy`](Self::deploy) (monotonic tip selection,
+    /// validity window) but with a caller-chosen phlo limit instead of the
+    /// 50k/5B mapping of the `use_bigger_phlo_price` flag.
+    pub async fn deploy_with_phlo_limit_and_expiration(
+        &self,
+        rho_code: &str,
+        phlo_limit: i64,
+        language: &str,
+        expiration_timestamp: i64,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let tip_lookup_start = Instant::now();
         let current_block = match self.get_current_block_number_monotonic().await {
             Ok(block_num) => {
@@ -163,7 +183,10 @@ impl<'a> F1r3flyApi<'a> {
         expiration_timestamp: i64,
         timestamp_override: Option<i64>,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let current_block = self.get_current_block_number().await.unwrap_or(0);
+        // A failed tip lookup must not silently fall back to block 0: the
+        // deploy's validity window would be anchored at genesis and the node
+        // would reject or expire it far from the actual cause.
+        let current_block = self.get_current_block_number().await?;
 
         let deployment = self.build_deploy_msg(
             rho_code.to_string(),
