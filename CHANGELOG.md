@@ -4,6 +4,19 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.2.4] - 2026-07-29
+
+### Bug Fixes
+
+- point TO_ADDR at a valid REV address
+- transfer() fails on deploy errors and vault rejections
+- fund vault transfers with 500k phlo instead of the 50k default
+
+### Testing
+
+- live smoke coverage for on-chain transfer success; fail deploys on tip-lookup errors
+
+
 ## [0.2.3] - 2026-07-28
 
 ### CI
