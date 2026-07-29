@@ -36,6 +36,18 @@ fn observer_http() -> u16 {
         .and_then(|s| s.parse().ok())
         .unwrap_or(40453)
 }
+fn grpc_port() -> u16 {
+    std::env::var("F1R3FLY_GRPC_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40412)
+}
+
+/// Funded genesis signing key — same default as scripts/smoke_test.sh.
+const FUNDED_SIGNING_KEY: &str = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
+/// Transfer recipient — same as scripts/smoke_test.sh's TO_ADDR. Must be a
+/// valid REV address: the vault rejects invalid recipients at findOrCreate.
+const TRANSFER_RECIPIENT: &str = "111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA";
 
 fn api_url(port: u16, path: &str) -> String {
     format!("http://{}:{}/api{}", host(), port, path)
@@ -664,4 +676,80 @@ async fn test_deploy_finalization_status_response_shape() {
     assert!(obj.contains_key("latest_block_hash"));
     assert!(obj["state"].is_string());
     assert!(obj["rejection_count"].is_u64());
+}
+
+/// Read a vault balance via exploratory deploy (needs dev-mode or a readonly
+/// node; the CI standalone runs with dev-mode enabled).
+async fn vault_balance(address: &str) -> i64 {
+    let body = serde_json::json!({"term": node_cli::vault::build_balance_query(address)});
+    let result = post_json(observer_http(), "/explore-deploy", body)
+        .await
+        .expect("explore-deploy balance query should succeed");
+    result["expr"][0]["ExprInt"]["data"]
+        .as_i64()
+        .unwrap_or_else(|| panic!("balance query returned unexpected shape: {result}"))
+}
+
+#[tokio::test]
+#[ignore] // Requires running node. Run with: cargo test --test smoke --release -- --ignored
+async fn test_vault_transfer_succeeds_on_chain() {
+    if !require_shard().await {
+        return;
+    }
+
+    // Regression test: the RevVault transfer contract costs well over the 50k
+    // default deploy limit (~249k on f1r3node-rust v0.4.23), so a transfer
+    // deployed with the default limit consumes it fully and errors on-chain.
+    // Assert the full chain of evidence: transfer() returns Ok (it now fails
+    // on deploy errors and vault rejections), the deploy detail is clean, and
+    // the recipient's balance actually moved by the transferred amount.
+    //
+    // Runs against the Rust node only: CI gates the cargo smoke step on
+    // matrix.node == 'rust' (the Scala node is deprecated).
+    const AMOUNT_DUST: u64 = 1_000;
+
+    let balance_before = vault_balance(TRANSFER_RECIPIENT).await;
+
+    let mut config = node_cli::ConnectionConfig::new(
+        host(),
+        grpc_port(),
+        http_port(),
+        FUNDED_SIGNING_KEY.to_string(),
+    );
+    config.observer_grpc_port = grpc_port();
+
+    let manager = node_cli::F1r3flyConnectionManager::new(config);
+    let transfer = manager
+        .transfer(TRANSFER_RECIPIENT, AMOUNT_DUST)
+        .await
+        .expect("transfer should deploy, finalize, and report vault success");
+
+    let detail = get_json(http_port(), &format!("/deploy/{}", transfer.deploy_id))
+        .await
+        .expect("deploy detail should be readable after finalization");
+    assert_eq!(
+        detail["errored"], false,
+        "transfer deploy errored on-chain (phlo limit exhausted?): {detail}"
+    );
+    let cost = detail["cost"].as_u64().expect("deploy detail carries cost");
+    assert!(
+        cost <= node_cli::vault::TRANSFER_PHLO_LIMIT as u64,
+        "transfer cost {cost} exceeds TRANSFER_PHLO_LIMIT — raise the limit"
+    );
+
+    // The transfer is finalized, but give the balance read a few polls in
+    // case the exploratory state lags the finalized block.
+    let expected = balance_before + AMOUNT_DUST as i64;
+    let mut balance_after = vault_balance(TRANSFER_RECIPIENT).await;
+    for _ in 0..5 {
+        if balance_after == expected {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        balance_after = vault_balance(TRANSFER_RECIPIENT).await;
+    }
+    assert_eq!(
+        balance_after, expected,
+        "recipient balance did not increase by {AMOUNT_DUST} (before: {balance_before})"
+    );
 }

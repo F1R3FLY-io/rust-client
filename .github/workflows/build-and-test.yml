@@ -374,6 +374,7 @@ jobs:
         env:
           F1R3FLY_HTTP_PORT: "40403"
           F1R3FLY_OBSERVER_HTTP: "40403"
+          F1R3FLY_GRPC_PORT: "40402"
         run: cargo test --test smoke --release -- --ignored
 
       - name: Upload Smoke Test Logs
