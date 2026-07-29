@@ -45,9 +45,8 @@ fn grpc_port() -> u16 {
 
 /// Funded genesis signing key — same default as scripts/smoke_test.sh.
 const FUNDED_SIGNING_KEY: &str = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-/// Transfer recipient — the same address scripts/smoke_test.sh transfers to.
-/// (The script's TO_ADDR constant is a different, invalid address the vault
-/// rejects on findOrCreate; only this one is actually used in a transfer.)
+/// Transfer recipient — same as scripts/smoke_test.sh's TO_ADDR. Must be a
+/// valid REV address: the vault rejects invalid recipients at findOrCreate.
 const TRANSFER_RECIPIENT: &str = "111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA";
 
 fn api_url(port: u16, path: &str) -> String {
