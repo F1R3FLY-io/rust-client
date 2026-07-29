@@ -401,11 +401,31 @@ impl F1r3flyConnectionManager {
         bigger_phlo: bool,
         expiration_timestamp: i64,
     ) -> Result<crate::f1r3fly_api::DeployResult, ConnectionError> {
+        let phlo_limit: i64 = if bigger_phlo { 5_000_000_000 } else { 50_000 };
+        self.deploy_and_wait_with_phlo_limit(rholang_code, phlo_limit, expiration_timestamp)
+            .await
+    }
+
+    /// Same as [`deploy_and_wait`](Self::deploy_and_wait) but with an explicit
+    /// phlo limit instead of the 50k/5B `bigger_phlo` mapping. Use when the
+    /// deploy's cost is known to exceed 50k phlo but a 5B limit would demand
+    /// more balance than the deployer holds (e.g. vault transfers).
+    pub async fn deploy_and_wait_with_phlo_limit(
+        &self,
+        rholang_code: &str,
+        phlo_limit: i64,
+        expiration_timestamp: i64,
+    ) -> Result<crate::f1r3fly_api::DeployResult, ConnectionError> {
         let api = self.api()?;
 
         // Phase 1: Deploy
         let deploy_id = api
-            .deploy(rholang_code, bigger_phlo, "rholang", expiration_timestamp)
+            .deploy_with_phlo_limit_and_expiration(
+                rholang_code,
+                phlo_limit,
+                "rholang",
+                expiration_timestamp,
+            )
             .await
             .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {e}")))?;
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
@@ -541,7 +561,9 @@ impl F1r3flyConnectionManager {
 
         let rholang = build_transfer_rholang(&from_address, to_address, amount_dust);
 
-        let result = self.deploy_and_wait(&rholang, false, 0).await?;
+        let result = self
+            .deploy_and_wait_with_phlo_limit(&rholang, crate::vault::TRANSFER_PHLO_LIMIT, 0)
+            .await?;
 
         tracing::info!(
         deploy_id = %result.deploy_id,

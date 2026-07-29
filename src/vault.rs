@@ -11,6 +11,15 @@
 /// Token to dust conversion factor (1 token = 100,000,000 dust)
 pub const DUST_FACTOR: u64 = 100_000_000;
 
+/// Phlo limit for vault transfer deploys.
+///
+/// The RevVault transfer contract (registry lookup, two `findOrCreate` calls,
+/// and the transfer itself) costs more than the 50k default deploy limit, and
+/// a 5B limit would require the deployer's balance to cover it upfront. 500k
+/// comfortably covers the measured cost while staying affordable for small
+/// vaults.
+pub const TRANSFER_PHLO_LIMIT: i64 = 500_000;
+
 /// Result of a vault transfer operation
 #[derive(Debug, Clone)]
 pub struct TransferResult {
