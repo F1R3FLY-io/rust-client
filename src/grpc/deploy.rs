@@ -183,7 +183,10 @@ impl<'a> F1r3flyApi<'a> {
         expiration_timestamp: i64,
         timestamp_override: Option<i64>,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let current_block = self.get_current_block_number().await.unwrap_or(0);
+        // A failed tip lookup must not silently fall back to block 0: the
+        // deploy's validity window would be anchored at genesis and the node
+        // would reject or expire it far from the actual cause.
+        let current_block = self.get_current_block_number().await?;
 
         let deployment = self.build_deploy_msg(
             rho_code.to_string(),
