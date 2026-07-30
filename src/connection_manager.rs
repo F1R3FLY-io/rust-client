@@ -274,9 +274,13 @@ impl F1r3flyConnectionManager {
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
 
         for attempt in 1..=max_attempts {
+            // Map the error to String immediately: the un-Send `Box<dyn Error>`
+            // must not live across the poll sleep below, or every future built
+            // on this loop (transfer, deploy_and_wait) stops being Send.
             let observer_result = observer_api
                 .deploy_finalization_status(deploy_sig_hex, http_port)
-                .await;
+                .await
+                .map_err(|e| e.to_string());
 
             match &observer_result {
                 Ok(Some(status)) if status.is_terminal() => {
