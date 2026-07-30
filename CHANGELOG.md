@@ -4,6 +4,13 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.2.5] - 2026-07-30
+
+### Bug Fixes
+
+- keep transfer/deploy futures Send in wait_for_deploy_finalization
+
+
 ## [0.2.4] - 2026-07-29
 
 ### Bug Fixes
