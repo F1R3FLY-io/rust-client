@@ -437,8 +437,6 @@ async fn test_validator_unknown() {
         return;
     }
 
-    let fake = "044f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa385b6b1b8ead809ca67454d9683fcf2ba03456d6fe2c4abe2b07f0fbdbb2f1c1";
-    let result = get_json(observer_http(), &format!("/validator/{}", fake))
     let result = get_json(observer_http(), &format!("/validator/{UNBONDED_PUBKEY}"))
         .await
         .unwrap();
