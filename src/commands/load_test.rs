@@ -36,11 +36,11 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         args.amount
     };
 
-    println!("");
+    println!();
     println!(" F1R3FLY Load Test ");
-    println!("");
+    println!();
     println!("Tests: {}", args.num_tests);
-    println!("Amount: {} dust", amount_dust);
+    println!("Amount: {amount_dust} dust");
     println!("Interval: {}s", args.interval);
     println!("Check interval: {}s (fast mode)", args.check_interval);
     println!("Target: {}:{}", args.host, args.port);
@@ -59,11 +59,11 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
     match get_balance_for_address(&sender_address, args).await {
         Ok(balance) => {
             println!("Sender Wallet:");
-            println!(" Address: {}", sender_address);
-            println!(" Balance: {}", balance);
+            println!(" Address: {sender_address}");
+            println!(" Balance: {balance}");
         }
         Err(e) => {
-            println!(" Failed to get sender balance: {}", e);
+            println!(" Failed to get sender balance: {e}");
         }
     }
     println!();
@@ -72,14 +72,14 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         Ok(balance) => {
             println!("Recipient Wallet:");
             println!(" Address: {}", args.to_address);
-            println!(" Balance: {}", balance);
+            println!(" Balance: {balance}");
         }
         Err(e) => {
-            println!(" Failed to get recipient balance: {}", e);
+            println!(" Failed to get recipient balance: {e}");
         }
     }
     println!();
-    println!("");
+    println!();
     println!();
 
     // Initialize API once (reuse connection)
@@ -88,9 +88,9 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
     let mut results = Vec::new();
 
     for test_num in 1..=args.num_tests {
-        println!("");
+        println!();
         println!(" Test {}/{}", test_num, args.num_tests);
-        println!("");
+        println!();
 
         // Run single test with detailed logging
         let result = run_single_test(&api, args, test_num, amount_dust).await?;
@@ -134,7 +134,7 @@ async fn run_single_test(
         now_timestamp(),
         deploy_start.elapsed().as_millis()
     );
-    println!(" Deploy ID: {}", deploy_id);
+    println!(" Deploy ID: {deploy_id}");
 
     // Step 2: Wait for block inclusion (FAST polling)
     println!(" [{}] Waiting for block inclusion...", now_timestamp());
@@ -155,7 +155,7 @@ async fn run_single_test(
         now_timestamp(),
         inclusion_time.as_secs_f32()
     );
-    println!(" Block hash: {}", block_hash);
+    println!(" Block hash: {block_hash}");
 
     // Step 3: Wait for finalization
     println!(" [{}] Waiting for block finalization...", now_timestamp());
@@ -320,7 +320,7 @@ async fn get_balance_for_address(
         r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
  rl!(`rho:vault:system`, *systemVaultCh) |
  for (@(_, SystemVault) <- systemVaultCh) {{
- @SystemVault!("findOrCreate", "{}", *vaultCh) |
+ @SystemVault!("findOrCreate", "{address}", *vaultCh) |
  for (@either <- vaultCh) {{
  match either {{
  (true, vault) => {{
@@ -335,8 +335,7 @@ async fn get_balance_for_address(
  }}
  }}
  }}
- }}"#,
-        address
+ }}"#
     );
 
     // Create a separate API instance for read-only port
@@ -384,15 +383,15 @@ fn print_progress_stats(results: &[TestResult]) {
 
 fn print_final_summary(results: &[TestResult]) {
     println!();
-    println!("");
+    println!();
     println!(" FINAL RESULTS ");
-    println!("");
+    println!();
 
     let total = results.len();
     let finalized = results.iter().filter(|r| r.on_main_chain).count();
     let failed = total - finalized;
 
-    println!("Total tests: {}", total);
+    println!("Total tests: {total}");
     println!(" Finalized: {} ({}%)", finalized, finalized * 100 / total);
     println!(" Orphaned/Timeout: {} ({}%)", failed, failed * 100 / total);
     println!();
@@ -421,15 +420,15 @@ fn print_final_summary(results: &[TestResult]) {
 
         println!();
         println!(" Timing Statistics:");
-        println!(" Average inclusion time: {:.1}s", avg_inclusion);
-        println!(" Average total time: {:.1}s", avg_total);
+        println!(" Average inclusion time: {avg_inclusion:.1}s");
+        println!(" Average total time: {avg_total:.1}s");
     }
 
     println!();
 
     // Exit code hint
     if failed > 0 {
-        println!(" {} blocks failed to finalize or were orphaned", failed);
+        println!(" {failed} blocks failed to finalize or were orphaned");
     } else {
         println!(" All blocks successfully finalized");
     }

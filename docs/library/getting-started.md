@@ -49,6 +49,16 @@ println!("Cost:   {:?}", result.cost);
 println!("Data:   {:?}", result.data);  // Vec<Par> from deployId channel
 ```
 
+The boolean maps to a phlo limit of 50k (`false`) or 5B (`true`). When the
+deploy's cost falls between those — and the deployer's balance must cover the
+limit, so 5B is not a safe default — pass an explicit limit instead:
+
+```rust
+let result = manager
+    .deploy_and_wait_with_phlo_limit("new x in { x!(1) }", 500_000, 0)
+    .await?;
+```
+
 ### Read-only query
 
 ```rust
@@ -73,6 +83,9 @@ println!("Estimated cost: {} phlogiston", cost);
 let transfer = manager.transfer("1111recipient...", 100_000_000).await?;
 println!("TX: {} in block {}", transfer.deploy_id, transfer.block_hash);
 ```
+
+Transfer deploys use `vault::TRANSFER_PHLO_LIMIT` (500k): the RevVault
+transfer contract costs ~250k phlo, above the 50k default deploy limit.
 
 ## F1r3flyApi (Low-Level)
 

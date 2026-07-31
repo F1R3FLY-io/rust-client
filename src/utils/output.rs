@@ -17,72 +17,69 @@ pub const EMOJI_WARNING: &str = "";
 
 // Output formatting functions
 pub fn print_info(message: &str) {
-    println!("{} {}", EMOJI_INFO, message);
+    println!("{EMOJI_INFO} {message}");
 }
 
 pub fn print_success(message: &str) {
-    println!("{} {}", EMOJI_SUCCESS, message);
+    println!("{EMOJI_SUCCESS} {message}");
 }
 
 pub fn print_error(message: &str) {
-    println!("{} {}", EMOJI_ERROR, message);
+    println!("{EMOJI_ERROR} {message}");
 }
 
 pub fn print_search(message: &str) {
-    println!("{} {}", EMOJI_SEARCH, message);
+    println!("{EMOJI_SEARCH} {message}");
 }
 
 pub fn print_time(message: &str, duration: Duration) {
-    println!("{} {}: {:.2?}", EMOJI_TIME, message, duration);
+    println!("{EMOJI_TIME} {message}: {duration:.2?}");
 }
 
 pub fn print_file_info(filename: &str, size: usize) {
-    println!("{} Reading Rholang from: {}", EMOJI_FILE, filename);
-    println!("{} Code size: {} bytes", EMOJI_INFO, size);
+    println!("{EMOJI_FILE} Reading Rholang from: {filename}");
+    println!("{EMOJI_INFO} Code size: {size} bytes");
 }
 
 pub fn print_connection(host: &str, port: u16) {
-    println!(
-        "{} Connecting to F1r3fly node at {}:{}",
-        EMOJI_CONNECT, host, port
-    );
+    println!("{EMOJI_CONNECT} Connecting to F1r3fly node at {host}:{port}");
 }
 
 pub fn print_block_info(block_hash: &str) {
-    println!("{} Block hash: {}", EMOJI_BLOCK, block_hash);
+    println!("{EMOJI_BLOCK} Block hash: {block_hash}");
 }
 
 pub fn print_rocket(message: &str) {
-    println!("{} {}", EMOJI_ROCKET, message);
+    println!("{EMOJI_ROCKET} {message}");
 }
 
 pub fn print_key(key_type: &str, key_value: &str) {
-    println!("{} {}: {}", EMOJI_KEY, key_type, key_value);
+    println!("{EMOJI_KEY} {key_type}: {key_value}");
 }
 
 pub fn print_json_pretty(
     title: &str,
     json: &serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("{} {}:", EMOJI_INFO, title);
+    println!("{EMOJI_INFO} {title}:");
     println!("{}", serde_json::to_string_pretty(json)?);
     Ok(())
 }
 
 pub fn print_warning(message: &str) {
-    println!("{} {}", EMOJI_WARNING, message);
+    println!("{EMOJI_WARNING} {message}");
 }
 
 pub fn print_bond_status(is_bonded: bool) {
     if is_bonded {
-        println!("{} {} Validator is BONDED", EMOJI_LINK, EMOJI_SUCCESS);
+        println!("{EMOJI_LINK} {EMOJI_SUCCESS} Validator is BONDED");
     } else {
-        println!("{} {} Validator is NOT BONDED", EMOJI_LINK, EMOJI_ERROR);
+        println!("{EMOJI_LINK} {EMOJI_ERROR} Validator is NOT BONDED");
     }
 }
 
 pub fn print_health_status(healthy: u32, total: u32) {
-    println!("{} Healthy nodes: {}/{}", EMOJI_SUCCESS, healthy, total);
+    println!("{EMOJI_SUCCESS} Healthy nodes: {healthy}/{total}");
 }
 
 pub fn print_network_status(healthy: u32, total: u32) {
@@ -98,9 +95,9 @@ pub fn print_network_status(healthy: u32, total: u32) {
 // Helper function to format operation results
 pub fn format_operation_result(success: bool, operation: &str, duration: Duration) {
     if success {
-        print_success(&format!("{} successful!", operation));
+        print_success(&format!("{operation} successful!"));
     } else {
-        print_error(&format!("{} failed!", operation));
+        print_error(&format!("{operation} failed!"));
     }
     print_time("Time taken", duration);
 }

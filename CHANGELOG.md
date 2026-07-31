@@ -4,6 +4,65 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.2.5] - 2026-07-30
+
+### Bug Fixes
+
+- keep transfer/deploy futures Send in wait_for_deploy_finalization
+
+
+## [0.2.4] - 2026-07-29
+
+### Bug Fixes
+
+- point TO_ADDR at a valid REV address
+- transfer() fails on deploy errors and vault rejections
+- fund vault transfers with 500k phlo instead of the 50k default
+
+### Testing
+
+- live smoke coverage for on-chain transfer success; fail deploys on tip-lookup errors
+
+
+## [0.2.3] - 2026-07-28
+
+### CI
+
+- add clippy, cargo-deny, and markdown link checks
+
+### Documentation
+
+- remove stale dependencies section from README
+
+### Miscellaneous
+
+- point f1r3node deps at f1r3node-rust v0.4.23
+
+
+## [0.2.2] - 2026-07-28
+
+### Bug Fixes
+
+- pass private key to generate-vault-address command
+- fall back to deploy node on observer errors
+- derive native token decimals from node status
+- run cargo fmt and export FIREFLY_PRIVATE_KEY in smoke test
+- remove hardcoded private key from client source
+
+### CI
+
+- pin rust node image to v0.4.23; use valid unbonded key in smoke tests
+- fix smoke compose paths/ports; release patch-only on main
+
+### Documentation
+
+- update --amount docs for base units default, add --whole-tokens flag
+
+### Miscellaneous
+
+- deprecate staging branch; releases from main only
+
+
 ## [0.2.1] - 2026-05-14
 
 ### Documentation

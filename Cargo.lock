@@ -673,7 +673,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 [[package]]
 name = "crypto"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust?tag=v0.4.19#1a7cbf056d7b26609ccbb7894c467af63793b5bb"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?tag=v0.4.23#be61e2fb0ac10b731ff5590b91a0163bc6c95b84"
 dependencies = [
  "async-trait",
  "base64",
@@ -1922,7 +1922,7 @@ dependencies = [
 [[package]]
 name = "models"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust?tag=v0.4.19#1a7cbf056d7b26609ccbb7894c467af63793b5bb"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?tag=v0.4.23#be61e2fb0ac10b731ff5590b91a0163bc6c95b84"
 dependencies = [
  "crypto",
  "hex",
@@ -1987,7 +1987,7 @@ dependencies = [
 
 [[package]]
 name = "node_cli"
-version = "0.2.1"
+version = "0.2.5"
 dependencies = [
  "blake2",
  "bs58",
@@ -2881,9 +2881,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rho-pure-eval"
+version = "0.1.0"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?tag=v0.4.23#be61e2fb0ac10b731ff5590b91a0163bc6c95b84"
+dependencies = [
+ "models",
+ "num-bigint",
+ "num-rational",
+ "num-traits",
+ "shared",
+]
+
+[[package]]
 name = "rholang"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust?tag=v0.4.19#1a7cbf056d7b26609ccbb7894c467af63793b5bb"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?tag=v0.4.23#be61e2fb0ac10b731ff5590b91a0163bc6c95b84"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2909,6 +2921,7 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest",
+ "rho-pure-eval",
  "rholang-parser",
  "rspace_plus_plus",
  "serde",
@@ -2932,7 +2945,7 @@ dependencies = [
 [[package]]
 name = "rholang-parser"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/rholang-rs?rev=d25f953a#d25f953a3e5dbfd4b0f1e953b496810da99fa41d"
+source = "git+https://github.com/F1R3FLY-io/rholang-rs?rev=527af8a#527af8afb37f6cad470516fe316076f120b9c353"
 dependencies = [
  "bitvec",
  "nonempty-collections",
@@ -2947,7 +2960,7 @@ dependencies = [
 [[package]]
 name = "rholang-tree-sitter"
 version = "0.1.2"
-source = "git+https://github.com/F1R3FLY-io/rholang-rs?rev=d25f953a#d25f953a3e5dbfd4b0f1e953b496810da99fa41d"
+source = "git+https://github.com/F1R3FLY-io/rholang-rs?rev=527af8a#527af8afb37f6cad470516fe316076f120b9c353"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -2956,7 +2969,7 @@ dependencies = [
 [[package]]
 name = "rholang-tree-sitter-proc-macro"
 version = "0.1.2"
-source = "git+https://github.com/F1R3FLY-io/rholang-rs?rev=d25f953a#d25f953a3e5dbfd4b0f1e953b496810da99fa41d"
+source = "git+https://github.com/F1R3FLY-io/rholang-rs?rev=527af8a#527af8afb37f6cad470516fe316076f120b9c353"
 dependencies = [
  "anyhow",
  "quote",
@@ -2982,7 +2995,7 @@ dependencies = [
 [[package]]
 name = "rspace_plus_plus"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust?tag=v0.4.19#1a7cbf056d7b26609ccbb7894c467af63793b5bb"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?tag=v0.4.23#be61e2fb0ac10b731ff5590b91a0163bc6c95b84"
 dependencies = [
  "async-trait",
  "bincode",
@@ -3354,7 +3367,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust?tag=v0.4.19#1a7cbf056d7b26609ccbb7894c467af63793b5bb"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?tag=v0.4.23#be61e2fb0ac10b731ff5590b91a0163bc6c95b84"
 dependencies = [
  "axum",
  "bincode",

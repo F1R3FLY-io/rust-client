@@ -23,8 +23,10 @@ PRIVATE_KEY="${5:-5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e96
 OBSERVER_HOST="${6:-$HOST}"  # Observer host (defaults to same as HOST)
 export FIREFLY_PRIVATE_KEY="$PRIVATE_KEY"
 
-# Recipient address for transfers (secondary test address from genesis)
-TO_ADDR="11112oRqNpmKjfFCGgH6bw5csjBqVgb4PVRP5S98tTNjDeqdWNJr2L"
+# Recipient address for transfers and load tests. Must be a valid REV
+# address: the vault rejects invalid recipients at findOrCreate, which the
+# deploy-level checks don't see.
+TO_ADDR="111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA"
 
 # Colors
 GREEN='\033[0;32m'
@@ -451,7 +453,9 @@ if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAA
     TRANSFER_END=$(date +%s.%N)
     TRANSFER_MS=$(echo "($TRANSFER_END - $TRANSFER_START) * 1000" | bc | cut -d. -f1)
     save_log "transfer"
-    if grep -qE "Deploy ID:|Transfer complete|Transfer failed" "$OUTPUT"; then
+    # Success only: "Transfer failed" must FAIL this test — accepting it is
+    # how the 50k-phlo transfer regression stayed green in CI.
+    if grep -q "Transfer complete" "$OUTPUT"; then
         echo -e "${GREEN}PASS${NC} [$(format_duration $TRANSFER_MS)]"
         inc_pass
         # Extract deploy ID and block hash for subsequent tests

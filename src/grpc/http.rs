@@ -59,7 +59,7 @@ impl<'a> F1r3flyApi<'a> {
                     }
                 }
             }
-            Err(e) => Err(format!("Network error: {}", e).into()),
+            Err(e) => Err(format!("Network error: {e}").into()),
         }
     }
 

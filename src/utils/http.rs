@@ -6,6 +6,12 @@ pub struct HttpClient {
     client: reqwest::Client,
 }
 
+impl Default for HttpClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HttpClient {
     pub fn new() -> Self {
         Self {
@@ -50,5 +56,5 @@ impl HttpClient {
 }
 
 pub fn build_url(host: &str, port: u16, path: &str) -> String {
-    format!("http://{}:{}{}", host, port, path)
+    format!("http://{host}:{port}{path}")
 }

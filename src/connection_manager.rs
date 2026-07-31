@@ -110,8 +110,8 @@ impl std::fmt::Display for ConnectionError {
             Self::MissingPrivateKey => {
                 write!(f, "FIREFLY_PRIVATE_KEY environment variable not set")
             }
-            Self::ConnectionFailed(e) => write!(f, "Connection failed: {}", e),
-            Self::OperationFailed(e) => write!(f, "Operation failed: {}", e),
+            Self::ConnectionFailed(e) => write!(f, "Connection failed: {e}"),
+            Self::OperationFailed(e) => write!(f, "Operation failed: {e}"),
         }
     }
 }
@@ -245,8 +245,7 @@ impl F1r3flyConnectionManager {
                 None => {
                     if attempt >= max_attempts {
                         return Err(ConnectionError::OperationFailed(format!(
-                            "Deploy not included in block after {} attempts",
-                            max_attempts
+                            "Deploy not included in block after {max_attempts} attempts"
                         )));
                     }
                     tokio::time::sleep(tokio::time::Duration::from_secs(check_interval_sec)).await;
@@ -284,9 +283,13 @@ impl F1r3flyConnectionManager {
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
 
         for attempt in 1..=max_attempts {
+            // Map the error to String immediately: the un-Send `Box<dyn Error>`
+            // must not live across the poll sleep below, or every future built
+            // on this loop (transfer, deploy_and_wait) stops being Send.
             let observer_result = observer_api
                 .deploy_finalization_status(deploy_sig_hex, http_port)
-                .await;
+                .await
+                .map_err(|e| e.to_string());
 
             match &observer_result {
                 Ok(Some(status)) if status.is_terminal() => {
@@ -359,8 +362,7 @@ impl F1r3flyConnectionManager {
         }
 
         Err(ConnectionError::OperationFailed(format!(
-            "Deploy {} did not reach terminal state within {}s",
-            deploy_sig_hex, total_timeout_secs
+            "Deploy {deploy_sig_hex} did not reach terminal state within {total_timeout_secs}s"
         )))
     }
 
@@ -391,8 +393,7 @@ impl F1r3flyConnectionManager {
             Ok(())
         } else {
             Err(ConnectionError::OperationFailed(format!(
-                "Block {} not finalized after {} attempts",
-                block_hash, max_attempts
+                "Block {block_hash} not finalized after {max_attempts} attempts"
             )))
         }
     }
@@ -413,13 +414,33 @@ impl F1r3flyConnectionManager {
         bigger_phlo: bool,
         expiration_timestamp: i64,
     ) -> Result<crate::f1r3fly_api::DeployResult, ConnectionError> {
+        let phlo_limit: i64 = if bigger_phlo { 5_000_000_000 } else { 50_000 };
+        self.deploy_and_wait_with_phlo_limit(rholang_code, phlo_limit, expiration_timestamp)
+            .await
+    }
+
+    /// Same as [`deploy_and_wait`](Self::deploy_and_wait) but with an explicit
+    /// phlo limit instead of the 50k/5B `bigger_phlo` mapping. Use when the
+    /// deploy's cost is known to exceed 50k phlo but a 5B limit would demand
+    /// more balance than the deployer holds (e.g. vault transfers).
+    pub async fn deploy_and_wait_with_phlo_limit(
+        &self,
+        rholang_code: &str,
+        phlo_limit: i64,
+        expiration_timestamp: i64,
+    ) -> Result<crate::f1r3fly_api::DeployResult, ConnectionError> {
         let api = self.api()?;
 
         // Phase 1: Deploy
         let deploy_id = api
-            .deploy(rholang_code, bigger_phlo, "rholang", expiration_timestamp)
+            .deploy_with_phlo_limit_and_expiration(
+                rholang_code,
+                phlo_limit,
+                "rholang",
+                expiration_timestamp,
+            )
             .await
-            .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {}", e)))?;
+            .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {e}")))?;
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
 
         // Phase 2: Sig-level polling (preferred), fall back to legacy on 404
@@ -443,20 +464,17 @@ impl F1r3flyConnectionManager {
                 }
                 "Failed" => {
                     return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {} failed during execution (Rholang error or insufficient phlo)",
-                        deploy_id
+                        "Deploy {deploy_id} failed during execution (Rholang error or insufficient phlo)"
                     )));
                 }
                 "Expired" => {
                     return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {} expired without canonical inclusion",
-                        deploy_id
+                        "Deploy {deploy_id} expired without canonical inclusion"
                     )));
                 }
                 other => {
                     return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {} in unexpected non-terminal state {} after timeout",
-                        deploy_id, other
+                        "Deploy {deploy_id} in unexpected non-terminal state {other} after timeout"
                     )));
                 }
             },
@@ -542,8 +560,7 @@ impl F1r3flyConnectionManager {
         to_address: &str,
         amount_dust: u64,
     ) -> Result<TransferResult, ConnectionError> {
-        crate::vault::validate_address(to_address)
-            .map_err(|e| ConnectionError::OperationFailed(e))?;
+        crate::vault::validate_address(to_address).map_err(ConnectionError::OperationFailed)?;
 
         let from_address = self.get_address()?;
 
@@ -557,7 +574,22 @@ impl F1r3flyConnectionManager {
 
         let rholang = build_transfer_rholang(&from_address, to_address, amount_dust);
 
-        let result = self.deploy_and_wait(&rholang, false, 0).await?;
+        let result = self
+            .deploy_and_wait_with_phlo_limit(&rholang, crate::vault::TRANSFER_PHLO_LIMIT, 0)
+            .await?;
+
+        // A finalized deploy is not a successful transfer: the deploy can
+        // error on-chain (e.g. phlo exhaustion), and the vault itself can
+        // reject the transfer without any deploy error. Both must fail here.
+        if result.errored || result.system_deploy_error.is_some() {
+            return Err(ConnectionError::OperationFailed(format!(
+                "transfer deploy {} errored on-chain (cost: {:?}, system error: {:?})",
+                result.deploy_id, result.cost, result.system_deploy_error
+            )));
+        }
+        crate::vault::parse_transfer_result(&result.data).map_err(|e| {
+            ConnectionError::OperationFailed(format!("transfer deploy {}: {e}", result.deploy_id))
+        })?;
 
         tracing::info!(
         deploy_id = %result.deploy_id,

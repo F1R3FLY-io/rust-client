@@ -50,7 +50,7 @@ impl NodeEvents {
     ///
     /// `ws_url` should be the base WebSocket URL, e.g. `ws://localhost:40403`
     pub fn connect(ws_url: &str) -> Self {
-        let url = format!("{}/ws/events", ws_url);
+        let url = format!("{ws_url}/ws/events");
         let pending: Arc<Mutex<HashMap<String, Arc<Notify>>>> = Arc::default();
         let results: Arc<Mutex<HashMap<String, DeployEvent>>> = Arc::default();
 

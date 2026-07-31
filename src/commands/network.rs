@@ -5,6 +5,7 @@ use crate::f1r3fly_api::{F1r3flyApi, ProposeResult};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+#[allow(clippy::too_many_arguments)]
 fn build_config(
     host: &str,
     port: u16,
@@ -95,7 +96,7 @@ pub async fn exploratory_deploy_command(
     // Read the Rholang code from file
     println!(" Reading Rholang from: {}", args.file.display());
     let rholang_code =
-        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
+        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
     println!(" Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
@@ -107,7 +108,7 @@ pub async fn exploratory_deploy_command(
 
     // Display block hash if provided
     if let Some(block_hash) = &args.block_hash {
-        println!(" Using block hash: {}", block_hash);
+        println!(" Using block hash: {block_hash}");
     }
 
     // Display state hash preference
@@ -130,15 +131,15 @@ pub async fn exploratory_deploy_command(
         Ok((result, block_info, cost)) => {
             let duration = start_time.elapsed();
             println!("Execution successful!");
-            println!("Cost:    {} phlogiston", cost);
-            println!("Time:    {:.2?}", duration);
-            println!("{}", block_info);
+            println!("Cost:    {cost} phlogiston");
+            println!("Time:    {duration:.2?}");
+            println!("{block_info}");
             println!("Result:");
-            println!("{}", result);
+            println!("{result}");
         }
         Err(e) => {
             println!("Execution failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e);
         }
     }
@@ -150,7 +151,7 @@ pub async fn estimate_cost_command(
     args: &EstimateCostArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rholang_code =
-        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
+        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
     let deployer_hex = resolve_deployer(&args.deployer, &args.private_key)?;
 
@@ -201,7 +202,7 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
     // Read the Rholang code from file
     println!("Reading Rholang from: {}", args.file.display());
     let rholang_code =
-        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
+        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
     println!("Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
@@ -213,12 +214,12 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
     } else {
         "50,000"
     };
-    println!("Using phlo limit: {}", phlo_limit);
+    println!("Using phlo limit: {phlo_limit}");
 
     // Calculate expiration timestamp
     let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
     if expiration_timestamp > 0 {
-        println!("Deploy expiration: {} ms", expiration_timestamp);
+        println!("Deploy expiration: {expiration_timestamp} ms");
     }
 
     // Deploy the Rholang code
@@ -237,12 +238,12 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
         Ok(deploy_id) => {
             let duration = start_time.elapsed();
             println!("Deployment successful!");
-            println!("Time taken: {:.2?}", duration);
-            println!("Deploy ID: {}", deploy_id);
+            println!("Time taken: {duration:.2?}");
+            println!("Deploy ID: {deploy_id}");
         }
         Err(e) => {
             println!("Deployment failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e);
         }
     }
@@ -263,17 +264,17 @@ pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::erro
         Ok(ProposeResult::Proposed(block_hash)) => {
             let duration = start_time.elapsed();
             println!(" Block proposed successfully!");
-            println!(" Block hash: {}", block_hash);
-            println!(" Time taken: {:.2?}", duration);
+            println!(" Block hash: {block_hash}");
+            println!(" Time taken: {duration:.2?}");
         }
         Ok(ProposeResult::Skipped(reason)) => {
             let duration = start_time.elapsed();
-            println!(" Proposal was skipped: {}", reason);
-            println!(" Time taken: {:.2?}", duration);
+            println!(" Proposal was skipped: {reason}");
+            println!(" Time taken: {duration:.2?}");
         }
         Err(e) => {
             println!(" Block proposal failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e);
         }
     }
@@ -285,7 +286,7 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
     // Read the Rholang code from file
     println!("Reading Rholang from: {}", args.file.display());
     let rholang_code =
-        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
+        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
     println!("Code size: {} bytes", rholang_code.len());
 
     // Initialize the F1r3fly API client
@@ -297,12 +298,12 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
     } else {
         "50,000"
     };
-    println!("Using phlo limit: {}", phlo_limit);
+    println!("Using phlo limit: {phlo_limit}");
 
     // Calculate expiration timestamp
     let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
     if expiration_timestamp > 0 {
-        println!("Deploy expiration: {} ms", expiration_timestamp);
+        println!("Deploy expiration: {expiration_timestamp} ms");
     }
 
     // Deploy and propose
@@ -321,18 +322,18 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
         Ok(ProposeResult::Proposed(block_hash)) => {
             let duration = start_time.elapsed();
             println!("Deployment and block proposal successful!");
-            println!("Time taken: {:.2?}", duration);
-            println!("Block hash: {}", block_hash);
+            println!("Time taken: {duration:.2?}");
+            println!("Block hash: {block_hash}");
         }
         Ok(ProposeResult::Skipped(reason)) => {
             let duration = start_time.elapsed();
             println!("Deployment successful, but proposal was skipped.");
-            println!("Time taken: {:.2?}", duration);
-            println!("Skip reason: {}", reason);
+            println!("Time taken: {duration:.2?}");
+            println!("Skip reason: {reason}");
         }
         Err(e) => {
             println!("Operation failed!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e);
         }
     }
@@ -369,11 +370,11 @@ pub async fn is_finalized_command(
                     args.max_attempts
                 );
             }
-            println!(" Time taken: {:.2?}", duration);
+            println!(" Time taken: {duration:.2?}");
         }
         Err(e) => {
             println!(" Error checking block finalization!");
-            println!("Error: {}", e);
+            println!("Error: {e}");
             return Err(e);
         }
     }
@@ -419,9 +420,9 @@ pub async fn bond_validator_command(
     if args.propose {
         let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
         match api.propose().await {
-            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {}", hash),
-            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {}", reason),
-            Err(e) => println!("Propose failed: {}", e),
+            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
+            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
+            Err(e) => println!("Propose failed: {e}"),
         }
     }
 
@@ -483,23 +484,23 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
             .system_deploy_error
             .as_deref()
             .unwrap_or("unknown error");
-        println!("Transfer failed: {}", err);
-        return Err(format!("Transfer failed: {}", err).into());
+        println!("Transfer failed: {err}");
+        return Err(format!("Transfer failed: {err}").into());
     }
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
     if let Some(cost) = result.cost {
-        println!("Cost: {}", cost);
+        println!("Cost: {cost}");
     }
     println!("Total time: {:.2?}", start.elapsed());
 
     if args.propose {
         let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
         match api.propose().await {
-            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {}", hash),
-            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {}", reason),
-            Err(e) => println!("Propose failed: {}", e),
+            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
+            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
+            Err(e) => println!("Propose failed: {e}"),
         }
     }
 
@@ -511,7 +512,7 @@ pub async fn deploy_and_wait_command(
     args: &DeployAndWaitArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rholang_code =
-        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {}", e))?;
+        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
     let manager = F1r3flyConnectionManager::new(config_from_deploy_args(args));
     let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
@@ -527,15 +528,15 @@ pub async fn deploy_and_wait_command(
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
     if let Some(block_num) = result.block_number {
-        println!("Block number: {}", block_num);
+        println!("Block number: {block_num}");
     }
     if let Some(cost) = result.cost {
-        println!("Cost: {}", cost);
+        println!("Cost: {cost}");
     }
     if result.errored {
         println!("Errored: true");
         if let Some(ref err) = result.system_deploy_error {
-            println!("Deploy error: {}", err);
+            println!("Deploy error: {err}");
         }
     }
     if result.data.is_empty() {
@@ -543,8 +544,8 @@ pub async fn deploy_and_wait_command(
     } else {
         for (i, par) in result.data.iter().enumerate() {
             let simplified =
-                crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{:?}", par));
-            println!("Data[{}]: {}", i, simplified);
+                crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
+            println!("Data[{i}]: {simplified}");
         }
     }
     println!("Total time: {:.2?}", start.elapsed());
@@ -553,9 +554,9 @@ pub async fn deploy_and_wait_command(
         let private_key = args.private_key.as_str();
         let api = F1r3flyApi::new(private_key, &args.host, args.port)?;
         match api.propose().await {
-            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {}", hash),
-            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {}", reason),
-            Err(e) => println!("Propose failed: {}", e),
+            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
+            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
+            Err(e) => println!("Propose failed: {e}"),
         }
     }
 
@@ -594,31 +595,31 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
                 println!("Block Number: {}", detail.block_number);
                 println!("Finalized:    {}", detail.is_finalized);
                 if let Some(ref deployer) = detail.deployer {
-                    println!("Deployer:     {}", deployer);
+                    println!("Deployer:     {deployer}");
                 }
                 println!("Cost:         {}", detail.cost);
                 println!("Errored:      {}", detail.errored);
                 if let Some(ref err) = detail.system_deploy_error {
                     if !err.is_empty() {
-                        println!("Error:        {}", err);
+                        println!("Error:        {err}");
                     }
                 }
                 if let Some(price) = detail.phlo_price {
-                    println!("Phlo Price:   {}", price);
+                    println!("Phlo Price:   {price}");
                 }
                 if let Some(limit) = detail.phlo_limit {
-                    println!("Phlo Limit:   {}", limit);
+                    println!("Phlo Limit:   {limit}");
                 }
                 println!("Timestamp:    {}", detail.timestamp);
                 if let Some(ref algo) = detail.sig_algorithm {
-                    println!("Sig Algo:     {}", algo);
+                    println!("Sig Algo:     {algo}");
                 }
                 if args.verbose {
                     if let Some(vabn) = detail.valid_after_block_number {
-                        println!("VABN:         {}", vabn);
+                        println!("VABN:         {vabn}");
                     }
                 }
-                println!("Query time:   {:.2?}", duration);
+                println!("Query time:   {duration:.2?}");
             }
         }
         return Ok(());
@@ -640,18 +641,18 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
                     println!("----------------------------------------");
                     println!("Deploy ID:    {}", args.deploy_id);
                     if let Some(hash) = json.get("blockHash").and_then(|v| v.as_str()) {
-                        println!("Block Hash:   {}", hash);
+                        println!("Block Hash:   {hash}");
                     }
                     if let Some(num) = json.get("blockNumber").and_then(|v| v.as_i64()) {
-                        println!("Block Number: {}", num);
+                        println!("Block Number: {num}");
                     }
                     if let Some(sender) = json.get("sender").and_then(|v| v.as_str()) {
-                        println!("Sender:       {}", sender);
+                        println!("Sender:       {sender}");
                     }
                     if let Some(ts) = json.get("timestamp").and_then(|v| v.as_i64()) {
-                        println!("Timestamp:    {}", ts);
+                        println!("Timestamp:    {ts}");
                     }
-                    println!("Query time:   {:.2?}", duration);
+                    println!("Query time:   {duration:.2?}");
                     println!();
                     println!(
                         "Note: deploy execution details (cost, errored) require Rust node v0.4.11+"
@@ -663,7 +664,7 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
             println!("Deploy {} not found", args.deploy_id);
         }
         Err(e) => {
-            println!("Error retrieving deploy information: {}", e);
+            println!("Error retrieving deploy information: {e}");
             return Err(e);
         }
     }
@@ -697,15 +698,15 @@ fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust:
 in {{
  rl!(`rho:vault:system`, *systemVaultCh) |
  for (@(_, SystemVault) <- systemVaultCh) {{
- @SystemVault!("findOrCreate", "{}", *vaultCh) |
- @SystemVault!("findOrCreate", "{}", *toVaultCh) |
+ @SystemVault!("findOrCreate", "{from_address}", *vaultCh) |
+ @SystemVault!("findOrCreate", "{to_address}", *toVaultCh) |
  @SystemVault!("deployerAuthKey", *deployerId, *systemVaultKeyCh) |
  for (@(true, vault) <- vaultCh; key <- systemVaultKeyCh; @(true, toVault) <- toVaultCh) {{
- @vault!("transfer", "{}", {}, *key, *resultCh) |
+ @vault!("transfer", "{to_address}", {amount_dust}, *key, *resultCh) |
  for (@result <- resultCh) {{
  match result {{
  (true, Nil) => {{
- stdout!(("Transfer successful:", {}, "tokens"))
+ stdout!(("Transfer successful:", {amount_dust}, "tokens"))
  }}
  (false, reason) => {{
  stdout!(("Transfer failed:", reason))
@@ -720,12 +721,7 @@ in {{
  stdout!(("Destination vault error:", errorMsg))
  }}
  }}
-}}"#,
-        from_address, // findOrCreate sender
-        to_address,   // findOrCreate recipient
-        to_address,   // transfer target
-        amount_dust,  // transfer amount
-        amount_dust   // success message amount
+}}"# // success message amount
     )
 }
 
@@ -746,8 +742,8 @@ pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
     } else {
         for (i, par) in pars.iter().enumerate() {
             let simplified =
-                crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{:?}", par));
-            println!("{}", simplified);
+                crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
+            println!("{simplified}");
             if i < pars.len() - 1 {
                 println!("---");
             }
@@ -795,14 +791,14 @@ pub async fn deploy_status_command(
         _ => {
             println!("Deploy Finalization Status");
             println!("----------------------------------------");
-            println!("Sig:              {}", sig_hex);
+            println!("Sig:              {sig_hex}");
             println!("State:            {}", status.state);
             println!("Rejection count:  {}", status.rejection_count);
             match status.latest_block_hash.as_deref() {
-                Some(hash) => println!("Latest block:     {}", hash),
+                Some(hash) => println!("Latest block:     {hash}"),
                 None => println!("Latest block:     (not yet included)"),
             }
-            println!("Query time:       {:.2?}", duration);
+            println!("Query time:       {duration:.2?}");
         }
     }
 

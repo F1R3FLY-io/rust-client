@@ -24,7 +24,7 @@ use super::renderer::DagRenderer;
 
 /// Events from WebSocket
 pub enum DagEvent {
-    BlockCreated(DagBlock),
+    BlockCreated(Box<DagBlock>),
     BlockAdded(String),     // hash
     BlockFinalized(String), // hash
     Error(String),
@@ -143,7 +143,7 @@ impl DagApp {
             DagEvent::BlockCreated(block) => {
                 self.status_message =
                     format!("New block: #{} {}", block.block_number, block.short_hash);
-                self.dag.add_block(block);
+                self.dag.add_block(*block);
                 self.dag.compute_layout();
                 self.block_count = self.dag.blocks.len();
 
@@ -161,7 +161,7 @@ impl DagApp {
                 self.status_message = format!("Finalized: {}...", &hash[..8.min(hash.len())]);
             }
             DagEvent::Error(msg) => {
-                self.status_message = format!("Error: {}", msg);
+                self.status_message = format!("Error: {msg}");
             }
         }
     }
@@ -441,22 +441,12 @@ impl DagApp {
             lines.push(Line::from(" (no deploys)"));
         } else {
             for deploy in &block.deploys {
-                let status_icon = if deploy.errored { "" } else { "" };
-                let status_color = if deploy.errored {
-                    Color::Red
-                } else {
-                    Color::Green
-                };
-                lines.push(Line::from(vec![
-                    Span::raw(" ["),
-                    Span::styled(status_icon, Style::default().fg(status_color)),
-                    Span::raw(format!(
-                        "] {} cost: {} deployer: {}",
-                        &deploy.id[..12.min(deploy.id.len())],
-                        deploy.cost,
-                        &deploy.deployer[..8.min(deploy.deployer.len())]
-                    )),
-                ]));
+                lines.push(Line::from(Span::raw(format!(
+                    " [] {} cost: {} deployer: {}",
+                    &deploy.id[..12.min(deploy.id.len())],
+                    deploy.cost,
+                    &deploy.deployer[..8.min(deploy.deployer.len())]
+                ))));
             }
         }
 

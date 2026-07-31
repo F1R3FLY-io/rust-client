@@ -186,7 +186,7 @@ impl DagRenderer {
         };
         let deploy_str = format!("{} dep", block.deploy_count);
         spans.push(Span::styled(
-            format!("{:>width$}", deploy_str, width = DEPLOYS_WIDTH),
+            format!("{deploy_str:>DEPLOYS_WIDTH$}"),
             deploy_style,
         ));
 
@@ -197,7 +197,7 @@ impl DagRenderer {
             BlockStatus::Created => ("NEW", Color::Cyan),
         };
         spans.push(Span::styled(
-            format!("{:>width$}", status_str, width = STATUS_WIDTH),
+            format!("{status_str:>STATUS_WIDTH$}"),
             Style::default().fg(status_color),
         ));
 

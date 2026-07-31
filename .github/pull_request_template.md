@@ -1,7 +1,7 @@
 <!--
-Base branch: staging
+Base branch: dev
 
-All feature/fix PRs should target `staging`. PRs against `dev` or `main` will be redirected.
+All feature/fix PRs should target `dev`. PRs against `main` will be redirected.
 See CONTRIBUTING.md for the branching policy.
 -->
 

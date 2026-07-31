@@ -193,7 +193,7 @@ impl EventStats {
         println!(" Duration:     {:.1}s", duration.as_secs_f64());
         if duration.as_secs() > 0 {
             let rate = self.total as f64 / duration.as_secs_f64();
-            println!(" Rate:         {:.2} events/sec", rate);
+            println!(" Rate:         {rate:.2} events/sec");
         }
     }
 }
@@ -222,10 +222,10 @@ pub async fn watch_events_command(args: &WatchEventsArgs) -> Result<()> {
     let ws_url = format!("ws://{}:{}/ws/events", args.host, args.http_port);
 
     println!(" Connecting to F1r3fly node WebSocket...");
-    println!(" URL: {}", ws_url);
+    println!(" URL: {ws_url}");
 
     if let Some(filter) = &args.filter {
-        println!(" Filter: {}", filter);
+        println!(" Filter: {filter}");
     }
     println!();
 
@@ -244,26 +244,24 @@ pub async fn watch_events_command(args: &WatchEventsArgs) -> Result<()> {
                 retry_count += 1;
 
                 if !args.retry_forever && retry_count > MAX_RETRIES {
-                    println!(" Max reconnection attempts ({}) reached", MAX_RETRIES);
+                    println!(" Max reconnection attempts ({MAX_RETRIES}) reached");
                     return Err(e);
                 }
 
-                println!(" Connection lost: {}", e);
+                println!(" Connection lost: {e}");
 
                 if args.retry_forever {
                     println!(
-                        " Reconnecting in {} seconds... (attempt {})",
-                        RETRY_DELAY_SECS, retry_count
+                        " Reconnecting in {RETRY_DELAY_SECS} seconds... (attempt {retry_count})"
                     );
                 } else {
                     println!(
-                        " Reconnecting in {} seconds... (attempt {}/{})",
-                        RETRY_DELAY_SECS, retry_count, MAX_RETRIES
+                        " Reconnecting in {RETRY_DELAY_SECS} seconds... (attempt {retry_count}/{MAX_RETRIES})"
                     );
                 }
 
                 tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
-                println!(" Reconnecting to {}...", ws_url);
+                println!(" Reconnecting to {ws_url}...");
             }
         }
     }
@@ -280,7 +278,7 @@ async fn connect_and_watch(
     stats: &mut EventStats,
 ) -> Result<()> {
     let (ws_stream, _) = connect_async(ws_url).await.map_err(|e| {
-        NodeCliError::network_connection_failed(&format!("WebSocket connection failed: {}", e))
+        NodeCliError::network_connection_failed(&format!("WebSocket connection failed: {e}"))
     })?;
 
     println!(" Connected to node WebSocket");
@@ -301,7 +299,7 @@ async fn connect_and_watch(
         match msg {
         Some(Ok(Message::Text(text))) => {
         if let Err(e) = handle_event(&text, args, stats) {
-        eprintln!(" Error processing event: {}", e);
+        eprintln!(" Error processing event: {e}");
         continue;
         }
         }
@@ -309,7 +307,7 @@ async fn connect_and_watch(
         return Err(NodeCliError::network_connection_failed("WebSocket closed by server"));
         }
         Some(Err(e)) => {
-        return Err(NodeCliError::network_connection_failed(&format!("WebSocket error: {}", e)));
+        return Err(NodeCliError::network_connection_failed(&format!("WebSocket error: {e}")));
         }
         None => {
         return Err(NodeCliError::network_connection_failed("WebSocket stream ended"));
@@ -323,21 +321,21 @@ async fn connect_and_watch(
 
 fn handle_event(text: &str, args: &WatchEventsArgs, stats: &mut EventStats) -> Result<()> {
     let event: NodeEvent = serde_json::from_str(text)
-        .map_err(|e| NodeCliError::from(format!("Failed to parse event: {}", e)))?;
+        .map_err(|e| NodeCliError::from(format!("Failed to parse event: {e}")))?;
 
     if let Some(filter) = &args.filter {
-        let matches = match (&event, filter.as_str()) {
-            (NodeEvent::BlockCreated { .. }, "created") => true,
-            (NodeEvent::BlockAdded { .. }, "added") => true,
-            (NodeEvent::BlockFinalised { .. }, "finalized" | "finalised") => true,
-            (NodeEvent::TransfersAvailable { .. }, "transfers") => true,
-            (NodeEvent::SentUnapprovedBlock { .. }, "genesis") => true,
-            (NodeEvent::SentApprovedBlock { .. }, "genesis") => true,
-            (NodeEvent::ApprovedBlockReceived { .. }, "genesis") => true,
-            (NodeEvent::EnteredRunningState { .. }, "lifecycle") => true,
-            (NodeEvent::NodeStarted { .. }, "lifecycle") => true,
-            _ => false,
-        };
+        let matches = matches!(
+            (&event, filter.as_str()),
+            (NodeEvent::BlockCreated { .. }, "created")
+                | (NodeEvent::BlockAdded { .. }, "added")
+                | (NodeEvent::BlockFinalised { .. }, "finalized" | "finalised")
+                | (NodeEvent::TransfersAvailable { .. }, "transfers")
+                | (NodeEvent::SentUnapprovedBlock { .. }, "genesis")
+                | (NodeEvent::SentApprovedBlock { .. }, "genesis")
+                | (NodeEvent::ApprovedBlockReceived { .. }, "genesis")
+                | (NodeEvent::EnteredRunningState { .. }, "lifecycle")
+                | (NodeEvent::NodeStarted { .. }, "lifecycle")
+        );
 
         if !matches {
             return Ok(());
