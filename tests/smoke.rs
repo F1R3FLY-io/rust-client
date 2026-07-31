@@ -422,7 +422,7 @@ async fn test_validator_unknown() {
         return;
     }
 
-    let fake = "aa".repeat(65);
+    let fake = "044f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa385b6b1b8ead809ca67454d9683fcf2ba03456d6fe2c4abe2b07f0fbdbb2f1c1";
     let result = get_json(observer_http(), &format!("/validator/{}", fake))
         .await
         .unwrap();
@@ -460,7 +460,7 @@ async fn test_bond_status_unknown() {
         return;
     }
 
-    let fake = "bb".repeat(65);
+    let fake = "04466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f276728176c3c6431f8eeda4538dc37c865e2784f3a9e77d044f33e407797e1278a";
     let result = get_json(http_port(), &format!("/bond-status/{}", fake))
         .await
         .unwrap();
