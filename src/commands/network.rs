@@ -174,7 +174,7 @@ pub async fn estimate_cost_command(
         )
         .await?;
 
-    println!("{}", response);
+    println!("{response}");
 
     Ok(())
 }

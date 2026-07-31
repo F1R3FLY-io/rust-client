@@ -88,7 +88,7 @@ impl<'a> F1r3flyApi<'a> {
                 )
                 .into());
             }
-            return Err(format!("HTTP {} from {}: {}", status, url, body).into());
+            return Err(format!("HTTP {status} from {url}: {body}").into());
         }
 
         // None is reserved for 404 (handled above). A JSON parse error is a real
@@ -128,7 +128,7 @@ impl<'a> F1r3flyApi<'a> {
                 )
                 .into());
             }
-            return Err(format!("HTTP {} from {}: {}", status, url, body).into());
+            return Err(format!("HTTP {status} from {url}: {body}").into());
         }
 
         let status = response.json::<DeployFinalizationStatus>().await?;
@@ -162,7 +162,7 @@ impl<'a> F1r3flyApi<'a> {
                 )
                 .into());
             }
-            return Err(format!("HTTP {} from {}: {}", status, url, body).into());
+            return Err(format!("HTTP {status} from {url}: {body}").into());
         }
 
         let json: serde_json::Value = response.json().await?;
@@ -187,7 +187,7 @@ impl<'a> F1r3flyApi<'a> {
     ) -> Result<u64, Box<dyn std::error::Error>> {
         let mut url = format!("http://{}:{}/api/estimate-cost", self.node_host, http_port);
         if let Some(bh) = block_hash {
-            url.push_str(&format!("?block_hash={}", bh));
+            url.push_str(&format!("?block_hash={bh}"));
         }
 
         let body = EstimateCostRequest { term, deployer };
@@ -210,7 +210,7 @@ impl<'a> F1r3flyApi<'a> {
             .into());
         }
 
-        Err(format!("HTTP {} from {}: {}", status, url, raw_body).into())
+        Err(format!("HTTP {status} from {url}: {raw_body}").into())
     }
 }
 

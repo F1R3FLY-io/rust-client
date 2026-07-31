@@ -475,7 +475,7 @@ async fn test_bond_status_unknown() {
     }
 
     let fake = "04466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f276728176c3c6431f8eeda4538dc37c865e2784f3a9e77d044f33e407797e1278a";
-    let result = get_json(http_port(), &format!("/bond-status/{}", fake))
+    let result = get_json(http_port(), &format!("/bond-status/{fake}"))
         .await
         .unwrap();
 
