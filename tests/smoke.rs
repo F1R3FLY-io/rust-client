@@ -2,11 +2,11 @@
 //!
 //! Works against both standalone nodes and multi-validator shards.
 //! Configure via environment variables:
-//!   F1R3FLY_HOST          (default: localhost)
-//!   F1R3FLY_HTTP_PORT     (default: 40413, validator1 HTTP)
-//!   F1R3FLY_OBSERVER_HTTP (default: 40453, readonly HTTP)
+//!   FIREFLY_HOST          (default: localhost)
+//!   FIREFLY_HTTP_PORT     (default: 40413, validator1 HTTP)
+//!   FIREFLY_OBSERVER_HTTP (default: 40453, readonly HTTP)
 //!
-//! Standalone (CI):  F1R3FLY_HTTP_PORT=40463 F1R3FLY_OBSERVER_HTTP=40463
+//! Standalone (CI):  FIREFLY_HTTP_PORT=40463 FIREFLY_OBSERVER_HTTP=40463
 //! Shard (local):    defaults work (40413 validator, 40453 readonly)
 //!
 //! Run: cargo test --test smoke --release
@@ -22,16 +22,16 @@ use serde_json::Value;
 const UNBONDED_PUBKEY: &str = "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8";
 
 fn host() -> String {
-    std::env::var("F1R3FLY_HOST").unwrap_or_else(|_| "localhost".into())
+    std::env::var("FIREFLY_HOST").unwrap_or_else(|_| "localhost".into())
 }
 fn http_port() -> u16 {
-    std::env::var("F1R3FLY_HTTP_PORT")
+    std::env::var("FIREFLY_HTTP_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(40413)
 }
 fn observer_http() -> u16 {
-    std::env::var("F1R3FLY_OBSERVER_HTTP")
+    std::env::var("FIREFLY_OBSERVER_HTTP")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(40453)
@@ -474,7 +474,8 @@ async fn test_bond_status_unknown() {
         return;
     }
 
-    let result = get_json(http_port(), &format!("/bond-status/{UNBONDED_PUBKEY}"))
+    let fake = "04466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f276728176c3c6431f8eeda4538dc37c865e2784f3a9e77d044f33e407797e1278a";
+    let result = get_json(http_port(), &format!("/bond-status/{fake}"))
         .await
         .unwrap();
 

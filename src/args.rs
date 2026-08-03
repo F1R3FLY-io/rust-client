@@ -30,7 +30,7 @@ pub enum Commands {
     ExploratoryDeploy(ExploratoryDeployArgs),
 
     /// Estimate phlogiston cost of Rholang code without deploying
-    EstimateCost(ExploratoryDeployArgs),
+    EstimateCost(EstimateCostArgs),
 
     /// Generate a public key from a private key
     GeneratePublicKey(GeneratePublicKeyArgs),
@@ -331,6 +331,38 @@ pub struct ExploratoryDeployArgs {
     /// Use pre-state hash instead of post-state hash
     #[arg(short, long, default_value_t = false)]
     pub use_pre_state: bool,
+}
+
+/// Arguments for estimate-cost command
+#[derive(Parser)]
+pub struct EstimateCostArgs {
+    #[arg(short, long)]
+    pub file: PathBuf,
+
+    /// Node hostname
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port for API queries
+    #[arg(long = "http-port", default_value_t = 40413)]
+    pub http_port: u16,
+
+    /// Block hash to estimate against (optional)
+    #[arg(long = "block-hash")]
+    pub block_hash: Option<String>,
+
+    /// Hex-encoded 65-byte uncompressed secp256k1 public key (04-prefixed).
+    /// Supplying this ensures the cost estimate accounts for identity-dependent
+    /// terms (e.g. vault transfers). Without it, the estimate may be
+    /// significantly lower than the real deploy cost.
+    #[arg(long)]
+    pub deployer: Option<String>,
+
+    /// Private key in hex format. Convenience alternative to --deployer:
+    /// the public key is derived locally — the private key never leaves
+    /// this machine. If --deployer is provided, this is ignored.
+    #[arg(long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
+    pub private_key: Option<String>,
 }
 
 /// Arguments for generate-public-key command

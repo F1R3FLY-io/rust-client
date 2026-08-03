@@ -174,14 +174,23 @@ impl F1r3flyConnectionManager {
         Ok(result)
     }
 
-    /// Estimate phlogiston cost of Rholang code via exploratory deploy
-    pub async fn estimate_cost(&self, rholang_code: &str) -> Result<u64, ConnectionError> {
+    /// Estimate phlogiston cost of Rholang code via the HTTP
+    pub async fn estimate_cost(
+        &self,
+        rholang_code: &str,
+        deployer_pubkey_hex: Option<&str>,
+    ) -> Result<u64, ConnectionError> {
         let api = self.api()?;
-        let (_result, _block_info, cost) = api
-            .exploratory_deploy(rholang_code, None, false)
+        let response = api
+            .estimate_cost(
+                rholang_code,
+                deployer_pubkey_hex,
+                None,
+                self.config.http_port,
+            )
             .await
             .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
-        Ok(cost)
+        Ok(response)
     }
 
     /// Deploy Rholang code to the blockchain
