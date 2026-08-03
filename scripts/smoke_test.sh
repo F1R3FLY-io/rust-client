@@ -331,9 +331,13 @@ run_test "exploratory-deploy" \
 # estimate-cost: Estimate phlogiston cost without deploying
 # Must run on observer (read-only) node
 # Expected output: a number (the cost in phlogiston)
-run_test "estimate-cost" \
-    "cargo run -q --release -- estimate-cost -f ./rho_examples/stdout.rho -H $OBSERVER_HOST --http-port $OBSERVER_HTTP" \
-    "^[0-9]+"
+if [ "$NODE_TYPE" = "scala" ]; then
+    skip_test "estimate-cost" "scala-only (estimate-cost not supported)"
+else
+    run_test "estimate-cost" \
+        "cargo run -q --release -- estimate-cost -f ./rho_examples/stdout.rho -H $OBSERVER_HOST --http-port $OBSERVER_HTTP" \
+        "^[0-9]+"
+fi
 
 # ============================================
 # CRYPTO COMMANDS (offline, no node required)
