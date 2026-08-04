@@ -364,7 +364,6 @@ async fn test_epoch() {
         return;
     }
 
-    // Works on all node types
     let result = get_json(http_port(), "/epoch").await.unwrap();
 
     assert!(result["currentEpoch"].is_number());
@@ -458,7 +457,7 @@ async fn test_bond_status_bonded() {
         .unwrap();
     let pubkey = lfb["blockInfo"]["bonds"][0]["validator"].as_str().unwrap();
 
-    // Works on all node types (no exploratory deploy)
+    // No exploratory deploy required
     let result = get_json(http_port(), &format!("/bond-status/{pubkey}"))
         .await
         .unwrap();

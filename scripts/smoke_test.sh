@@ -374,7 +374,7 @@ run_test "active-validators" \
 # metrics: Get node metrics
 run_test "metrics" \
     "cargo run -q --release -- metrics -H $HOST -p $HTTP_PORT" \
-    "rchain|block|peer|jvm"
+    "rchain|block|peer"
 
 # last-finalized-block: Get the last finalized block
 run_test "last-finalized-block" \
@@ -654,7 +654,7 @@ else
     inc_fail
 fi
 
-# /api/bond-status/{pubkey}: Available on all node types
+# /api/bond-status/{pubkey}
 echo -n "Testing /api/bond-status... "
 BS_START=$(date +%s.%N)
 BS_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/bond-status/$VALIDATOR_PUBKEY" 2>/dev/null || true)
