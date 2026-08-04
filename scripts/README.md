@@ -18,12 +18,15 @@ Comprehensive test suite that validates all rust-client commands against a runni
 
 # Run with custom private key
 ./scripts/smoke_test.sh localhost 40402 40403 40402 YOUR_PRIVATE_KEY
+
+# Run with separate observer host (e.g. observer on different machine)
+./scripts/smoke_test.sh localhost 40412 40413 40452 YOUR_PRIVATE_KEY 192.168.1.100
 ```
 
 ### Arguments
 
 ```bash
-./scripts/smoke_test.sh [host] [grpc_port] [http_port] [observer_grpc_port] [private_key]
+./scripts/smoke_test.sh [host] [grpc_port] [http_port] [observer_grpc_port] [private_key] [observer_host]
 ```
 
 | Argument | Description | Default |
@@ -33,6 +36,7 @@ Comprehensive test suite that validates all rust-client commands against a runni
 | `http_port` | HTTP port for status/query operations | 40403 |
 | `observer_grpc_port` | Observer gRPC port for finalization checks | same as grpc_port |
 | `private_key` | Private key for signing transactions | genesis key |
+| `observer_host` | Observer node hostname (for read-only commands) | same as `host` |
 
 ### What's Tested
 

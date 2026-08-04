@@ -33,8 +33,8 @@ pub struct NodeStatus {
     pub native_token_decimals: Option<u32>,
     #[serde(rename = "peerList", default)]
     pub peer_list: Vec<serde_json::Value>,
-    // Numeric and bool fields use Option so a missing field (e.g. from an older
-    // Scala node) is distinguishable from a real zero/false value.
+    // Numeric and bool fields use Option so a missing field is distinguishable
+    // from a real zero/false value.
     #[serde(rename = "lastFinalizedBlockNumber", default)]
     pub last_finalized_block_number: Option<i64>,
     #[serde(rename = "isValidator", default)]

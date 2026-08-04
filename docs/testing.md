@@ -11,7 +11,7 @@ Rust integration tests that verify all HTTP API endpoints against a running shar
 cargo test --test smoke --release
 
 # With custom ports
-F1R3FLY_HTTP_PORT=40403 F1R3FLY_OBSERVER_HTTP=40453 cargo test --test smoke --release
+FIREFLY_HTTP_PORT=40403 FIREFLY_OBSERVER_HTTP=40453 cargo test --test smoke --release
 
 # Single test
 cargo test --test smoke test_status_fields --release
@@ -23,9 +23,9 @@ Tests skip gracefully if no shard is reachable — `cargo test` always succeeds,
 
 | Variable | Default | Description |
 |---|---|---|
-| `F1R3FLY_HOST` | `localhost` | Node hostname |
-| `F1R3FLY_HTTP_PORT` | `40413` | Validator HTTP port |
-| `F1R3FLY_OBSERVER_HTTP` | `40453` | Readonly HTTP port |
+| `FIREFLY_HOST` | `localhost` | Node hostname |
+| `FIREFLY_HTTP_PORT` | `40413` | Validator HTTP port |
+| `FIREFLY_OBSERVER_HTTP` | `40453` | Readonly HTTP port |
 
 ### Test Coverage (24 tests)
 

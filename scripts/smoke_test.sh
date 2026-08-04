@@ -3,7 +3,6 @@
 # Usage: ./scripts/smoke_test.sh [host] [grpc_port] [http_port] [observer_grpc_port] [private_key]
 #
 # Tests each command and validates the output format matches expected patterns.
-# Run against Scala node first to establish baseline, then verify against Rust node.
 #
 # Examples:
 #   ./scripts/smoke_test.sh                           # localhost with default ports
@@ -20,6 +19,7 @@ HTTP_PORT="${3:-40403}"      # HTTP port for status/query operations
 OBSERVER_GRPC="${4:-$GRPC_PORT}"  # Observer gRPC port (defaults to same as GRPC_PORT)
 OBSERVER_HTTP=$((OBSERVER_GRPC + 1))  # Observer HTTP port (gRPC + 1)
 PRIVATE_KEY="${5:-5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657}"  # Signing key
+OBSERVER_HOST="${6:-$HOST}"  # Observer host (defaults to same as HOST)
 export FIREFLY_PRIVATE_KEY="$PRIVATE_KEY"
 
 # Recipient address for transfers and load tests. Must be a valid REV
@@ -51,19 +51,6 @@ cd "$SCRIPT_DIR/.."
 # Build release binary once before running tests
 echo "Building rust-client (release)..."
 cargo build --release
-
-# Detect node type from /api/status version. Tests that exercise Rust-only
-# features (new HTTP endpoints, view params, transfer extraction, enriched
-# WS events) are skipped when running against a Scala node.
-STATUS_JSON=$(curl -sf "http://$HOST:$HTTP_PORT/api/status" 2>/dev/null || echo '')
-if echo "$STATUS_JSON" | grep -q "F1r3node Rust"; then
-    NODE_TYPE=rust
-elif echo "$STATUS_JSON" | grep -q "F1r3node Scala"; then
-    NODE_TYPE=scala
-else
-    NODE_TYPE=unknown
-fi
-echo "Detected node type: $NODE_TYPE"
 
 # Log file for test outputs (single file per run)
 mkdir -p "logs"
@@ -268,14 +255,14 @@ run_test "deploy" \
 # deploy-and-wait: Deploy and wait for block inclusion/finalization
 # Uses ConnectionManager: deploy -> find_deploy_grpc -> is_finalized (observer)
 run_test "deploy-and-wait" \
-    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --check-interval 2" \
+    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 60 --check-interval 2" \
     "Deploy ID:|Block hash:|Total time:"
 
 # deploy-and-wait with deployId data: Deploy, wait for finalization, read result
 # deploy-and-wait now always reads deployId channel data after finalization
 echo -n "Testing deploy-and-wait (with data)... "
 FDAW_START=$(date +%s.%N)
-if cargo run -q --release -- deploy-and-wait -f ./rho_examples/deploy_id_test.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 60 --finalization-timeout 30 --check-interval 2 > "$OUTPUT" 2>&1; then
+if cargo run -q --release -- deploy-and-wait -f ./rho_examples/deploy_id_test.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 60 --finalization-timeout 30 --check-interval 2 > "$OUTPUT" 2>&1; then
     FDAW_END=$(date +%s.%N)
     FDAW_MS=$(echo "($FDAW_END - $FDAW_START) * 1000" | bc | cut -d. -f1)
     save_log "deploy-and-wait (with data)"
@@ -324,14 +311,14 @@ fi
 # Must run on observer (read-only) node - validators reject exploratory deploys
 # Expected output: "Execution successful" and cost
 run_test "exploratory-deploy" \
-    "cargo run -q --release -- exploratory-deploy -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
+    "cargo run -q --release -- exploratory-deploy -f ./rho_examples/stdout.rho -H $OBSERVER_HOST -p $OBSERVER_GRPC" \
     "Execution successful|phlogiston"
 
 # estimate-cost: Estimate phlogiston cost without deploying
 # Must run on observer (read-only) node
 # Expected output: a number (the cost in phlogiston)
 run_test "estimate-cost" \
-    "cargo run -q --release -- estimate-cost -f ./rho_examples/stdout.rho -H $HOST -p $OBSERVER_GRPC" \
+    "cargo run -q --release -- estimate-cost -f ./rho_examples/stdout.rho -H $OBSERVER_HOST --http-port $OBSERVER_HTTP" \
     "^[0-9]+"
 
 # ============================================
@@ -375,19 +362,19 @@ run_test "blocks" \
 # bonds: Get validator bonds from PoS contract
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "bonds" \
-    "cargo run -q --release -- bonds -H $HOST -p $OBSERVER_HTTP" \
+    "cargo run -q --release -- bonds -H $OBSERVER_HOST -p $OBSERVER_HTTP" \
     "Validator bonds retrieved successfully|Bonded Validators"
 
 # active-validators: Get active validators
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "active-validators" \
-    "cargo run -q --release -- active-validators -H $HOST -p $OBSERVER_HTTP" \
+    "cargo run -q --release -- active-validators -H $OBSERVER_HOST -p $OBSERVER_HTTP" \
     "Active validators retrieved successfully|Active Validators"
 
 # metrics: Get node metrics
 run_test "metrics" \
     "cargo run -q --release -- metrics -H $HOST -p $HTTP_PORT" \
-    "rchain|block|peer|jvm"
+    "rchain|block|peer"
 
 # last-finalized-block: Get the last finalized block
 run_test "last-finalized-block" \
@@ -413,7 +400,7 @@ run_test "get-blocks-by-height" \
 # wallet-balance: Check wallet balance for an address
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "wallet-balance" \
-    "cargo run -q --release -- wallet-balance -H $HOST -p $OBSERVER_GRPC -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g" \
+    "cargo run -q --release -- wallet-balance -H $OBSERVER_HOST -p $OBSERVER_GRPC -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g" \
     "Wallet balance retrieved successfully|Balance"
 
 # ============================================
@@ -435,7 +422,7 @@ if [ -z "$VALIDATOR_PUBKEY" ]; then
     VALIDATOR_PUBKEY="04ffc016579a68050d655d55df4e09f04605164543e257c8e6df10361e6068a5336588e9b355ea859c5ab4285a5ef0efdf62bc28b80320ce99e26bb1607b3ad93d"
 fi
 run_test "bond-status" \
-    "cargo run -q --release -- bond-status -H $HOST -p $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
+    "cargo run -q --release -- bond-status -H $OBSERVER_HOST -p $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
     "Bond information retrieved successfully|BONDED|NOT BONDED"
 
 # ============================================
@@ -448,7 +435,7 @@ echo -e "${BLUE}--- Transfer Commands ---${NC}"
 # Uses ConnectionManager with full_deploy_and_wait (deploy -> finalize -> read)
 echo -n "Testing transfer... "
 TRANSFER_START=$(date +%s.%N)
-if cargo run -q --release -- transfer --to-address "$TO_ADDR" --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 120 --check-interval 2 > "$OUTPUT" 2>&1; then
+if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 120 --check-interval 2 > "$OUTPUT" 2>&1; then
     TRANSFER_END=$(date +%s.%N)
     TRANSFER_MS=$(echo "($TRANSFER_END - $TRANSFER_START) * 1000" | bc | cut -d. -f1)
     save_log "transfer"
@@ -475,17 +462,14 @@ else
 fi
 
 # transfer-info: Verify transfer data in block API on readonly
-# The readonly node extracts transfers via block replay (BlockReportAPI) — Rust-only
-if [ "$NODE_TYPE" != "rust" ]; then
-    skip_test "transfer-info (readonly)" "rust-only (BlockReportAPI)"
-    skip_test "transfer-info (validator=null)" "rust-only (BlockReportAPI)"
-elif [ -n "${TRANSFER_BLOCK_HASH:-}" ]; then
+# The readonly node extracts transfers via block replay (BlockReportAPI)
+if [ -n "${TRANSFER_BLOCK_HASH:-}" ]; then
     echo -n "Testing transfer-info (readonly)... "
     TI_START=$(date +%s.%N)
     # Poll readonly for transfers (block report may need a moment to warm cache)
     TI_FOUND=false
     for attempt in 1 2 3 4 5 6; do
-        TI_RESP=$(curl -s "http://$HOST:$OBSERVER_HTTP/api/block/$TRANSFER_BLOCK_HASH" 2>/dev/null)
+        TI_RESP=$(curl -s "http://$OBSERVER_HOST:$OBSERVER_HTTP/api/block/$TRANSFER_BLOCK_HASH" 2>/dev/null || true)
         if echo "$TI_RESP" | grep -q '"fromAddr"'; then
             TI_FOUND=true
             break
@@ -517,11 +501,11 @@ elif [ -n "${TRANSFER_BLOCK_HASH:-}" ]; then
     # Verify transfers are null on validator (not readonly).
     # Only meaningful when validator and readonly are distinct nodes (shard).
     # On standalone, the single node acts as both, so transfers are populated here too.
-    if [ "$HTTP_PORT" = "$OBSERVER_HTTP" ]; then
+    if [ "$HOST" = "$OBSERVER_HOST" ] && [ "$HTTP_PORT" = "$OBSERVER_HTTP" ]; then
         skip_test "transfer-info (validator=null)" "standalone (validator and readonly are the same node)"
     else
         echo -n "Testing transfer-info (validator=null)... "
-        TV_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/block/$TRANSFER_BLOCK_HASH" 2>/dev/null)
+        TV_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/block/$TRANSFER_BLOCK_HASH" 2>/dev/null || true)
         if echo "$TV_RESP" | grep -q '"transfers":null' || ! echo "$TV_RESP" | grep -q '"fromAddr"'; then
             echo -e "${GREEN}PASS${NC} (transfers null on validator)"
             inc_pass
@@ -536,23 +520,26 @@ else
 fi
 
 # transfers-available WS event: Connect to readonly WS, submit transfer, verify event
-# The TransfersAvailable event is Rust-only (emitted after block report cache warming)
-if [ "$NODE_TYPE" != "rust" ]; then
-    skip_test "transfers-available (WS)" "rust-only (TransfersAvailable event)"
-else
+# The TransfersAvailable event is emitted after block report cache warming
 echo -n "Testing transfers-available (WS)... "
 TA_START=$(date +%s.%N)
 # Start WS listener on readonly in background
 TA_WS_OUT=$(mktemp)
-run_with_timeout 30 cargo run -q --release -- watch-events -H $HOST --http-port $OBSERVER_HTTP > "$TA_WS_OUT" 2>&1 &
+run_with_timeout 150 cargo run -q --release -- watch-events -H $OBSERVER_HOST --http-port $OBSERVER_HTTP > "$TA_WS_OUT" 2>&1 &
 TA_WS_PID=$!
 sleep 3  # Let WS connect
 
 # Submit a transfer
-cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --max-wait 120 --check-interval 2 > /dev/null 2>&1 || true
+cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 120 --check-interval 2 > /dev/null 2>&1 &
+TA_TX_PID=$!
 
 # Wait for WS to capture events (up to remaining time)
-wait $TA_WS_PID 2>/dev/null || true
+run_with_timeout 100 bash -c 'until grep -q "Transfers Available" "$1"; do sleep 2; done' _ "$TA_WS_OUT"
+
+for pid in "$TA_WS_PID" "$TA_TX_PID"; do
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+done
 TA_END=$(date +%s.%N)
 TA_MS=$(echo "($TA_END - $TA_START) * 1000" | bc | cut -d. -f1)
 
@@ -567,7 +554,6 @@ else
     inc_fail
 fi
 rm -f "$TA_WS_OUT"
-fi  # NODE_TYPE = rust (transfers-available)
 
 # get-deploy: Get deploy execution details (cost, errored, blockNumber)
 # Uses deploy ID from deploy-and-wait (with data) test
@@ -583,19 +569,16 @@ else
 fi
 
 # deploy-status: Canonical-state finalization status by deploy signature.
-# Endpoint added in f1r3node PR #495+#504 — Rust-only.
-if [ "$NODE_TYPE" != "rust" ]; then
-    skip_test "deploy-status (finalized)" "rust-only (deploy-finalization-status endpoint)"
-    skip_test "deploy-status (unknown sig)" "rust-only (deploy-finalization-status endpoint)"
-elif [ -n "${FDAW_DEPLOY_ID:-}" ]; then
+# Endpoint added in f1r3node PR #495+#504.
+if [ -n "${FDAW_DEPLOY_ID:-}" ]; then
     # Known sig from deploy-and-wait (with data) — should be Finalized.
     run_test "deploy-status (finalized)" \
-        "cargo run -q --release -- deploy-status -s $FDAW_DEPLOY_ID -H $HOST --http-port $OBSERVER_HTTP" \
+        "cargo run -q --release -- deploy-status -s $FDAW_DEPLOY_ID -H $OBSERVER_HOST --http-port $OBSERVER_HTTP" \
         "Deploy Finalization Status|State:.*Finalized"
 
     # Unknown sig: all-zeros hex (64 chars) — should be Pending with no latest_block_hash.
     run_test "deploy-status (unknown sig)" \
-        "cargo run -q --release -- deploy-status -s 0000000000000000000000000000000000000000000000000000000000000000 -H $HOST --http-port $OBSERVER_HTTP" \
+        "cargo run -q --release -- deploy-status -s 0000000000000000000000000000000000000000000000000000000000000000 -H $OBSERVER_HOST --http-port $OBSERVER_HTTP" \
         "State:.*Pending"
 else
     echo -n "Testing deploy-status (finalized)... "
@@ -612,46 +595,37 @@ echo -e "${BLUE}--- PoS Query Commands ---${NC}"
 # epoch-info: Get current epoch information
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "epoch-info" \
-    "cargo run -q --release -- epoch-info -H $HOST -p $OBSERVER_GRPC" \
+    "cargo run -q --release -- epoch-info -H $OBSERVER_HOST -p $OBSERVER_GRPC" \
     "Epoch information retrieved successfully|Current Epoch"
 
 # epoch-rewards: Get current epoch rewards
 # Uses HTTP explore-deploy internally, must run on observer (read-only) node
 run_test "epoch-rewards" \
-    "cargo run -q --release -- epoch-rewards -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
+    "cargo run -q --release -- epoch-rewards -H $OBSERVER_HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
     "Epoch rewards retrieved successfully|validators"
 
 # validator-status: Check individual validator status
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "validator-status" \
-    "cargo run -q --release -- validator-status -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
+    "cargo run -q --release -- validator-status -H $OBSERVER_HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
     "Validator status retrieved successfully|BONDED|NOT BONDED"
 
 # network-consensus: Get network-wide consensus overview
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "network-consensus" \
-    "cargo run -q --release -- network-consensus -H $HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
+    "cargo run -q --release -- network-consensus -H $OBSERVER_HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
     "Network consensus data retrieved successfully|Consensus Health"
 
 # ============================================
-# NEW HTTP ENDPOINT TESTS (direct curl) — Rust-only
+# NEW HTTP ENDPOINT TESTS (direct curl)
 # ============================================
 echo ""
 echo -e "${BLUE}--- New HTTP Endpoints ---${NC}"
 
-if [ "$NODE_TYPE" != "rust" ]; then
-    skip_test "/api/epoch" "rust-only endpoint"
-    skip_test "/api/validators" "rust-only endpoint"
-    skip_test "/api/bond-status" "rust-only endpoint"
-    skip_test "/api/estimate-cost" "rust-only endpoint"
-    skip_test "/api/deploy (summary view)" "rust-only (unified DeployResponse)"
-    skip_test "removed endpoints return 404" "rust-only (scala returns 400 for dead endpoints)"
-else
-
-# /api/epoch: Available on all node types (no exploratory deploy)
+# /api/epoch: no exploratory deploy required
 echo -n "Testing /api/epoch... "
 EPOCH_START=$(date +%s.%N)
-EPOCH_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/epoch" 2>/dev/null)
+EPOCH_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/epoch" 2>/dev/null || true)
 EPOCH_END=$(date +%s.%N)
 EPOCH_MS=$(echo "($EPOCH_END - $EPOCH_START) * 1000" | bc | cut -d. -f1)
 if echo "$EPOCH_RESP" | grep -q '"epochLength"'; then
@@ -667,7 +641,7 @@ fi
 # /api/validators: Readonly only
 echo -n "Testing /api/validators... "
 VAL_START=$(date +%s.%N)
-VAL_RESP=$(curl -s "http://$HOST:$OBSERVER_HTTP/api/validators" 2>/dev/null)
+VAL_RESP=$(curl -s "http://$OBSERVER_HOST:$OBSERVER_HTTP/api/validators" 2>/dev/null || true)
 VAL_END=$(date +%s.%N)
 VAL_MS=$(echo "($VAL_END - $VAL_START) * 1000" | bc | cut -d. -f1)
 if echo "$VAL_RESP" | grep -q '"totalStake"'; then
@@ -680,10 +654,10 @@ else
     inc_fail
 fi
 
-# /api/bond-status/{pubkey}: Available on all node types
+# /api/bond-status/{pubkey}
 echo -n "Testing /api/bond-status... "
 BS_START=$(date +%s.%N)
-BS_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/bond-status/$VALIDATOR_PUBKEY" 2>/dev/null)
+BS_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/bond-status/$VALIDATOR_PUBKEY" 2>/dev/null || true)
 BS_END=$(date +%s.%N)
 BS_MS=$(echo "($BS_END - $BS_START) * 1000" | bc | cut -d. -f1)
 if echo "$BS_RESP" | grep -q '"isBonded":true'; then
@@ -698,9 +672,9 @@ fi
 # /api/estimate-cost: Readonly only
 echo -n "Testing /api/estimate-cost... "
 EC_START=$(date +%s.%N)
-EC_RESP=$(curl -s -X POST "http://$HOST:$OBSERVER_HTTP/api/estimate-cost" \
+EC_RESP=$(curl -s -X POST "http://$OBSERVER_HOST:$OBSERVER_HTTP/api/estimate-cost" \
     -H 'Content-Type: application/json' \
-    -d '{"term": "new ret in { ret!(42) }"}' 2>/dev/null)
+    -d '{"term": "new ret in { ret!(42) }"}' 2>/dev/null || true)
 EC_END=$(date +%s.%N)
 EC_MS=$(echo "($EC_END - $EC_START) * 1000" | bc | cut -d. -f1)
 if echo "$EC_RESP" | grep -q '"cost"'; then
@@ -717,7 +691,7 @@ fi
 if [ -n "${FDAW_DEPLOY_ID:-}" ]; then
     echo -n "Testing /api/deploy (summary view)... "
     SV_START=$(date +%s.%N)
-    SV_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/deploy/$FDAW_DEPLOY_ID?view=summary" 2>/dev/null)
+    SV_RESP=$(curl -s "http://$HOST:$HTTP_PORT/api/deploy/$FDAW_DEPLOY_ID?view=summary" 2>/dev/null || true)
     SV_END=$(date +%s.%N)
     SV_MS=$(echo "($SV_END - $SV_START) * 1000" | bc | cut -d. -f1)
     if echo "$SV_RESP" | grep -q '"deployId"' && ! echo "$SV_RESP" | grep -q '"deployer"'; then
@@ -735,8 +709,8 @@ fi
 # Removed endpoints return 404
 echo -n "Testing removed endpoints return 404... "
 R1=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://$HOST:$HTTP_PORT/api/data-at-name" \
-    -H 'Content-Type: application/json' -d '{}' 2>/dev/null)
-R2=$(curl -s -o /dev/null -w "%{http_code}" "http://$HOST:$HTTP_PORT/api/transactions/abc" 2>/dev/null)
+    -H 'Content-Type: application/json' -d '{}' 2>/dev/null || true)
+R2=$(curl -s -o /dev/null -w "%{http_code}" "http://$HOST:$HTTP_PORT/api/transactions/abc" 2>/dev/null || true)
 if [ "$R1" = "404" ] && [ "$R2" = "404" ]; then
     echo -e "${GREEN}PASS${NC} (data-at-name=$R1, transactions=$R2)"
     inc_pass
@@ -744,8 +718,6 @@ else
     echo -e "${RED}FAIL${NC} (data-at-name=$R1, transactions=$R2 — expected 404)"
     inc_fail
 fi
-
-fi  # NODE_TYPE = rust (New HTTP Endpoints)
 
 # ============================================
 # CRYPTO COMMANDS (offline, continued)
@@ -770,12 +742,13 @@ echo ""
 echo -e "${BLUE}--- Streaming Commands ---${NC}"
 
 # watch-events: Watch real-time block events via WebSocket
-# Run for 10 seconds and check if it connects and receives events.
+# Run for 15 seconds and check if it connects and receives events.
 # The node sends 10 event types: 3 block lifecycle, 1 transfer, 3 genesis, 2 node lifecycle.
 # Startup events (node-started, entered-running-state) are replayed from buffer.
 # Block events now include block number and timestamp.
 echo -n "Testing watch-events... "
 WB_START=$(date +%s.%N)
+(sleep 3; cargo run -q --release -- deploy -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT > /dev/null 2>&1) &
 run_with_timeout 15 cargo run -q --release -- watch-events -H $HOST --http-port $HTTP_PORT > "$OUTPUT" 2>&1 || true
 WB_END=$(date +%s.%N)
 WB_MS=$(echo "($WB_END - $WB_START) * 1000" | bc | cut -d. -f1)
@@ -827,21 +800,23 @@ echo ""
 echo -e "${BLUE}--- Load Test Commands ---${NC}"
 
 # load-test: Run load test with minimal config (3 tests, short timeouts)
+# A non-zero exit must not abort the suite under `set -e` — the classification
+# below reports it as a FAIL and prints the captured output.
 echo -n "Testing load-test... "
 LT_START=$(date +%s.%N)
 cargo run -q --release -- load-test \
   --to-address "$TO_ADDR" \
   --num-tests 3 \
   --amount 1 \
-  --interval 3 \
+  --interval 5 \
   --check-interval 2 \
   --inclusion-timeout 60 \
-  --finalization-timeout 60 \
+  --finalization-timeout 120 \
   --private-key "$PRIVATE_KEY" \
   -H $HOST \
   --port $GRPC_PORT \
   --http-port $HTTP_PORT \
-  --readonly-port $OBSERVER_GRPC > "$OUTPUT" 2>&1
+  --readonly-port $OBSERVER_GRPC > "$OUTPUT" 2>&1 || true
 LT_END=$(date +%s.%N)
 LT_MS=$(echo "($LT_END - $LT_START) * 1000" | bc | cut -d. -f1)
 save_log "load-test"
