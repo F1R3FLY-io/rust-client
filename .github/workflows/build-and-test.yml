@@ -315,7 +315,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: F1R3FLY-io/system-integration
-          ref: main
+          # Pinned to the last commit that still ships compose/f1r3node-standalone.yml;
+          # the following commit on main deletes every Scala compose file, which breaks
+          # the scala leg of this matrix. Unpin back to main once that leg is retired.
+          ref: 4626a96e96e5e369f1fd672e7d2f40089051402f
           path: system-integration
 
       - name: Load Working Tree
