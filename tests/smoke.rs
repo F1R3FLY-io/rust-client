@@ -704,9 +704,6 @@ async fn test_vault_transfer_succeeds_on_chain() {
     // Assert the full chain of evidence: transfer() returns Ok (it now fails
     // on deploy errors and vault rejections), the deploy detail is clean, and
     // the recipient's balance actually moved by the transferred amount.
-    //
-    // Runs against the Rust node only: CI gates the cargo smoke step on
-    // matrix.node == 'rust' (the Scala node is deprecated).
     const AMOUNT_DUST: u64 = 1_000;
 
     let balance_before = vault_balance(TRANSFER_RECIPIENT).await;
