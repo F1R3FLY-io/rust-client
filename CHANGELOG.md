@@ -4,6 +4,17 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.2.7] - 2026-09-01
+
+### Bug Fixes
+
+- patch h2 and chacha20 advisories
+
+### Features
+
+- make the observer HTTP port explicit [**breaking**]
+
+
 ## [0.2.6] - 2026-08-04
 
 ### CI
