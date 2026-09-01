@@ -20,6 +20,9 @@ pub struct ConnectionConfig {
     pub observer_host: Option<String>,
     /// Observer node gRPC port for finalization checks (defaults to 40452)
     pub observer_grpc_port: u16,
+    /// Observer node HTTP port, for endpoints the validators refuse — a shard
+    /// serves exploratory deploys only from its read-only node (defaults to 40453)
+    pub observer_http_port: u16,
     /// Maximum seconds to wait for deploy inclusion in a block (default: 60)
     pub deploy_timeout_secs: u32,
     /// Maximum seconds to wait for block finalization (default: 30)
@@ -58,6 +61,10 @@ impl ConnectionConfig {
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(40452),
+            observer_http_port: env::var("FIREFLY_OBSERVER_HTTP_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(40453),
             deploy_timeout_secs: env::var("FIREFLY_DEPLOY_TIMEOUT")
                 .ok()
                 .and_then(|t| t.parse().ok())
@@ -79,16 +86,21 @@ impl ConnectionConfig {
             signing_key,
             observer_host: None,
             observer_grpc_port: 40452,
+            observer_http_port: 40453,
             deploy_timeout_secs: 60,
             finalization_timeout_secs: 30,
             poll_interval_secs: 2,
         }
     }
 
-    /// Set observer node for finalization checks
-    pub fn with_observer(mut self, host: String, grpc_port: u16) -> Self {
+    /// Set observer node for finalization checks and read-only endpoints.
+    ///
+    /// Both ports are explicit: a shard maps them independently, and deriving
+    /// one from the other silently sends requests to the wrong port.
+    pub fn with_observer(mut self, host: String, grpc_port: u16, http_port: u16) -> Self {
         self.observer_host = Some(host);
         self.observer_grpc_port = grpc_port;
+        self.observer_http_port = http_port;
         self
     }
 }
@@ -258,11 +270,6 @@ impl F1r3flyConnectionManager {
         ))
     }
 
-    /// Observer HTTP port — convention is observer_grpc_port + 1.
-    fn observer_http_port(&self) -> u16 {
-        self.config.observer_grpc_port.saturating_add(1)
-    }
-
     /// Wait for a deploy to reach a terminal finalization state via the
     /// `/api/deploy-finalization-status/{sig}` endpoint (sig-level polling).
     ///
@@ -279,7 +286,7 @@ impl F1r3flyConnectionManager {
     ) -> Result<Option<crate::f1r3fly_api::DeployFinalizationStatus>, ConnectionError> {
         let observer_api = self.observer_api()?;
         let node_api = self.api();
-        let http_port = self.observer_http_port();
+        let http_port = self.config.observer_http_port;
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
 
         for attempt in 1..=max_attempts {
