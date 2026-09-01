@@ -1,6 +1,7 @@
 //! Query operations (exploratory deploy, data reads, deploy lookup)
 
 use super::F1r3flyApi;
+use crate::utils::http::EXPLORATORY_RETRY_BACKOFF;
 use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
 use f1r3fly_models::casper::v1::exploratory_deploy_response::Message as ExploratoryDeployResponseMessage;
 use f1r3fly_models::casper::v1::rho_data_response;
@@ -9,6 +10,17 @@ use f1r3fly_models::casper::{
 };
 use f1r3fly_models::rhoapi::g_unforgeable::UnfInstance;
 use f1r3fly_models::rhoapi::{GDeployId, GUnforgeable, Par};
+
+/// Report whether the node rejected an exploratory query because its
+/// exploratory-query capacity was occupied.
+///
+/// The check is narrower than the status code alone. `Unavailable` also covers a
+/// node that is down, and retrying that case for the full backoff would only
+/// delay the failure rather than recover from it.
+fn is_exploratory_capacity_rejection(status: &tonic::Status) -> bool {
+    status.code() == tonic::Code::Unavailable
+        && status.message().contains("exploratory query capacity")
+}
 
 impl<'a> F1r3flyApi<'a> {
     pub async fn exploratory_deploy(
@@ -25,7 +37,21 @@ impl<'a> F1r3flyApi<'a> {
             use_pre_state_hash,
         };
 
-        let response = client.exploratory_deploy(query).await?;
+        let mut attempt = 0;
+        let response = loop {
+            match client.exploratory_deploy(query.clone()).await {
+                Ok(response) => break response,
+                Err(status)
+                    if is_exploratory_capacity_rejection(&status)
+                        && attempt < EXPLORATORY_RETRY_BACKOFF.len() =>
+                {
+                    tokio::time::sleep(EXPLORATORY_RETRY_BACKOFF[attempt]).await;
+                    attempt += 1;
+                }
+                Err(status) => return Err(status.into()),
+            }
+        };
+
         let resp = response.get_ref();
         let cost = resp.cost;
 

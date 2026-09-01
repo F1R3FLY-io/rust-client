@@ -1,5 +1,6 @@
 use crate::args::*;
 use crate::f1r3fly_api::F1r3flyApi;
+use crate::utils::http::EXPLORATORY_RETRY_BACKOFF;
 use reqwest;
 use serde_json;
 use std::collections::{HashSet, VecDeque};
@@ -1065,12 +1066,16 @@ pub async fn validator_status_command(
     let current_block = tip_block.block_number;
     let tip_block_hash = &tip_block.block_hash;
 
-    // Execute all queries using explicit tip block hash for consistency
-    let (bonds_result, active_result, quarantine_result) = tokio::try_join!(
-        query_pos_http(&client, &http_url, bonds_query),
-        query_pos_http(&client, &http_url, active_query),
-        f1r3fly_api.exploratory_deploy(quarantine_query, Some(tip_block_hash), false),
-    )?;
+    // Execute all queries using explicit tip block hash for consistency.
+    // Every query below is an exploratory query -- `query_pos_http` posts to
+    // `/api/explore-deploy` -- and the node admits only
+    // `api-server.exploratory-deploy-max-concurrent` of them (default 1). It rejects
+    // the excess immediately instead of queueing it, so run the queries in sequence.
+    let bonds_result = query_pos_http(&client, &http_url, bonds_query).await?;
+    let active_result = query_pos_http(&client, &http_url, active_query).await?;
+    let quarantine_result = f1r3fly_api
+        .exploratory_deploy(quarantine_query, Some(tip_block_hash), false)
+        .await?;
 
     let duration = start_time.elapsed();
 
@@ -1187,12 +1192,18 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
     let current_block = tip_block.block_number;
     let tip_block_hash = &tip_block.block_hash;
 
-    // Get epoch and quarantine data using explicit tip block hash for consistency
-    let (epoch_result, quarantine_result, recent_blocks) = tokio::try_join!(
+    // Get epoch and quarantine data using explicit tip block hash for consistency.
+    // The node admits only `api-server.exploratory-deploy-max-concurrent` exploratory
+    // queries (default 1) and rejects the excess immediately instead of queueing it,
+    // so the two exploratory queries run in sequence. `show_main_chain` is not an
+    // exploratory query and holds no slot, so it stays parallel.
+    let (epoch_result, recent_blocks) = tokio::try_join!(
         f1r3fly_api.exploratory_deploy(epoch_length_query, Some(tip_block_hash), false),
-        f1r3fly_api.exploratory_deploy(quarantine_length_query, Some(tip_block_hash), false),
         f1r3fly_api.show_main_chain(5)
     )?;
+    let quarantine_result = f1r3fly_api
+        .exploratory_deploy(quarantine_length_query, Some(tip_block_hash), false)
+        .await?;
 
     let duration = start_time.elapsed();
 
@@ -1381,28 +1392,44 @@ async fn query_pos_http(
     "term": query
     });
 
-    let response = client
-        .post(url)
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await?;
+    let mut attempt = 0;
+    loop {
+        let response = client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
 
-    if response.status().is_success() {
-        let response_text = response.text().await?;
-        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+        let status = response.status();
 
-        // Extract the actual result from the response
-        if let Some(block) = response_json.get("block") {
-            if let Some(result) = block.get("postBlockData") {
-                return Ok(result.to_string());
+        if status.is_success() {
+            let response_text = response.text().await?;
+            let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+            // Extract the actual result from the response
+            if let Some(block) = response_json.get("block") {
+                if let Some(result) = block.get("postBlockData") {
+                    return Ok(result.to_string());
+                }
             }
+
+            // Fallback to full response if structure is different
+            return Ok(response_text);
         }
 
-        // Fallback to full response if structure is different
-        Ok(response_text)
-    } else {
-        Err(format!("HTTP error: {}", response.status()).into())
+        // `/api/explore-deploy` answers 503 when the node's exploratory-query
+        // capacity is occupied. Another client holding the slot is transient, so
+        // wait and try again before reporting the failure.
+        if status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+            && attempt < EXPLORATORY_RETRY_BACKOFF.len()
+        {
+            tokio::time::sleep(EXPLORATORY_RETRY_BACKOFF[attempt]).await;
+            attempt += 1;
+            continue;
+        }
+
+        return Err(format!("HTTP error: {status}").into());
     }
 }
 
@@ -1449,11 +1476,15 @@ pub async fn network_consensus_command(
     let current_block = tip_block.block_number;
     let tip_block_hash = &tip_block.block_hash;
 
-    let (bonds_result, active_result, quarantine_result) = tokio::try_join!(
-        query_pos_http(&client, &http_url, bonds_query),
-        query_pos_http(&client, &http_url, active_query),
-        f1r3fly_api.exploratory_deploy(quarantine_query, Some(tip_block_hash), false),
-    )?;
+    // Every query below is an exploratory query -- `query_pos_http` posts to
+    // `/api/explore-deploy` -- and the node admits only
+    // `api-server.exploratory-deploy-max-concurrent` of them (default 1). It rejects
+    // the excess immediately instead of queueing it, so run the queries in sequence.
+    let bonds_result = query_pos_http(&client, &http_url, bonds_query).await?;
+    let active_result = query_pos_http(&client, &http_url, active_query).await?;
+    let quarantine_result = f1r3fly_api
+        .exploratory_deploy(quarantine_query, Some(tip_block_hash), false)
+        .await?;
 
     let duration = start_time.elapsed();
 
