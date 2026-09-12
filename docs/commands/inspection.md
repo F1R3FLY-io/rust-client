@@ -89,7 +89,7 @@ Last Finalized Block Summary:
 
 ## bonds
 
-Get current validator bonds from PoS contract. Must run against observer/read-only node.
+Validators bonded in the PoS contract. A bond is listed as soon as its deploy executes, before it activates at the next epoch boundary. Must run against observer/read-only node.
 
 ```bash
 node_cli bonds [-H HOST] [-p HTTP_PORT]
@@ -98,16 +98,17 @@ node_cli bonds [-H HOST] [-p HTTP_PORT]
 ```
 $ node_cli bonds -H localhost -p 40453
 
-Bonded Validators (3 total, 3000 total stake):
+Bonded Validators (4 total, 4000 total stake):
 
-   1. 0457feba...b4ae661c (stake: 1000)
-   2. 04837a4c...b2df065f (stake: 1000)
-   3. 04fa70d7...00f60420 (stake: 1000)
+   1. 0429af98...455f1727 (stake: 1000) (pending activation)
+   2. 0457feba...b4ae661c (stake: 1000)
+   3. 04837a4c...b2df065f (stake: 1000)
+   4. 04fa70d7...00f60420 (stake: 1000)
 ```
 
 ## active-validators
 
-Must run against observer/read-only node.
+Validators participating in consensus. The set is recomputed only at epoch boundaries, so a new bond appears here one boundary after it appears in `bonds`. Must run against observer/read-only node.
 
 ```bash
 node_cli active-validators [-H HOST] [-p HTTP_PORT]
@@ -237,21 +238,24 @@ When a block contains transfer deploys, this shows from/to addresses, amounts, a
 
 ## bond-status
 
-Checks if a validator public key appears in the bonds list. Must run against observer.
+Checks whether a public key is bonded as of the last finalized block. Works against any node. A bond counts as soon as its deploy finalizes, before activation; use `validator-status` for activation and withdrawal progress.
 
 ```bash
 node_cli bond-status -k <PUBLIC_KEY> [-H HOST] [-p HTTP_PORT]
 ```
 
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-p, --port` | `40413` | HTTP port of any node |
+
 ```
-$ node_cli bond-status -k 0457febafcc25dd3...b4ae661c -p 40453
+$ node_cli bond-status -k 0457febafcc25dd3...b4ae661c
 
 Validator is BONDED
-Stake Amount: 1000
 ```
 
 ```
-$ node_cli bond-status -k 04ffc016579a6805...3ad93d -p 40453
+$ node_cli bond-status -k 04ffc016579a6805...3ad93d
 
 Validator is NOT BONDED
 ```

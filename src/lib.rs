@@ -4,6 +4,7 @@ pub mod error;
 pub mod events;
 pub mod f1r3fly_api;
 pub mod grpc;
+pub mod pos;
 pub mod registry;
 pub mod rholang_helpers;
 pub mod signing;

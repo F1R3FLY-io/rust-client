@@ -243,17 +243,15 @@ Current Epoch Rewards (3 validators):
 node_cli validator-status -k <PUBLIC_KEY> [-H HOST] [-p GRPC_PORT] [--http-port PORT]
 ```
 
+Reports each stage of the validator lifecycle: bonded, active or pending activation, a requested withdrawal, and a withdrawal awaiting payout.
+
 ```
 $ node_cli validator-status -k 0457febafcc25dd3...b4ae661c -p 40452 --http-port 40453
 
-BONDED: Validator is bonded to the network
-   Stake Amount: 1000
-ACTIVE: Validator is actively participating in consensus
+BONDED: stake 1000
+ACTIVE: participating in consensus
 
-Summary:
-   Bonded:  Yes
-   Active:  Yes
-   Status: Fully operational
+Current Block: 573
 ```
 
 ### network-consensus
@@ -269,8 +267,10 @@ Network Consensus Health:
    Current Block: 573
    Total Bonded Validators: 3
    Active Validators: 3
-   Validators in Quarantine: 0
-   Quarantine Length: 10 blocks
+   Pending Activation: 0
+   Pending Withdrawals: 0
+   Withdrawing: 0
+   Withdrawal Quarantine Length: 10 blocks
    Consensus Status: Healthy
    Participation Rate: 100.0%
 ```

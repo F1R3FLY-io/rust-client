@@ -86,7 +86,7 @@ pub enum Commands {
     /// Get current epoch information and status
     EpochInfo(PosQueryArgs),
 
-    /// Check individual validator status (bonded, active, quarantine)
+    /// Check individual validator status (bonded, active, withdrawal progress)
     ValidatorStatus(ValidatorStatusArgs),
 
     /// Get current epoch rewards information
@@ -496,7 +496,7 @@ pub struct BondStatusArgs {
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
 
-    /// HTTP port number (same as other inspection commands)
+    /// HTTP port of any node
     #[arg(short, long, default_value_t = 40413)]
     pub port: u16,
 
