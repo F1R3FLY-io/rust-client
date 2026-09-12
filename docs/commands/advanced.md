@@ -164,6 +164,18 @@ Total time:   25.30s
 Bonding complete. Verify with: node_cli bonds
 ```
 
+The command exits non-zero when the PoS contract rejects the bond:
+
+```
+$ node_cli bond-validator --stake 1000 --private-key <ALREADY_BONDED_KEY>
+
+Bonding validator with stake: 1000
+Deploy ID: 3045022100e415...
+Block hash: 63fb62fd...
+Total time: 21.14s
+ Bond rejected by PoS: Public key is already bonded.
+```
+
 **Warning:** Only bond validators that are actually running nodes. Bonding a non-running validator breaks consensus.
 
 ## network-health

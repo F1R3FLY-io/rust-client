@@ -1,7 +1,8 @@
 use crate::args::*;
 use crate::commands::query::query_node_status;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
-use crate::f1r3fly_api::{F1r3flyApi, ProposeResult};
+use crate::f1r3fly_api::{DeployResult, F1r3flyApi, ProposeResult};
+use crate::pos::{build_bond_rholang, parse_pos_call_result};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -387,35 +388,20 @@ pub async fn bond_validator_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Bonding validator with stake: {}", args.stake);
 
-    let bonding_code = format!(
-        r#"new rl(`rho:registry:lookup`), poSCh, retCh, stdout(`rho:io:stdout`) in {{
- stdout!("About to lookup PoS contract...") |
- rl!(`rho:system:pos`, *poSCh) |
- for(@(_, PoS) <- poSCh) {{
- stdout!("About to bond...") |
- new deployerId(`rho:system:deployerId`) in {{
- @PoS!("bond", *deployerId, {}, *retCh) |
- for (@(result, message) <- retCh) {{
- stdout!(("Bond result:", result, "Message:", message))
- }}
- }}
- }}
-}}"#,
-        args.stake
-    );
-
     let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
     let manager = F1r3flyConnectionManager::new(config_from_bond_args(args));
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(&bonding_code, true, expiration)
+        .deploy_and_wait(&build_bond_rholang(args.stake), true, expiration)
         .await
         .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
     println!("Total time: {:.2?}", start.elapsed());
+
+    ensure_pos_call_succeeded("Bond", &result)?;
 
     if args.propose {
         let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
@@ -428,6 +414,22 @@ pub async fn bond_validator_command(
 
     println!("Bonding complete. Verify with: node_cli bonds");
     Ok(())
+}
+
+/// Fail when a PoS method deploy errored or the contract rejected the call.
+fn ensure_pos_call_succeeded(
+    action: &str,
+    result: &DeployResult,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if result.errored {
+        let err = result
+            .system_deploy_error
+            .as_deref()
+            .unwrap_or("unknown error");
+        return Err(format!("{action} deploy failed: {err}").into());
+    }
+    parse_pos_call_result(&result.data)
+        .map_err(|reason| format!("{action} rejected by PoS: {reason}").into())
 }
 
 pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::error::Error>> {

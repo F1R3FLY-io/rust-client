@@ -5,6 +5,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use f1r3fly_models::rhoapi::expr::ExprInstance;
+use f1r3fly_models::rhoapi::Par;
 use serde_json::Value;
 
 use crate::rholang_helpers::convert_rholang_to_json;
@@ -156,9 +158,78 @@ fn withdrawal_map(value: &Value) -> Result<BTreeMap<String, Withdrawal>, String>
         .collect()
 }
 
+/// Deploy term that bonds the signing key with `stake`.
+///
+/// The PoS verdict goes to the deploy's `deployId` channel; read it with
+/// [`parse_pos_call_result`].
+pub fn build_bond_rholang(stake: u64) -> String {
+    format!(
+        r#"new deployId(`rho:system:deployId`), deployerId(`rho:system:deployerId`), rl(`rho:registry:lookup`), poSCh, resultCh in {{
+ rl!(`rho:system:pos`, *poSCh) |
+ for (@(_, PoS) <- poSCh) {{
+ @PoS!("bond", *deployerId, {stake}, *resultCh)
+ }} |
+ for (@result <- resultCh) {{
+ deployId!(result)
+ }}
+}}"#
+    )
+}
+
+/// Interpret the `deployId` channel data of a PoS method call.
+///
+/// PoS methods answer `(true, _)` on success and `(false, reason)` on rejection.
+/// No answer at all is also a failure: a call is never reported successful
+/// without positive evidence.
+pub fn parse_pos_call_result(data: &[Par]) -> Result<(), String> {
+    let par = data.first().ok_or_else(|| {
+        "no result on the deployId channel; the PoS contract did not answer".to_string()
+    })?;
+    let tuple = par
+        .exprs
+        .iter()
+        .find_map(|expr| match &expr.expr_instance {
+            Some(ExprInstance::ETupleBody(tuple)) => Some(tuple),
+            _ => None,
+        })
+        .ok_or_else(|| format!("unexpected PoS result shape: {par:?}"))?;
+    let verdict = tuple.ps.first().and_then(|first| {
+        first
+            .exprs
+            .iter()
+            .find_map(|expr| match expr.expr_instance {
+                Some(ExprInstance::GBool(verdict)) => Some(verdict),
+                _ => None,
+            })
+    });
+
+    match verdict {
+        Some(true) => Ok(()),
+        Some(false) => {
+            let reason: Vec<&str> = tuple
+                .ps
+                .iter()
+                .skip(1)
+                .flat_map(|part| part.exprs.iter())
+                .filter_map(|expr| match &expr.expr_instance {
+                    Some(ExprInstance::GString(reason)) => Some(reason.as_str()),
+                    _ => None,
+                })
+                .collect();
+            Err(if reason.is_empty() {
+                format!("PoS rejected the call: {tuple:?}")
+            } else {
+                reason.join(": ")
+            })
+        }
+        None => Err(format!("unexpected PoS result shape: {par:?}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use f1r3fly_models::rhoapi::{ETuple, Expr};
     use serde_json::json;
 
     const V1: &str = "04fa70d7be5eb750e0915c0f6d19e7085d18bb1c22d030feb2a877ca2cd226d04438aa819359c56c720142fbc66e9da03a5ab960a3d8b75363a226b7c800f60420";
@@ -291,5 +362,63 @@ mod tests {
         ))
         .unwrap_err();
         assert!(err.contains("is not an integer"), "{err}");
+    }
+
+    fn single(expr_instance: ExprInstance) -> Par {
+        Par {
+            exprs: vec![Expr {
+                expr_instance: Some(expr_instance),
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn tuple(parts: Vec<Par>) -> Vec<Par> {
+        vec![single(ExprInstance::ETupleBody(ETuple {
+            ps: parts,
+            ..Default::default()
+        }))]
+    }
+
+    #[test]
+    fn accepts_a_successful_pos_call() {
+        let data = tuple(vec![single(ExprInstance::GBool(true)), Par::default()]);
+        assert_eq!(parse_pos_call_result(&data), Ok(()));
+    }
+
+    #[test]
+    fn reports_the_pos_rejection_reason() {
+        let data = tuple(vec![
+            single(ExprInstance::GBool(false)),
+            single(ExprInstance::GString(
+                "Public key is already bonded.".into(),
+            )),
+        ]);
+        assert_eq!(
+            parse_pos_call_result(&data),
+            Err("Public key is already bonded.".to_string())
+        );
+    }
+
+    #[test]
+    fn treats_a_missing_answer_as_failure() {
+        let err = parse_pos_call_result(&[]).unwrap_err();
+        assert!(err.contains("did not answer"), "{err}");
+    }
+
+    #[test]
+    fn rejects_a_result_that_is_not_a_verdict_tuple() {
+        let err = parse_pos_call_result(&[single(ExprInstance::GInt(1))]).unwrap_err();
+        assert!(err.contains("unexpected PoS result shape"), "{err}");
+    }
+
+    #[test]
+    fn bond_term_passes_the_stake_to_pos() {
+        let term = build_bond_rholang(1000);
+        assert!(
+            term.contains(r#"@PoS!("bond", *deployerId, 1000, *resultCh)"#),
+            "{term}"
+        );
+        assert!(term.contains("deployId!(result)"), "{term}");
     }
 }
