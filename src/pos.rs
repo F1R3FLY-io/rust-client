@@ -176,6 +176,20 @@ pub fn build_bond_rholang(stake: u64) -> String {
     )
 }
 
+/// Deploy term that withdraws the signing key's bond.
+///
+/// The withdrawal applies at the next epoch boundary. The PoS verdict goes to the
+/// deploy's `deployId` channel; read it with [`parse_pos_call_result`].
+pub const WITHDRAW_RHOLANG: &str = r#"new deployId(`rho:system:deployId`), deployerId(`rho:system:deployerId`), rl(`rho:registry:lookup`), poSCh, resultCh in {
+ rl!(`rho:system:pos`, *poSCh) |
+ for (@(_, PoS) <- poSCh) {
+ @PoS!("withdraw", *deployerId, *resultCh)
+ } |
+ for (@result <- resultCh) {
+ deployId!(result)
+ }
+}"#;
+
 /// Interpret the `deployId` channel data of a PoS method call.
 ///
 /// PoS methods answer `(true, _)` on success and `(false, reason)` on rejection.
@@ -420,5 +434,11 @@ mod tests {
             "{term}"
         );
         assert!(term.contains("deployId!(result)"), "{term}");
+    }
+
+    #[test]
+    fn withdraw_term_reports_the_pos_verdict() {
+        assert!(WITHDRAW_RHOLANG.contains(r#"@PoS!("withdraw", *deployerId, *resultCh)"#));
+        assert!(WITHDRAW_RHOLANG.contains("deployId!(result)"));
     }
 }

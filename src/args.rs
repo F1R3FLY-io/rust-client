@@ -65,6 +65,9 @@ pub enum Commands {
     /// Bond a new validator to the network (dynamic validator addition)
     BondValidator(BondValidatorArgs),
 
+    /// Withdraw a validator's bond (takes effect at the next epoch boundary)
+    UnbondValidator(UnbondValidatorArgs),
+
     /// Check network health across multiple nodes
     NetworkHealth(NetworkHealthArgs),
 
@@ -531,6 +534,54 @@ pub struct BondValidatorArgs {
     /// Also propose a block after bonding
     #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
     pub propose: bool,
+
+    /// Maximum wait time in seconds for deploy finalization
+    #[arg(long = "max-wait", default_value_t = 300)]
+    pub max_wait: u64,
+
+    /// Check interval in seconds for deploy status
+    #[arg(long = "check-interval", default_value_t = 5)]
+    pub check_interval: u64,
+
+    /// Observer node host for finalization checks (falls back to main host if not specified)
+    #[arg(long = "observer-host")]
+    pub observer_host: Option<String>,
+
+    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
+    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
+    /// pass an observer port whose +1 equals the node's HTTP port.
+    #[arg(long = "observer-port")]
+    pub observer_port: Option<u16>,
+
+    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
+    /// Use 0 or omit for no expiration.
+    #[arg(long)]
+    pub expiration: Option<i64>,
+
+    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
+    /// Mutually exclusive with --expiration.
+    #[arg(long, conflicts_with = "expiration")]
+    pub expires_in: Option<u64>,
+}
+
+/// Arguments for unbond-validator command
+#[derive(Parser)]
+pub struct UnbondValidatorArgs {
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// gRPC port number for deploy
+    #[arg(short, long, default_value_t = 40412)]
+    pub port: u16,
+
+    /// HTTP port for status queries
+    #[arg(long = "http-port", default_value_t = 40413)]
+    pub http_port: u16,
+
+    /// Private key of the validator to unbond (hex format)
+    #[arg(long)]
+    pub private_key: String,
 
     /// Maximum wait time in seconds for deploy finalization
     #[arg(long = "max-wait", default_value_t = 300)]

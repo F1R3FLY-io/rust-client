@@ -178,6 +178,42 @@ Total time: 21.14s
 
 **Warning:** Only bond validators that are actually running nodes. Bonding a non-running validator breaks consensus.
 
+## unbond-validator
+
+Withdraw a validator's bond. Deploys the PoS `withdraw` call signed by the validator's key; no node needs to run for that key.
+
+```bash
+node_cli unbond-validator --private-key <KEY> [OPTIONS]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--private-key` | required | Signing key of the validator to unbond |
+| `--max-wait` | `300` | Max seconds to wait for finalization |
+| `--observer-host` | | Observer for finalization |
+| `--observer-port` | `40452` | Observer gRPC port |
+
+The withdrawal takes effect in stages, each at an epoch boundary:
+
+1. The deploy records the withdrawal request. The validator stays bonded and active.
+2. At the next epoch boundary, the validator leaves the bond set and the active set.
+3. At the first epoch boundary at or after the quarantine end, the stake and accumulated rewards are paid to the validator's vault.
+
+The quarantine end is `quarantine-length + epoch-length * (1 + B / epoch-length)`, where `B` is the block that holds the deploy. `validator-status` shows the request with its quarantine end, and then the pending payout.
+
+```
+$ node_cli unbond-validator --private-key <KEY>
+
+Requesting withdrawal for validator: 0429af984ed4da1a...455f1727
+Deploy ID: 3044022065871c6d...
+Block hash: b0737488...
+Total time: 23.32s
+Withdrawal requested. The validator leaves the bond set at the next epoch boundary.
+Track progress with: node_cli validator-status -k 0429af984ed4da1a...455f1727
+```
+
+The command exits non-zero when the PoS contract rejects the call, for example `Withdrawal rejected by PoS: User is not bonded`.
+
 ## network-health
 
 Check network health across multiple nodes.
@@ -255,7 +291,11 @@ Current Epoch Rewards (3 validators):
 node_cli validator-status -k <PUBLIC_KEY> [-H HOST] [-p GRPC_PORT] [--http-port PORT]
 ```
 
-Reports each stage of the validator lifecycle: bonded, active or pending activation, a requested withdrawal, and a withdrawal awaiting payout.
+Reports each stage of the validator lifecycle:
+
+- `BONDED` with the stake, then `ACTIVE` or `PENDING ACTIVATION` (the bond activates at the next epoch boundary).
+- `WITHDRAWAL REQUESTED` after `unbond-validator`, with the block at which the stake becomes payable.
+- `WITHDRAWING` after the validator leaves the bond set, until the payout.
 
 ```
 $ node_cli validator-status -k 0457febafcc25dd3...b4ae661c -p 40452 --http-port 40453

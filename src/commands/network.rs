@@ -2,7 +2,7 @@ use crate::args::*;
 use crate::commands::query::query_node_status;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use crate::f1r3fly_api::{DeployResult, F1r3flyApi, ProposeResult};
-use crate::pos::{build_bond_rholang, parse_pos_call_result};
+use crate::pos::{build_bond_rholang, parse_pos_call_result, WITHDRAW_RHOLANG};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -48,6 +48,20 @@ fn config_from_deploy_args(args: &DeployAndWaitArgs) -> ConnectionConfig {
 }
 
 fn config_from_transfer_args(args: &TransferArgs) -> ConnectionConfig {
+    build_config(
+        &args.host,
+        args.port,
+        args.http_port,
+        &args.private_key,
+        args.max_wait,
+        args.max_wait, // Use max_wait for finalization too (no separate arg)
+        args.check_interval,
+        args.observer_host.as_deref(),
+        args.observer_port,
+    )
+}
+
+fn config_from_unbond_args(args: &UnbondValidatorArgs) -> ConnectionConfig {
     build_config(
         &args.host,
         args.port,
@@ -413,6 +427,37 @@ pub async fn bond_validator_command(
     }
 
     println!("Bonding complete. Verify with: node_cli bonds");
+    Ok(())
+}
+
+pub async fn unbond_validator_command(
+    args: &UnbondValidatorArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::utils::CryptoUtils;
+
+    let public_key = {
+        let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
+        CryptoUtils::serialize_public_key(&CryptoUtils::derive_public_key(&secret_key), false)
+    };
+    println!("Requesting withdrawal for validator: {public_key}");
+
+    let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
+    let manager = F1r3flyConnectionManager::new(config_from_unbond_args(args));
+    let start = Instant::now();
+
+    let result = manager
+        .deploy_and_wait(WITHDRAW_RHOLANG, true, expiration)
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+    println!("Deploy ID: {}", result.deploy_id);
+    println!("Block hash: {}", result.block_hash);
+    println!("Total time: {:.2?}", start.elapsed());
+
+    ensure_pos_call_succeeded("Withdrawal", &result)?;
+
+    println!("Withdrawal requested. The validator leaves the bond set at the next epoch boundary.");
+    println!("Track progress with: node_cli validator-status -k {public_key}");
     Ok(())
 }
 
