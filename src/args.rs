@@ -147,15 +147,11 @@ pub struct DeployAndWaitArgs {
     #[arg(long, default_value_t = false)]
     pub propose: bool,
 
-    /// Maximum seconds to wait for deploy inclusion in a block
+    /// Maximum seconds to wait for the deploy to finalize
     #[arg(long = "max-wait", default_value_t = 300)]
     pub max_wait: u64,
 
-    /// Maximum seconds to wait for block finalization
-    #[arg(long = "finalization-timeout", default_value_t = 180)]
-    pub finalization_timeout: u64,
-
-    /// Check interval in seconds
+    /// Seconds between finalization status polls
     #[arg(long = "check-interval", default_value_t = 2)]
     pub check_interval: u64,
 

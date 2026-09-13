@@ -150,7 +150,7 @@ node_cli bond-validator --stake <AMOUNT> --private-key <KEY> [OPTIONS]
 | `--stake` | required | Stake amount |
 | `--private-key` | required | Validator's signing key |
 | `--propose` | false | Propose block after bonding |
-| `--max-wait` | `300` | Max seconds for block inclusion |
+| `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer-host` | | Observer for finalization |
 | `--observer-port` | `40452` | Observer gRPC port |
 

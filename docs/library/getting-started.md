@@ -152,6 +152,5 @@ pub enum ProposeResult {
 | `signing_key` | required | Private key (hex) |
 | `observer_host` | same as node | Observer for finalization |
 | `observer_grpc_port` | `40452` | Observer gRPC port |
-| `deploy_timeout_secs` | `60` | Max seconds for block inclusion |
-| `finalization_timeout_secs` | `30` | Max seconds for finalization |
-| `poll_interval_secs` | `2` | Seconds between polls |
+| `finalization_timeout_secs` | `90` | Max seconds to wait for a deploy to finalize |
+| `poll_interval_secs` | `2` | Seconds between finalization status polls |

@@ -20,8 +20,8 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--http-port` | | `40413` | HTTP port |
 | `--bigger-phlo` | `-b` | true | Use high phlo limit (recommended) |
 | `--propose` | | false | Also propose a block after deploy |
-| `--max-wait` | | `300` | Max seconds for block inclusion |
-| `--check-interval` | | `5` | Seconds between polls |
+| `--max-wait` | | `300` | Max seconds to wait for finalization |
+| `--check-interval` | | `5` | Seconds between finalization status polls |
 | `--observer-host` | | same as host | Observer for finalization |
 | `--observer-port` | | `40452` | Observer gRPC port |
 | `--expiration` | | none | Expiration timestamp (ms) |

@@ -13,15 +13,13 @@ fn build_config(
     http_port: u16,
     private_key: &str,
     max_wait: u64,
-    finalization_timeout: u64,
     check_interval: u64,
     observer_host: Option<&str>,
     observer_port: Option<u16>,
 ) -> ConnectionConfig {
     let mut config =
         ConnectionConfig::new(host.to_string(), port, http_port, private_key.to_string());
-    config.deploy_timeout_secs = max_wait as u32;
-    config.finalization_timeout_secs = finalization_timeout as u32;
+    config.finalization_timeout_secs = max_wait as u32;
     config.poll_interval_secs = check_interval;
     if let Some(obs_host) = observer_host {
         config.observer_host = Some(obs_host.to_string());
@@ -40,7 +38,6 @@ fn config_from_deploy_args(args: &DeployAndWaitArgs) -> ConnectionConfig {
         args.http_port,
         private_key,
         args.max_wait,
-        args.finalization_timeout,
         args.check_interval,
         args.observer_host.as_deref(),
         args.observer_port,
@@ -54,7 +51,6 @@ fn config_from_transfer_args(args: &TransferArgs) -> ConnectionConfig {
         args.http_port,
         &args.private_key,
         args.max_wait,
-        args.max_wait, // Use max_wait for finalization too (no separate arg)
         args.check_interval,
         args.observer_host.as_deref(),
         args.observer_port,
@@ -68,7 +64,6 @@ fn config_from_unbond_args(args: &UnbondValidatorArgs) -> ConnectionConfig {
         args.http_port,
         &args.private_key,
         args.max_wait,
-        args.max_wait, // Use max_wait for finalization too (no separate arg)
         args.check_interval,
         args.observer_host.as_deref(),
         args.observer_port,
@@ -82,7 +77,6 @@ fn config_from_bond_args(args: &BondValidatorArgs) -> ConnectionConfig {
         args.http_port,
         &args.private_key,
         args.max_wait,
-        args.max_wait, // Use max_wait for finalization too (no separate arg)
         args.check_interval,
         args.observer_host.as_deref(),
         args.observer_port,

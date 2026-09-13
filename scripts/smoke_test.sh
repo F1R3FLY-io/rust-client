@@ -252,8 +252,8 @@ run_test "deploy" \
     "cargo run -q --release -- deploy -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT" \
     "Deployment successful|Deploy ID:"
 
-# deploy-and-wait: Deploy and wait for block inclusion/finalization
-# Uses ConnectionManager: deploy -> find_deploy_grpc -> is_finalized (observer)
+# deploy-and-wait: Deploy and wait for finalization
+# Uses ConnectionManager: deploy -> deploy-finalization-status polling (observer)
 run_test "deploy-and-wait" \
     "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 60 --check-interval 2" \
     "Deploy ID:|Block hash:|Total time:"
@@ -262,7 +262,7 @@ run_test "deploy-and-wait" \
 # deploy-and-wait now always reads deployId channel data after finalization
 echo -n "Testing deploy-and-wait (with data)... "
 FDAW_START=$(date +%s.%N)
-if cargo run -q --release -- deploy-and-wait -f ./rho_examples/deploy_id_test.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 60 --finalization-timeout 30 --check-interval 2 > "$OUTPUT" 2>&1; then
+if cargo run -q --release -- deploy-and-wait -f ./rho_examples/deploy_id_test.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 60 --check-interval 2 > "$OUTPUT" 2>&1; then
     FDAW_END=$(date +%s.%N)
     FDAW_MS=$(echo "($FDAW_END - $FDAW_START) * 1000" | bc | cut -d. -f1)
     save_log "deploy-and-wait (with data)"
