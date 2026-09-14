@@ -66,6 +66,8 @@ Total time:   26.00s
 
 The `stdout!("hello")` contract writes to stdout (visible in node logs) but nothing to `deployId`, so Data shows `(none)`.
 
+When the deploy finalizes but its `deployId` data cannot be read, Data shows `unreadable (<error>)` and the command exits non-zero, so a failed read is never mistaken for a contract that wrote nothing.
+
 ## Example: With propose flag
 
 ```

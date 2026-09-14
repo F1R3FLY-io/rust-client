@@ -46,7 +46,10 @@ let result = manager
 println!("Deploy: {}", result.deploy_id);
 println!("Block:  {}", result.block_hash);
 println!("Cost:   {:?}", result.cost);
-println!("Data:   {:?}", result.data);  // Vec<Par> from deployId channel
+match &result.data {
+    Ok(pars) => println!("Data:   {pars:?}"),  // empty when the deploy wrote nothing
+    Err(e) => eprintln!("deployId data could not be read: {e}"),
+}
 ```
 
 The boolean maps to a phlo limit of 50k (`false`) or 5B (`true`). When the
@@ -122,7 +125,7 @@ pub struct DeployResult {
     pub cost: Option<u64>,
     pub errored: bool,
     pub system_deploy_error: Option<String>,
-    pub data: Vec<Par>,  // from deployId channel
+    pub data: Result<Vec<Par>, String>,  // deployId channel; Err when the read failed
 }
 
 // DeployDetail — from get_deploy_detail (HTTP)

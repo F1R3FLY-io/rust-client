@@ -1,4 +1,4 @@
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 /// Command-line interface for interacting with F1r3fly nodes
@@ -96,7 +96,7 @@ pub enum Commands {
     EpochRewards(PosQueryArgs),
 
     /// Get network-wide consensus health overview
-    NetworkConsensus(PosQueryArgs),
+    NetworkConsensus(NetworkConsensusArgs),
 
     /// Get blocks by height range
     GetBlocksByHeight(GetBlocksByHeightArgs),
@@ -117,16 +117,10 @@ pub enum Commands {
     DeployStatus(DeployStatusArgs),
 }
 
-#[derive(Parser, Debug)]
-pub struct DeployAndWaitArgs {
-    /// Rholang file to deploy
-    #[arg(short, long)]
-    pub file: String,
-
-    /// Private key for deploy (--private-key or FIREFLY_PRIVATE_KEY env)
-    #[arg(short = 'k', long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
-
+/// Node, finalization-wait and expiration options of commands that deploy and
+/// wait for the deploy to finalize
+#[derive(Args, Debug)]
+pub struct DeployWaitArgs {
     /// Node hostname
     #[arg(short = 'H', long = "host", default_value = "localhost")]
     pub host: String,
@@ -139,21 +133,9 @@ pub struct DeployAndWaitArgs {
     #[arg(long = "http-port", default_value_t = 40413)]
     pub http_port: u16,
 
-    /// Use bigger phlo limit (100,000,000 instead of 50,000)
-    #[arg(long = "bigger-phlo")]
-    pub bigger_phlo: bool,
-
-    /// Also propose a block after deploy
-    #[arg(long, default_value_t = false)]
-    pub propose: bool,
-
     /// Maximum seconds to wait for the deploy to finalize
     #[arg(long = "max-wait", default_value_t = 300)]
     pub max_wait: u64,
-
-    /// Seconds between finalization status polls
-    #[arg(long = "check-interval", default_value_t = 2)]
-    pub check_interval: u64,
 
     /// Observer node host for finalization checks (falls back to main host if not specified)
     #[arg(long = "observer-host")]
@@ -174,6 +156,32 @@ pub struct DeployAndWaitArgs {
     /// Mutually exclusive with --expiration.
     #[arg(long, conflicts_with = "expiration")]
     pub expires_in: Option<u64>,
+}
+
+#[derive(Parser, Debug)]
+pub struct DeployAndWaitArgs {
+    /// Rholang file to deploy
+    #[arg(short, long)]
+    pub file: String,
+
+    /// Private key for deploy (--private-key or FIREFLY_PRIVATE_KEY env)
+    #[arg(short = 'k', long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
+    pub private_key: String,
+
+    #[command(flatten)]
+    pub wait: DeployWaitArgs,
+
+    /// Use bigger phlo limit (100,000,000 instead of 50,000)
+    #[arg(long = "bigger-phlo")]
+    pub bigger_phlo: bool,
+
+    /// Also propose a block after deploy
+    #[arg(long, default_value_t = false)]
+    pub propose: bool,
+
+    /// Seconds between finalization status polls
+    #[arg(long = "check-interval", default_value_t = 2)]
+    pub check_interval: u64,
 }
 
 #[derive(Parser, Debug)]
@@ -507,17 +515,8 @@ pub struct BondStatusArgs {
 /// Arguments for bond-validator command
 #[derive(Parser)]
 pub struct BondValidatorArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number for deploy
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
-
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+    #[command(flatten)]
+    pub wait: DeployWaitArgs,
 
     /// Stake amount for the validator (required)
     #[arg(short, long)]
@@ -531,81 +530,24 @@ pub struct BondValidatorArgs {
     #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
     pub propose: bool,
 
-    /// Maximum wait time in seconds for deploy finalization
-    #[arg(long = "max-wait", default_value_t = 300)]
-    pub max_wait: u64,
-
     /// Check interval in seconds for deploy status
     #[arg(long = "check-interval", default_value_t = 5)]
     pub check_interval: u64,
-
-    /// Observer node host for finalization checks (falls back to main host if not specified)
-    #[arg(long = "observer-host")]
-    pub observer_host: Option<String>,
-
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
-    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
-    /// pass an observer port whose +1 equals the node's HTTP port.
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
-
-    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
-    /// Use 0 or omit for no expiration.
-    #[arg(long)]
-    pub expiration: Option<i64>,
-
-    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
-    /// Mutually exclusive with --expiration.
-    #[arg(long, conflicts_with = "expiration")]
-    pub expires_in: Option<u64>,
 }
 
 /// Arguments for unbond-validator command
 #[derive(Parser)]
 pub struct UnbondValidatorArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number for deploy
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
-
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+    #[command(flatten)]
+    pub wait: DeployWaitArgs,
 
     /// Private key of the validator to unbond (hex format)
     #[arg(long)]
     pub private_key: String,
 
-    /// Maximum wait time in seconds for deploy finalization
-    #[arg(long = "max-wait", default_value_t = 300)]
-    pub max_wait: u64,
-
     /// Check interval in seconds for deploy status
     #[arg(long = "check-interval", default_value_t = 5)]
     pub check_interval: u64,
-
-    /// Observer node host for finalization checks (falls back to main host if not specified)
-    #[arg(long = "observer-host")]
-    pub observer_host: Option<String>,
-
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
-    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
-    /// pass an observer port whose +1 equals the node's HTTP port.
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
-
-    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
-    /// Use 0 or omit for no expiration.
-    #[arg(long)]
-    pub expiration: Option<i64>,
-
-    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
-    /// Mutually exclusive with --expiration.
-    #[arg(long, conflicts_with = "expiration")]
-    pub expires_in: Option<u64>,
 }
 
 /// Arguments for network-health command
@@ -658,17 +600,8 @@ pub struct TransferArgs {
     #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number for deploy
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
-
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+    #[command(flatten)]
+    pub wait: DeployWaitArgs,
 
     /// Use bigger phlo limit (recommended for transfers)
     #[arg(short, long, default_value_t = true)]
@@ -678,33 +611,9 @@ pub struct TransferArgs {
     #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
     pub propose: bool,
 
-    /// Maximum wait time in seconds for deploy finalization
-    #[arg(long = "max-wait", default_value_t = 300)]
-    pub max_wait: u64,
-
     /// Check interval in seconds for deploy status
     #[arg(long = "check-interval", default_value_t = 5)]
     pub check_interval: u64,
-
-    /// Observer node host for finalization checks (falls back to main host if not specified)
-    #[arg(long = "observer-host")]
-    pub observer_host: Option<String>,
-
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
-    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
-    /// pass an observer port whose +1 equals the node's HTTP port.
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
-
-    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
-    /// Use 0 or omit for no expiration.
-    #[arg(long)]
-    pub expiration: Option<i64>,
-
-    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
-    /// Mutually exclusive with --expiration.
-    #[arg(long, conflicts_with = "expiration")]
-    pub expires_in: Option<u64>,
 }
 
 /// Arguments for load-test command
@@ -778,16 +687,24 @@ pub struct ValidatorStatusArgs {
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
 
-    /// gRPC port number (use 40452 for observer/read-only node)
-    #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
-
-    /// HTTP port number for explore-deploy queries
+    /// HTTP port of a read-only node, for explore-deploy queries
     #[arg(long = "http-port", default_value_t = 40453)]
     pub http_port: u16,
 }
 
-/// Arguments for PoS contract query commands (epoch-info, network-consensus, epoch-rewards)
+/// Arguments for network-consensus command
+#[derive(Parser)]
+pub struct NetworkConsensusArgs {
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port of a read-only node, for explore-deploy queries
+    #[arg(long = "http-port", default_value_t = 40453)]
+    pub http_port: u16,
+}
+
+/// Arguments for PoS contract query commands (epoch-info, epoch-rewards)
 #[derive(Parser)]
 pub struct PosQueryArgs {
     /// Host address

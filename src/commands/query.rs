@@ -162,7 +162,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
         let activation = if snapshot.is_active(key) {
             ""
         } else {
-            " (pending activation)"
+            " (not active)"
         };
         println!(
             " {}. {} (stake: {stake}){activation}",
@@ -860,15 +860,7 @@ pub async fn validator_status_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(" Checking validator status for: {}", args.public_key);
 
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
-
     let start_time = Instant::now();
-
-    let main_chain = f1r3fly_api.show_main_chain(1).await?;
-    let current_block = main_chain
-        .first()
-        .ok_or("No blocks found in main chain")?
-        .block_number;
     let snapshot = fetch_pos_snapshot(&args.host, args.http_port).await?;
 
     println!(" Validator status retrieved successfully!");
@@ -876,32 +868,40 @@ pub async fn validator_status_command(
     println!();
 
     let key = &args.public_key;
+    let pending_withdrawal = snapshot.pending_withdrawal(key);
     match snapshot.stake(key) {
         Some(stake) => {
             println!(" BONDED: stake {stake}");
             if snapshot.is_active(key) {
                 println!(" ACTIVE: participating in consensus");
+            } else if pending_withdrawal.is_some() {
+                println!(" NOT ACTIVE");
             } else {
-                println!(" PENDING ACTIVATION: joins the active set at the next epoch boundary");
+                println!(
+                    " NOT ACTIVE: the active set is recomputed at each epoch boundary, \
+                     up to the shard's number of active validators"
+                );
             }
         }
         None => println!(" NOT BONDED"),
     }
-    if let Some(quarantine_end) = snapshot.pending_withdrawal(key) {
+    if let Some(quarantine_end) = pending_withdrawal {
         println!(
             " WITHDRAWAL REQUESTED: leaves the bond set at the next epoch boundary; \
-             stake is paid out at the first epoch boundary at or after block {quarantine_end}"
+             stake and rewards are paid out at the first epoch boundary at or after block \
+             {quarantine_end}"
         );
     }
     if let Some(withdrawal) = snapshot.withdrawal(key) {
         println!(
-            " WITHDRAWING: stake {} is paid out at the first epoch boundary at or after block {}",
+            " WITHDRAWING: stake {} and rewards are paid out at the first epoch boundary \
+             at or after block {}",
             withdrawal.stake, withdrawal.quarantine_end
         );
     }
 
     println!();
-    println!(" Current Block: {current_block}");
+    println!(" As of block: {} (last finalized)", snapshot.block_number);
 
     Ok(())
 }
@@ -1171,68 +1171,37 @@ fn abbreviate_key(key: &str) -> String {
 }
 
 pub async fn network_consensus_command(
-    args: &PosQueryArgs,
+    args: &NetworkConsensusArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         " Getting network-wide consensus overview from {}:{}",
-        args.host, args.port
+        args.host, args.http_port
     );
 
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
-
     let start_time = Instant::now();
-
-    let quarantine_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
- rl!(`rho:system:pos`, *poSCh) |
- for(@(_, PoS) <- poSCh) {
- @PoS!("getQuarantineLength", *return)
- }
- }"#;
-
-    // Get main chain tip first to ensure consistent state reference
-    let main_chain = f1r3fly_api.show_main_chain(1).await?;
-    let tip_block = main_chain.first().ok_or("No blocks found in main chain")?;
-    let current_block = tip_block.block_number;
-    let tip_block_hash = &tip_block.block_hash;
-
-    // Both reads are exploratory queries, which the node admits only
-    // `api-server.exploratory-deploy-max-concurrent` of at a time (default 1) and
-    // rejects rather than queues, so they run in sequence.
     let snapshot = fetch_pos_snapshot(&args.host, args.http_port).await?;
-    let quarantine_result = f1r3fly_api
-        .exploratory_deploy(quarantine_query, Some(tip_block_hash), false)
-        .await?;
-
-    let duration = start_time.elapsed();
 
     println!(" Network consensus data retrieved successfully!");
-    println!(" Time taken: {duration:.2?}");
+    println!(" Time taken: {:.2?}", start_time.elapsed());
     println!();
-
-    let quarantine_length = quarantine_result.0.trim().parse::<i64>().map_err(|e| {
-        format!(
-            "Failed to parse quarantine length: '{}'. Error: {}",
-            quarantine_result.0, e
-        )
-    })?;
 
     let total_bonded = snapshot.bonds.len();
     let total_active = snapshot.active.len();
 
     println!(" Network Consensus Health:");
-    println!(" Current Block: {current_block}");
+    println!(" As of block: {} (last finalized)", snapshot.block_number);
     println!(" Total Bonded Validators: {total_bonded}");
     println!(" Active Validators: {total_active}");
-    println!(
-        " Pending Activation: {}",
-        snapshot.pending_activation().count()
-    );
+    println!(" Bonded, Not Active: {}", snapshot.inactive_bonds().count());
     println!(
         " Pending Withdrawals: {}",
         snapshot.pending_withdrawals.len()
     );
     println!(" Withdrawing: {}", snapshot.withdrawals.len());
-    println!(" Withdrawal Quarantine Length: {quarantine_length} blocks");
+    println!(
+        " Withdrawal Quarantine Length: {} blocks",
+        snapshot.quarantine_length
+    );
 
     let consensus_health = if total_active >= 3 {
         " Healthy"

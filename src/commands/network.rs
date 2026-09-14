@@ -6,81 +6,22 @@ use crate::pos::{build_bond_rholang, parse_pos_call_result, WITHDRAW_RHOLANG};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-#[allow(clippy::too_many_arguments)]
-fn build_config(
-    host: &str,
-    port: u16,
-    http_port: u16,
-    private_key: &str,
-    max_wait: u64,
-    check_interval: u64,
-    observer_host: Option<&str>,
-    observer_port: Option<u16>,
-) -> ConnectionConfig {
-    let mut config =
-        ConnectionConfig::new(host.to_string(), port, http_port, private_key.to_string());
-    config.finalization_timeout_secs = max_wait as u32;
+fn build_config(wait: &DeployWaitArgs, private_key: &str, check_interval: u64) -> ConnectionConfig {
+    let mut config = ConnectionConfig::new(
+        wait.host.clone(),
+        wait.port,
+        wait.http_port,
+        private_key.to_string(),
+    );
+    config.finalization_timeout_secs = wait.max_wait as u32;
     config.poll_interval_secs = check_interval;
-    if let Some(obs_host) = observer_host {
-        config.observer_host = Some(obs_host.to_string());
+    if let Some(obs_host) = &wait.observer_host {
+        config.observer_host = Some(obs_host.clone());
     }
-    if let Some(obs_port) = observer_port {
+    if let Some(obs_port) = wait.observer_port {
         config.observer_grpc_port = obs_port;
     }
     config
-}
-
-fn config_from_deploy_args(args: &DeployAndWaitArgs) -> ConnectionConfig {
-    let private_key = args.private_key.as_str();
-    build_config(
-        &args.host,
-        args.port,
-        args.http_port,
-        private_key,
-        args.max_wait,
-        args.check_interval,
-        args.observer_host.as_deref(),
-        args.observer_port,
-    )
-}
-
-fn config_from_transfer_args(args: &TransferArgs) -> ConnectionConfig {
-    build_config(
-        &args.host,
-        args.port,
-        args.http_port,
-        &args.private_key,
-        args.max_wait,
-        args.check_interval,
-        args.observer_host.as_deref(),
-        args.observer_port,
-    )
-}
-
-fn config_from_unbond_args(args: &UnbondValidatorArgs) -> ConnectionConfig {
-    build_config(
-        &args.host,
-        args.port,
-        args.http_port,
-        &args.private_key,
-        args.max_wait,
-        args.check_interval,
-        args.observer_host.as_deref(),
-        args.observer_port,
-    )
-}
-
-fn config_from_bond_args(args: &BondValidatorArgs) -> ConnectionConfig {
-    build_config(
-        &args.host,
-        args.port,
-        args.http_port,
-        &args.private_key,
-        args.max_wait,
-        args.check_interval,
-        args.observer_host.as_deref(),
-        args.observer_port,
-    )
 }
 
 /// Calculates the expiration timestamp from CLI arguments.
@@ -396,8 +337,12 @@ pub async fn bond_validator_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Bonding validator with stake: {}", args.stake);
 
-    let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    let manager = F1r3flyConnectionManager::new(config_from_bond_args(args));
+    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
+    let manager = F1r3flyConnectionManager::new(build_config(
+        &args.wait,
+        &args.private_key,
+        args.check_interval,
+    ));
     let start = Instant::now();
 
     let result = manager
@@ -412,7 +357,7 @@ pub async fn bond_validator_command(
     ensure_pos_call_succeeded("Bond", &result)?;
 
     if args.propose {
-        let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
         match api.propose().await {
             Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
             Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
@@ -435,8 +380,12 @@ pub async fn unbond_validator_command(
     };
     println!("Requesting withdrawal for validator: {public_key}");
 
-    let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    let manager = F1r3flyConnectionManager::new(config_from_unbond_args(args));
+    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
+    let manager = F1r3flyConnectionManager::new(build_config(
+        &args.wait,
+        &args.private_key,
+        args.check_interval,
+    ));
     let start = Instant::now();
 
     let result = manager
@@ -455,7 +404,8 @@ pub async fn unbond_validator_command(
     Ok(())
 }
 
-/// Fail when a PoS method deploy errored or the contract rejected the call.
+/// Fail when a PoS method deploy errored, its verdict could not be read, or the
+/// contract rejected the call.
 fn ensure_pos_call_succeeded(
     action: &str,
     result: &DeployResult,
@@ -467,7 +417,10 @@ fn ensure_pos_call_succeeded(
             .unwrap_or("unknown error");
         return Err(format!("{action} deploy failed: {err}").into());
     }
-    parse_pos_call_result(&result.data)
+    let data = result.data.as_ref().map_err(|err| {
+        format!("{action} deploy finalized, but its PoS verdict could not be read: {err}")
+    })?;
+    parse_pos_call_result(data)
         .map_err(|reason| format!("{action} rejected by PoS: {reason}").into())
 }
 
@@ -487,8 +440,13 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
 
     let amount_dust = if args.whole_tokens {
         // Whole-token mode: ask the node how many decimals the native token has.
-        let (status_json, _) =
-            query_node_status(&reqwest::Client::new(), &args.host, args.http_port, false).await?;
+        let (status_json, _) = query_node_status(
+            &reqwest::Client::new(),
+            &args.wait.host,
+            args.wait.http_port,
+            false,
+        )
+        .await?;
         let decimals = status_json
             .get("nativeTokenDecimals")
             .and_then(|v| v.as_u64())
@@ -510,9 +468,13 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     );
 
     let rholang_code = generate_transfer_contract(&from_address, &args.to_address, amount_dust);
-    let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
+    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
 
-    let manager = F1r3flyConnectionManager::new(config_from_transfer_args(args));
+    let manager = F1r3flyConnectionManager::new(build_config(
+        &args.wait,
+        &args.private_key,
+        args.check_interval,
+    ));
     let start = Instant::now();
 
     let result = manager
@@ -537,7 +499,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     println!("Total time: {:.2?}", start.elapsed());
 
     if args.propose {
-        let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
         match api.propose().await {
             Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
             Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
@@ -555,8 +517,12 @@ pub async fn deploy_and_wait_command(
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
-    let manager = F1r3flyConnectionManager::new(config_from_deploy_args(args));
-    let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
+    let manager = F1r3flyConnectionManager::new(build_config(
+        &args.wait,
+        &args.private_key,
+        args.check_interval,
+    ));
+    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
 
     println!("Deploying and waiting for finalization...");
     let start = Instant::now();
@@ -580,20 +546,21 @@ pub async fn deploy_and_wait_command(
             println!("Deploy error: {err}");
         }
     }
-    if result.data.is_empty() {
-        println!("Data: (none)");
-    } else {
-        for (i, par) in result.data.iter().enumerate() {
-            let simplified =
-                crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
-            println!("Data[{i}]: {simplified}");
+    match &result.data {
+        Ok(data) if data.is_empty() => println!("Data: (none)"),
+        Ok(data) => {
+            for (i, par) in data.iter().enumerate() {
+                let simplified =
+                    crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
+                println!("Data[{i}]: {simplified}");
+            }
         }
+        Err(err) => println!("Data: unreadable ({err})"),
     }
     println!("Total time: {:.2?}", start.elapsed());
 
     if args.propose {
-        let private_key = args.private_key.as_str();
-        let api = F1r3flyApi::new(private_key, &args.host, args.port)?;
+        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
         match api.propose().await {
             Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
             Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
@@ -601,7 +568,14 @@ pub async fn deploy_and_wait_command(
         }
     }
 
-    Ok(())
+    match result.data {
+        Ok(_) => Ok(()),
+        Err(err) => Err(format!(
+            "deploy {} finalized, but its deployId data could not be read: {err}",
+            result.deploy_id
+        )
+        .into()),
+    }
 }
 
 pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -727,7 +701,7 @@ fn validate_vault_address(address: &str) -> Result<(), Box<dyn std::error::Error
 
 fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust: u64) -> String {
     format!(
-        r#"new 
+        r#"new
  deployerId(`rho:system:deployerId`),
  stdout(`rho:io:stdout`),
  rl(`rho:registry:lookup`),
@@ -844,4 +818,67 @@ pub async fn deploy_status_command(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use f1r3fly_models::rhoapi::expr::ExprInstance;
+    use f1r3fly_models::rhoapi::{ETuple, Expr, Par};
+
+    fn finalized(data: Result<Vec<Par>, String>) -> DeployResult {
+        DeployResult {
+            deploy_id: "3045".to_string(),
+            block_hash: "abcd".to_string(),
+            block_number: Some(46),
+            cost: Some(1),
+            errored: false,
+            system_deploy_error: None,
+            data,
+        }
+    }
+
+    fn verdict(accepted: bool) -> Vec<Par> {
+        let flag = Par {
+            exprs: vec![Expr {
+                expr_instance: Some(ExprInstance::GBool(accepted)),
+            }],
+            ..Default::default()
+        };
+        vec![Par {
+            exprs: vec![Expr {
+                expr_instance: Some(ExprInstance::ETupleBody(ETuple {
+                    ps: vec![flag, Par::default()],
+                    ..Default::default()
+                })),
+            }],
+            ..Default::default()
+        }]
+    }
+
+    #[test]
+    fn an_unreadable_verdict_is_not_reported_as_a_rejection() {
+        let err = ensure_pos_call_succeeded(
+            "Withdrawal",
+            &finalized(Err(
+                "reading deployId data at block abcd: timed out".to_string()
+            )),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("could not be read"), "{err}");
+        assert!(err.contains("timed out"), "{err}");
+        assert!(!err.contains("rejected"), "{err}");
+    }
+
+    #[test]
+    fn a_read_verdict_decides_the_outcome() {
+        assert!(ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(true)))).is_ok());
+
+        let err = ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(false))))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("rejected by PoS"), "{err}");
+    }
 }

@@ -89,7 +89,7 @@ Last Finalized Block Summary:
 
 ## bonds
 
-Validators bonded in the PoS contract. A bond is listed as soon as its deploy executes, before it activates at the next epoch boundary. Must run against observer/read-only node.
+Validators bonded in the PoS contract. A bond is listed as soon as its deploy executes. Bonds outside the active set are marked `(not active)`: the active set is recomputed at each epoch boundary, up to the shard's `number-of-active-validators`, so such a bond may never activate. Must run against observer/read-only node.
 
 ```bash
 node_cli bonds [-H HOST] [-p HTTP_PORT]
@@ -100,7 +100,7 @@ $ node_cli bonds -H localhost -p 40453
 
 Bonded Validators (4 total, 4000 total stake):
 
-   1. 0429af98...455f1727 (stake: 1000) (pending activation)
+   1. 0429af98...455f1727 (stake: 1000) (not active)
    2. 0457feba...b4ae661c (stake: 1000)
    3. 04837a4c...b2df065f (stake: 1000)
    4. 04fa70d7...00f60420 (stake: 1000)
@@ -108,7 +108,7 @@ Bonded Validators (4 total, 4000 total stake):
 
 ## active-validators
 
-Validators participating in consensus. The set is recomputed only at epoch boundaries, so a new bond appears here one boundary after it appears in `bonds`. Must run against observer/read-only node.
+Validators participating in consensus. The set is recomputed only at epoch boundaries, up to the shard's `number-of-active-validators`, so a new bond appears here no earlier than one boundary after it appears in `bonds`. Must run against observer/read-only node.
 
 ```bash
 node_cli active-validators [-H HOST] [-p HTTP_PORT]

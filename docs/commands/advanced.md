@@ -176,6 +176,10 @@ Total time: 21.14s
  Bond rejected by PoS: Public key is already bonded.
 ```
 
+It also exits non-zero, without claiming a rejection, when the deploy finalized but its verdict could not be read: `Bond deploy finalized, but its PoS verdict could not be read: <error>`. Check the outcome with `validator-status`.
+
+A bond joins the active set at an epoch boundary only while the shard's `number-of-active-validators` has room; past that limit it stays bonded but not active.
+
 **Warning:** Only bond validators that are actually running nodes. Bonding a non-running validator breaks consensus.
 
 ## unbond-validator
@@ -212,7 +216,7 @@ Withdrawal requested. The validator leaves the bond set at the next epoch bounda
 Track progress with: node_cli validator-status -k 0429af984ed4da1a...455f1727
 ```
 
-The command exits non-zero when the PoS contract rejects the call, for example `Withdrawal rejected by PoS: User is not bonded`.
+The command exits non-zero when the PoS contract rejects the call, for example `Withdrawal rejected by PoS: User is not bonded`, and when the verdict could not be read.
 
 ## network-health
 
@@ -243,7 +247,7 @@ Network Health Summary:
 
 ## PoS Query Commands
 
-Query Proof-of-Stake contract state. All use exploratory deploy internally and must run against an observer node.
+Query Proof-of-Stake contract state. All use exploratory deploy internally and must run against an observer node. `validator-status` and `network-consensus` read over HTTP only.
 
 ### epoch-info
 
@@ -288,38 +292,38 @@ Current Epoch Rewards (3 validators):
 ### validator-status
 
 ```bash
-node_cli validator-status -k <PUBLIC_KEY> [-H HOST] [-p GRPC_PORT] [--http-port PORT]
+node_cli validator-status -k <PUBLIC_KEY> [-H HOST] [--http-port PORT]
 ```
 
-Reports each stage of the validator lifecycle:
+Reports the validator's state as of the last finalized block:
 
-- `BONDED` with the stake, then `ACTIVE` or `PENDING ACTIVATION` (the bond activates at the next epoch boundary).
-- `WITHDRAWAL REQUESTED` after `unbond-validator`, with the block at which the stake becomes payable.
+- `BONDED` with the stake, then `ACTIVE` or `NOT ACTIVE`. The active set is recomputed at each epoch boundary, up to the shard's `number-of-active-validators`, so a bond outside it is not guaranteed to activate.
+- `WITHDRAWAL REQUESTED` after `unbond-validator`, with the block at or after which stake and rewards become payable.
 - `WITHDRAWING` after the validator leaves the bond set, until the payout.
 
 ```
-$ node_cli validator-status -k 0457febafcc25dd3...b4ae661c -p 40452 --http-port 40453
+$ node_cli validator-status -k 0457febafcc25dd3...b4ae661c --http-port 40453
 
 BONDED: stake 1000
 ACTIVE: participating in consensus
 
-Current Block: 573
+As of block: 573 (last finalized)
 ```
 
 ### network-consensus
 
 ```bash
-node_cli network-consensus [-H HOST] [-p GRPC_PORT] [--http-port PORT]
+node_cli network-consensus [-H HOST] [--http-port PORT]
 ```
 
 ```
-$ node_cli network-consensus -p 40452 --http-port 40453
+$ node_cli network-consensus --http-port 40453
 
 Network Consensus Health:
-   Current Block: 573
+   As of block: 573 (last finalized)
    Total Bonded Validators: 3
    Active Validators: 3
-   Pending Activation: 0
+   Bonded, Not Active: 0
    Pending Withdrawals: 0
    Withdrawing: 0
    Withdrawal Quarantine Length: 10 blocks

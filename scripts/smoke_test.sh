@@ -607,13 +607,13 @@ run_test "epoch-rewards" \
 # validator-status: Check individual validator status
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "validator-status" \
-    "cargo run -q --release -- validator-status -H $OBSERVER_HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
+    "cargo run -q --release -- validator-status -H $OBSERVER_HOST --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
     "Validator status retrieved successfully|BONDED|NOT BONDED"
 
 # network-consensus: Get network-wide consensus overview
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "network-consensus" \
-    "cargo run -q --release -- network-consensus -H $OBSERVER_HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
+    "cargo run -q --release -- network-consensus -H $OBSERVER_HOST --http-port $OBSERVER_HTTP" \
     "Network consensus data retrieved successfully|Consensus Health"
 
 # ============================================

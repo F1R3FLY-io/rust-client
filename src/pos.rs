@@ -11,19 +11,21 @@ use serde_json::Value;
 
 use crate::rholang_helpers::convert_rholang_to_json;
 
-/// Exploratory term returning `(allBonds, activeValidators, pendingWithdrawers, withdrawers)`.
+/// Exploratory term returning
+/// `(allBonds, activeValidators, pendingWithdrawers, withdrawers, quarantineLength)`.
 ///
-/// The four getters run in one term so they describe the same block.
+/// The getters run in one term so they describe the same block.
 pub const POS_SNAPSHOT_QUERY: &str = r#"new return, rl(`rho:registry:lookup`), poSCh in {
  rl!(`rho:system:pos`, *poSCh) |
  for (@(_, PoS) <- poSCh) {
- new bondsCh, activeCh, pendingCh, withdrawersCh in {
+ new bondsCh, activeCh, pendingCh, withdrawersCh, quarantineCh in {
  @PoS!("getBonds", *bondsCh) |
  @PoS!("getActiveValidators", *activeCh) |
  @PoS!("getPendingWithdrawer", *pendingCh) |
  @PoS!("getWithdrawers", *withdrawersCh) |
- for (@bonds <- bondsCh & @active <- activeCh & @pending <- pendingCh & @withdrawers <- withdrawersCh) {
- return!((bonds, active, pending, withdrawers))
+ @PoS!("getQuarantineLength", *quarantineCh) |
+ for (@bonds <- bondsCh & @active <- activeCh & @pending <- pendingCh & @withdrawers <- withdrawersCh & @quarantine <- quarantineCh) {
+ return!((bonds, active, pending, withdrawers, quarantine))
  }
  }
  }
@@ -33,7 +35,8 @@ pub const POS_SNAPSHOT_QUERY: &str = r#"new return, rl(`rho:registry:lookup`), p
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Withdrawal {
     pub stake: i64,
-    /// Stake is paid out at the first epoch boundary at or after this block.
+    /// Stake plus accumulated rewards are paid out at the first epoch boundary
+    /// at or after this block.
     pub quarantine_end: i64,
 }
 
@@ -42,14 +45,19 @@ pub struct Withdrawal {
 /// Public keys are lowercase hex.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PosSnapshot {
+    /// The block whose post-state was read.
+    pub block_number: i64,
     /// Bonded validators and their stake. A bond enters as soon as its deploy executes.
     pub bonds: BTreeMap<String, i64>,
-    /// Validators in consensus. Recomputed only at epoch boundaries.
+    /// Validators in consensus. Recomputed at each epoch boundary from `bonds`,
+    /// capped at the shard's number of active validators.
     pub active: BTreeSet<String>,
     /// Requested withdrawals, keyed to their quarantine end. Applied at the next epoch boundary.
     pub pending_withdrawals: BTreeMap<String, i64>,
     /// Applied withdrawals awaiting payout. These keys are no longer in `bonds`.
     pub withdrawals: BTreeMap<String, Withdrawal>,
+    /// Blocks between a withdrawal taking effect and its payout becoming due.
+    pub quarantine_length: i64,
 }
 
 impl PosSnapshot {
@@ -74,8 +82,11 @@ impl PosSnapshot {
             .copied()
     }
 
-    /// Bonded validators that have not entered the active set yet.
-    pub fn pending_activation(&self) -> impl Iterator<Item = (&str, i64)> {
+    /// Bonded validators outside the active set.
+    ///
+    /// Not a queue: the active set is capped at the shard's number of active
+    /// validators, so a bond listed here may never activate.
+    pub fn inactive_bonds(&self) -> impl Iterator<Item = (&str, i64)> {
         self.bonds
             .iter()
             .filter(|(key, _)| !self.active.contains(*key))
@@ -91,18 +102,30 @@ pub fn parse_pos_snapshot(response: &Value) -> Result<PosSnapshot, String> {
         .and_then(|exprs| exprs.first())
         .ok_or_else(|| format!("response carries no PoS state: {response}"))?;
     let state = convert_rholang_to_json(expr).map_err(|e| e.to_string())?;
-    let [bonds, active, pending, withdrawers] = state
+    let [bonds, active, pending, withdrawers, quarantine] = state
         .as_array()
-        .and_then(|parts| <&[Value; 4]>::try_from(parts.as_slice()).ok())
+        .and_then(|parts| <&[Value; 5]>::try_from(parts.as_slice()).ok())
         .ok_or_else(|| {
-            format!("expected (bonds, active, pendingWithdrawers, withdrawers), got {state}")
+            format!(
+                "expected (bonds, active, pendingWithdrawers, withdrawers, quarantineLength), \
+                 got {state}"
+            )
         })?;
+    let block_number = response
+        .get("block")
+        .and_then(|block| block.get("blockNumber"))
+        .and_then(Value::as_i64)
+        .ok_or_else(|| format!("response does not name the block it read: {response}"))?;
 
     Ok(PosSnapshot {
+        block_number,
         bonds: integer_map(bonds, "bonds")?,
         active: key_set(active)?,
         pending_withdrawals: integer_map(pending, "pendingWithdrawers")?,
         withdrawals: withdrawal_map(withdrawers)?,
+        quarantine_length: quarantine
+            .as_i64()
+            .ok_or_else(|| format!("quarantineLength is not an integer: {quarantine}"))?,
     })
 }
 
@@ -251,8 +274,9 @@ mod tests {
 
     /// Shape of a live node's explore-deploy response to `POS_SNAPSHOT_QUERY`.
     fn response(bonds: Value, active: Value, pending: Value, withdrawers: Value) -> Value {
+        let quarantine = json!({"ExprInt": {"data": 50000}});
         json!({
-            "expr": [{"ExprTuple": {"data": [bonds, active, pending, withdrawers]}}],
+            "expr": [{"ExprTuple": {"data": [bonds, active, pending, withdrawers, quarantine]}}],
             "block": {"blockNumber": 51148},
             "cost": 0
         })
@@ -288,15 +312,17 @@ mod tests {
         ))
         .unwrap();
 
+        assert_eq!(snapshot.block_number, 51148);
+        assert_eq!(snapshot.quarantine_length, 50000);
         assert_eq!(snapshot.stake(V1), Some(1000));
         assert!(snapshot.is_active(V4));
-        assert_eq!(snapshot.pending_activation().count(), 0);
+        assert_eq!(snapshot.inactive_bonds().count(), 0);
         assert!(snapshot.pending_withdrawals.is_empty());
         assert!(snapshot.withdrawals.is_empty());
     }
 
     #[test]
-    fn bonded_key_outside_the_active_set_is_pending_activation() {
+    fn bonded_key_outside_the_active_set_is_inactive() {
         let snapshot = parse_pos_snapshot(&response(
             bonds(&[(V1, 1000), (V4, 1000)]),
             active(&[V1]),
@@ -308,7 +334,7 @@ mod tests {
         assert_eq!(snapshot.stake(V4), Some(1000));
         assert!(!snapshot.is_active(V4));
         assert_eq!(
-            snapshot.pending_activation().collect::<Vec<_>>(),
+            snapshot.inactive_bonds().collect::<Vec<_>>(),
             vec![(V4, 1000)]
         );
     }
@@ -356,6 +382,32 @@ mod tests {
     fn rejects_a_response_without_pos_state() {
         let err = parse_pos_snapshot(&json!({"expr": [], "block": {}})).unwrap_err();
         assert!(err.contains("no PoS state"), "{err}");
+    }
+
+    #[test]
+    fn rejects_a_response_that_does_not_name_its_block() {
+        let mut unnamed = response(
+            bonds(&[(V1, 1000)]),
+            active(&[V1]),
+            empty_map(),
+            empty_map(),
+        );
+        unnamed["block"] = json!({});
+        let err = parse_pos_snapshot(&unnamed).unwrap_err();
+        assert!(err.contains("does not name the block"), "{err}");
+    }
+
+    #[test]
+    fn rejects_a_non_integer_quarantine_length() {
+        let mut bad = response(
+            bonds(&[(V1, 1000)]),
+            active(&[V1]),
+            empty_map(),
+            empty_map(),
+        );
+        bad["expr"][0]["ExprTuple"]["data"][4] = json!({"ExprString": {"data": "20"}});
+        let err = parse_pos_snapshot(&bad).unwrap_err();
+        assert!(err.contains("quarantineLength is not an integer"), "{err}");
     }
 
     #[test]

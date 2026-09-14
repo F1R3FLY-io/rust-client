@@ -381,20 +381,16 @@ impl F1r3flyConnectionManager {
             }
         };
 
-        // Phase 3: Read deploy result AFTER finalization
-        // Empty data is normal when the contract doesn't write to deployId
-        let data = match api.get_data_at_deploy_id(&deploy_id, &block_hash).await {
-            Ok(data) => data,
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("No data found") || msg.contains("None") {
-                    tracing::info!("No deployId data for deploy {}", deploy_id);
-                } else {
-                    tracing::warn!("Failed to read deploy data: {}", msg);
-                }
-                vec![]
-            }
-        };
+        // Phase 3: Read deploy result AFTER finalization. A deploy that writes
+        // nothing to deployId reads as an empty payload, so every error is a
+        // failed read.
+        let data = api
+            .get_data_at_deploy_id(&deploy_id, &block_hash)
+            .await
+            .map_err(|e| {
+                tracing::warn!(deploy_id = %deploy_id, error = %e, "Failed to read deployId data");
+                format!("reading deployId data at block {block_hash}: {e}")
+            });
 
         // Phase 4: Get deploy execution details
         // May fail on older nodes that don't support ?view=detail
@@ -468,7 +464,13 @@ impl F1r3flyConnectionManager {
                 result.deploy_id, result.cost, result.system_deploy_error
             )));
         }
-        crate::vault::parse_transfer_result(&result.data).map_err(|e| {
+        let data = result.data.as_ref().map_err(|e| {
+            ConnectionError::OperationFailed(format!(
+                "transfer deploy {} finalized, but its result could not be read: {e}",
+                result.deploy_id
+            ))
+        })?;
+        crate::vault::parse_transfer_result(data).map_err(|e| {
             ConnectionError::OperationFailed(format!("transfer deploy {}: {e}", result.deploy_id))
         })?;
 
