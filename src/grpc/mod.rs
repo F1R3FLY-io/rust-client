@@ -8,6 +8,7 @@ pub mod query;
 use secp256k1::SecretKey;
 use std::sync::atomic::AtomicI64;
 use std::sync::Arc;
+use std::time::Duration;
 
 const TIP_FLOOR_UNSET: i64 = -1;
 
@@ -17,6 +18,7 @@ pub struct F1r3flyApi<'a> {
     pub(crate) node_host: &'a str,
     pub(crate) grpc_port: u16,
     pub(crate) tip_floor: Arc<AtomicI64>,
+    pub(crate) exploratory_retry_budget: Option<Duration>,
 }
 
 impl<'a> F1r3flyApi<'a> {
@@ -35,6 +37,7 @@ impl<'a> F1r3flyApi<'a> {
             node_host,
             grpc_port,
             tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
+            exploratory_retry_budget: None,
         })
     }
 
@@ -46,7 +49,16 @@ impl<'a> F1r3flyApi<'a> {
             node_host,
             grpc_port,
             tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
+            exploratory_retry_budget: None,
         }
+    }
+
+    /// Cap how long exploratory deploys may spend retrying capacity
+    /// rejections. Without a budget the full [`crate::utils::http::EXPLORATORY_RETRY_BACKOFF`]
+    /// schedule is used.
+    pub fn with_exploratory_retry_budget(mut self, budget: Duration) -> Self {
+        self.exploratory_retry_budget = Some(budget);
+        self
     }
 
     pub(crate) fn grpc_url(&self) -> String {
