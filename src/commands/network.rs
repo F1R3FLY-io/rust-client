@@ -467,7 +467,8 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         from_address, args.to_address, amount_dust
     );
 
-    let rholang_code = generate_transfer_contract(&from_address, &args.to_address, amount_dust);
+    let rholang_code =
+        crate::vault::build_transfer_rholang(&from_address, &args.to_address, amount_dust);
     let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
 
     let manager = F1r3flyConnectionManager::new(build_config(
@@ -482,21 +483,14 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         .await
         .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
-    if result.errored {
-        let err = result
-            .system_deploy_error
-            .as_deref()
-            .unwrap_or("unknown error");
-        println!("Transfer failed: {err}");
-        return Err(format!("Transfer failed: {err}").into());
-    }
-
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
     if let Some(cost) = result.cost {
         println!("Cost: {cost}");
     }
     println!("Total time: {:.2?}", start.elapsed());
+
+    crate::vault::check_transfer_result(&result).map_err(|e| format!("Transfer failed: {e}"))?;
 
     if args.propose {
         let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
@@ -697,47 +691,6 @@ fn validate_vault_address(address: &str) -> Result<(), Box<dyn std::error::Error
     }
 
     Ok(())
-}
-
-fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust: u64) -> String {
-    format!(
-        r#"new
- deployerId(`rho:system:deployerId`),
- stdout(`rho:io:stdout`),
- rl(`rho:registry:lookup`),
- systemVaultCh,
- vaultCh,
- toVaultCh,
- systemVaultKeyCh,
- resultCh
-in {{
- rl!(`rho:vault:system`, *systemVaultCh) |
- for (@(_, SystemVault) <- systemVaultCh) {{
- @SystemVault!("findOrCreate", "{from_address}", *vaultCh) |
- @SystemVault!("findOrCreate", "{to_address}", *toVaultCh) |
- @SystemVault!("deployerAuthKey", *deployerId, *systemVaultKeyCh) |
- for (@(true, vault) <- vaultCh; key <- systemVaultKeyCh; @(true, toVault) <- toVaultCh) {{
- @vault!("transfer", "{to_address}", {amount_dust}, *key, *resultCh) |
- for (@result <- resultCh) {{
- match result {{
- (true, Nil) => {{
- stdout!(("Transfer successful:", {amount_dust}, "tokens"))
- }}
- (false, reason) => {{
- stdout!(("Transfer failed:", reason))
- }}
- }}
- }}
- }} |
- for (@(false, errorMsg) <- vaultCh) {{
- stdout!(("Sender vault error:", errorMsg))
- }} |
- for (@(false, errorMsg) <- toVaultCh) {{
- stdout!(("Destination vault error:", errorMsg))
- }}
- }}
-}}"# // success message amount
-    )
 }
 
 /// Read data at a deploy ID from a specific block

@@ -455,23 +455,8 @@ impl F1r3flyConnectionManager {
             .deploy_and_wait_with_phlo_limit(&rholang, crate::vault::TRANSFER_PHLO_LIMIT, 0)
             .await?;
 
-        // A finalized deploy is not a successful transfer: the deploy can
-        // error on-chain (e.g. phlo exhaustion), and the vault itself can
-        // reject the transfer without any deploy error. Both must fail here.
-        if result.errored || result.system_deploy_error.is_some() {
-            return Err(ConnectionError::OperationFailed(format!(
-                "transfer deploy {} errored on-chain (cost: {:?}, system error: {:?})",
-                result.deploy_id, result.cost, result.system_deploy_error
-            )));
-        }
-        let data = result.data.as_ref().map_err(|e| {
-            ConnectionError::OperationFailed(format!(
-                "transfer deploy {} finalized, but its result could not be read: {e}",
-                result.deploy_id
-            ))
-        })?;
-        crate::vault::parse_transfer_result(data).map_err(|e| {
-            ConnectionError::OperationFailed(format!("transfer deploy {}: {e}", result.deploy_id))
+        crate::vault::check_transfer_result(&result).map_err(|e| {
+            ConnectionError::OperationFailed(format!("{e} (deploy {})", result.deploy_id))
         })?;
 
         tracing::info!(
