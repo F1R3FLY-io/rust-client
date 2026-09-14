@@ -44,9 +44,9 @@ impl<'a> F1r3flyApi<'a> {
                 Ok(response) => break response,
                 Err(status) if is_exploratory_capacity_rejection(&status) => {
                     let delay = EXPLORATORY_RETRY_BACKOFF.get(attempt).copied();
-                    let within_budget = delay.map_or(false, |delay| {
+                    let within_budget = delay.is_some_and(|delay| {
                         self.exploratory_retry_budget
-                            .map_or(true, |budget| retry_started.elapsed() + delay <= budget)
+                            .is_none_or(|budget| retry_started.elapsed() + delay <= budget)
                     });
                     if !within_budget {
                         return Err(status.into());
