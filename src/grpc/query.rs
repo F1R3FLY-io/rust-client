@@ -38,14 +38,20 @@ impl<'a> F1r3flyApi<'a> {
         };
 
         let mut attempt = 0;
+        let retry_started = std::time::Instant::now();
         let response = loop {
             match client.exploratory_deploy(query.clone()).await {
                 Ok(response) => break response,
-                Err(status)
-                    if is_exploratory_capacity_rejection(&status)
-                        && attempt < EXPLORATORY_RETRY_BACKOFF.len() =>
-                {
-                    tokio::time::sleep(EXPLORATORY_RETRY_BACKOFF[attempt]).await;
+                Err(status) if is_exploratory_capacity_rejection(&status) => {
+                    let delay = EXPLORATORY_RETRY_BACKOFF.get(attempt).copied();
+                    let within_budget = delay.is_some_and(|delay| {
+                        self.exploratory_retry_budget
+                            .is_none_or(|budget| retry_started.elapsed() + delay <= budget)
+                    });
+                    if !within_budget {
+                        return Err(status.into());
+                    }
+                    tokio::time::sleep(delay.expect("checked delay")).await;
                     attempt += 1;
                 }
                 Err(status) => return Err(status.into()),
