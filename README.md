@@ -63,4 +63,5 @@ export FIREFLY_PRIVATE_KEY=5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a
 | `FIREFLY_HTTP_PORT` | No | `40403` | HTTP port |
 | `FIREFLY_OBSERVER_HOST` | No | same as host | Observer for finalization |
 | `FIREFLY_OBSERVER_GRPC_PORT` | No | `40452` | Observer gRPC port |
+| `FIREFLY_OBSERVER_HTTP_PORT` | No | `40453` | Observer HTTP port for finalization status |
 | `FIREFLY_FINALIZATION_TIMEOUT` | No | `90` | Max seconds to wait for a deploy to finalize |

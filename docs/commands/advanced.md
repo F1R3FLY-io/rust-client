@@ -153,6 +153,7 @@ node_cli bond-validator --stake <AMOUNT> --private-key <KEY> [OPTIONS]
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer-host` | | Observer for finalization |
 | `--observer-port` | `40452` | Observer gRPC port |
+| `--observer-http-port` | `40453` | Observer HTTP port polled for finalization status |
 
 ```
 $ node_cli bond-validator --stake 1000 --private-key <KEY>
@@ -196,6 +197,7 @@ node_cli unbond-validator --private-key <KEY> [OPTIONS]
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer-host` | | Observer for finalization |
 | `--observer-port` | `40452` | Observer gRPC port |
+| `--observer-http-port` | `40453` | Observer HTTP port polled for finalization status |
 
 The withdrawal takes effect in stages, each at an epoch boundary:
 

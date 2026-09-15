@@ -141,11 +141,14 @@ pub struct DeployWaitArgs {
     #[arg(long = "observer-host")]
     pub observer_host: Option<String>,
 
-    /// Observer node gRPC port for finalization checks (falls back to 40452 if not specified).
-    /// The observer HTTP port is this value + 1. For a standalone node (no separate observer),
-    /// pass an observer port whose +1 equals the node's HTTP port.
+    /// Observer node gRPC port (falls back to 40452 if not specified)
     #[arg(long = "observer-port")]
     pub observer_port: Option<u16>,
+
+    /// Observer node HTTP port polled for finalization status (falls back to 40453 if not
+    /// specified). For a standalone node with no separate observer, pass the node's HTTP port.
+    #[arg(long = "observer-http-port")]
+    pub observer_http_port: Option<u16>,
 
     /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
     /// Use 0 or omit for no expiration.

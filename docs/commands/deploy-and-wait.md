@@ -31,6 +31,7 @@ node_cli deploy-and-wait -f <FILE> [OPTIONS]
 | `--check-interval` | | `2` | Seconds between finalization status polls |
 | `--observer-host` | | same as host | Observer node for finalization checks |
 | `--observer-port` | | `40452` | Observer gRPC port |
+| `--observer-http-port` | | `40453` | Observer HTTP port polled for finalization status |
 | `--expiration` | | none | Expiration timestamp (ms) |
 | `--expires-in` | | none | Expiration duration (seconds) |
 
@@ -90,6 +91,6 @@ The deploy must reach a terminal state (`Finalized`, `Failed`, or `Expired`) wit
 
 ## Observer Node
 
-Finalization checks run against the observer node (read-only), not the validator. This avoids interfering with block production. Set `--observer-host` and `--observer-port` if the observer is on a different host.
+Finalization checks run against the observer node (read-only), not the validator. This avoids interfering with block production. Set `--observer-host`, `--observer-port` and `--observer-http-port` if the observer is on a different host or ports. The two ports are independent; neither is derived from the other.
 
-On a standard Docker shard, the observer is at port 40452 (gRPC).
+On a standard Docker shard, the observer is at port 40452 (gRPC) and 40453 (HTTP). For a standalone node with no separate observer, pass the node's own HTTP port as `--observer-http-port`; otherwise every poll first tries port 40453 and falls back to the deploy node.

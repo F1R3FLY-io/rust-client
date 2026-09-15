@@ -24,6 +24,7 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--check-interval` | | `5` | Seconds between finalization status polls |
 | `--observer-host` | | same as host | Observer for finalization |
 | `--observer-port` | | `40452` | Observer gRPC port |
+| `--observer-http-port` | | `40453` | Observer HTTP port polled for finalization status |
 | `--expiration` | | none | Expiration timestamp (ms) |
 | `--expires-in` | | none | Expiration duration (seconds) |
 | `--whole-tokens` | `-d` | false | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status (default: base units / dust) |

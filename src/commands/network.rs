@@ -21,6 +21,9 @@ fn build_config(wait: &DeployWaitArgs, private_key: &str, check_interval: u64) -
     if let Some(obs_port) = wait.observer_port {
         config.observer_grpc_port = obs_port;
     }
+    if let Some(obs_http_port) = wait.observer_http_port {
+        config.observer_http_port = obs_http_port;
+    }
     config
 }
 
@@ -823,6 +826,38 @@ mod tests {
         assert!(err.contains("could not be read"), "{err}");
         assert!(err.contains("timed out"), "{err}");
         assert!(!err.contains("rejected"), "{err}");
+    }
+
+    #[test]
+    fn observer_ports_reach_the_connection_config_independently() {
+        use clap::Parser;
+
+        let args = DeployAndWaitArgs::try_parse_from([
+            "deploy-and-wait",
+            "-f",
+            "contract.rho",
+            "-k",
+            "00",
+            "--observer-port",
+            "40402",
+            "--observer-http-port",
+            "40403",
+        ])
+        .unwrap();
+        let config = build_config(&args.wait, &args.private_key, args.check_interval);
+        assert_eq!(config.observer_grpc_port, 40402);
+        assert_eq!(config.observer_http_port, 40403);
+
+        let defaults =
+            DeployAndWaitArgs::try_parse_from(["deploy-and-wait", "-f", "c.rho", "-k", "00"])
+                .unwrap();
+        let config = build_config(
+            &defaults.wait,
+            &defaults.private_key,
+            defaults.check_interval,
+        );
+        assert_eq!(config.observer_grpc_port, 40452);
+        assert_eq!(config.observer_http_port, 40453);
     }
 
     #[test]
