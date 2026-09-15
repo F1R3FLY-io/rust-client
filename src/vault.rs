@@ -83,6 +83,23 @@ in {{
     )
 }
 
+/// Fail unless a finalized transfer deploy positively reports a completed transfer:
+/// the deploy must not have errored, its deployId data must be readable, and the
+/// vault must have accepted the transfer.
+pub fn check_transfer_result(result: &crate::f1r3fly_api::DeployResult) -> Result<(), String> {
+    if result.errored || result.system_deploy_error.is_some() {
+        return Err(format!(
+            "transfer deploy errored on-chain (cost: {:?}, system error: {:?})",
+            result.cost, result.system_deploy_error
+        ));
+    }
+    let data = result
+        .data
+        .as_ref()
+        .map_err(|e| format!("transfer deploy finalized, but its result could not be read: {e}"))?;
+    parse_transfer_result(data)
+}
+
 /// Interpret the deployId-channel data of a transfer deploy.
 ///
 /// The transfer contract forwards the vault's result tuple to the deployId
@@ -178,4 +195,74 @@ pub fn tokens_to_dust(tokens: f64) -> u64 {
 /// Convert dust amount to tokens
 pub fn dust_to_tokens(dust: u64) -> f64 {
     dust as f64 / DUST_FACTOR as f64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::f1r3fly_api::DeployResult;
+    use f1r3fly_models::rhoapi::expr::ExprInstance;
+    use f1r3fly_models::rhoapi::{ETuple, Expr, Par};
+
+    fn single(expr_instance: ExprInstance) -> Par {
+        Par {
+            exprs: vec![Expr {
+                expr_instance: Some(expr_instance),
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn vault_answer(parts: Vec<Par>) -> Vec<Par> {
+        vec![single(ExprInstance::ETupleBody(ETuple {
+            ps: parts,
+            ..Default::default()
+        }))]
+    }
+
+    fn finalized(data: Result<Vec<Par>, String>) -> DeployResult {
+        DeployResult {
+            deploy_id: "3045".to_string(),
+            block_hash: "abcd".to_string(),
+            block_number: Some(12),
+            cost: Some(252435),
+            errored: false,
+            system_deploy_error: None,
+            data,
+        }
+    }
+
+    #[test]
+    fn an_accepted_transfer_passes() {
+        let data = vault_answer(vec![single(ExprInstance::GBool(true)), Par::default()]);
+        assert_eq!(check_transfer_result(&finalized(Ok(data))), Ok(()));
+    }
+
+    #[test]
+    fn a_vault_rejection_fails_with_its_reason() {
+        let data = vault_answer(vec![
+            single(ExprInstance::GBool(false)),
+            single(ExprInstance::GString("Insufficient funds".into())),
+        ]);
+        let err = check_transfer_result(&finalized(Ok(data))).unwrap_err();
+        assert!(
+            err.contains("vault rejected the transfer: Insufficient funds"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn an_errored_deploy_fails() {
+        let mut result = finalized(Ok(vec![]));
+        result.errored = true;
+        let err = check_transfer_result(&result).unwrap_err();
+        assert!(err.contains("errored on-chain"), "{err}");
+    }
+
+    #[test]
+    fn an_unreadable_result_is_not_reported_as_a_rejection() {
+        let err = check_transfer_result(&finalized(Err("timed out".to_string()))).unwrap_err();
+        assert!(err.contains("could not be read: timed out"), "{err}");
+        assert!(!err.contains("rejected"), "{err}");
+    }
 }

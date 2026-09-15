@@ -100,9 +100,9 @@ impl<'a> F1r3flyApi<'a> {
     /// Query `/api/deploy-finalization-status/{deploy_sig_hex}` for canonical
     /// finalization state of a deploy.
     ///
-    /// Returns `Ok(Some(status))` on 200, `Ok(None)` on 404 (endpoint not
-    /// available on this node — caller should fall back to block-hash polling),
-    /// and `Err` on other failures (network, JSON parse, 5xx).
+    /// Returns `Ok(Some(status))` on 200, `Ok(None)` on 404 (the node does not
+    /// serve the endpoint; an unknown deploy answers 200 `Pending`), and `Err`
+    /// on other failures (network, JSON parse, 5xx).
     pub async fn deploy_finalization_status(
         &self,
         deploy_sig_hex: &str,

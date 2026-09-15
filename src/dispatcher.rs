@@ -44,6 +44,9 @@ impl Dispatcher {
             Commands::BondValidator(args) => bond_validator_command(args)
                 .await
                 .map_err(NodeCliError::from),
+            Commands::UnbondValidator(args) => unbond_validator_command(args)
+                .await
+                .map_err(NodeCliError::from),
             Commands::NetworkHealth(args) => network_health_command(args)
                 .await
                 .map_err(NodeCliError::from),
@@ -141,6 +144,7 @@ impl Dispatcher {
             Commands::BondStatus(_) => "bond-status",
             Commands::Metrics(_) => "metrics",
             Commands::BondValidator(_) => "bond-validator",
+            Commands::UnbondValidator(_) => "unbond-validator",
             Commands::NetworkHealth(_) => "network-health",
             Commands::LastFinalizedBlock(_) => "last-finalized-block",
             Commands::ShowMainChain(_) => "show-main-chain",

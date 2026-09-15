@@ -252,17 +252,17 @@ run_test "deploy" \
     "cargo run -q --release -- deploy -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT" \
     "Deployment successful|Deploy ID:"
 
-# deploy-and-wait: Deploy and wait for block inclusion/finalization
-# Uses ConnectionManager: deploy -> find_deploy_grpc -> is_finalized (observer)
+# deploy-and-wait: Deploy and wait for finalization
+# Uses ConnectionManager: deploy -> deploy-finalization-status polling (observer)
 run_test "deploy-and-wait" \
-    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 60 --check-interval 2" \
+    "cargo run -q --release -- deploy-and-wait -f ./rho_examples/stdout.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-http-port $OBSERVER_HTTP --observer-host $OBSERVER_HOST --max-wait 60 --check-interval 2" \
     "Deploy ID:|Block hash:|Total time:"
 
 # deploy-and-wait with deployId data: Deploy, wait for finalization, read result
 # deploy-and-wait now always reads deployId channel data after finalization
 echo -n "Testing deploy-and-wait (with data)... "
 FDAW_START=$(date +%s.%N)
-if cargo run -q --release -- deploy-and-wait -f ./rho_examples/deploy_id_test.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 60 --finalization-timeout 30 --check-interval 2 > "$OUTPUT" 2>&1; then
+if cargo run -q --release -- deploy-and-wait -f ./rho_examples/deploy_id_test.rho -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-http-port $OBSERVER_HTTP --observer-host $OBSERVER_HOST --max-wait 60 --check-interval 2 > "$OUTPUT" 2>&1; then
     FDAW_END=$(date +%s.%N)
     FDAW_MS=$(echo "($FDAW_END - $FDAW_START) * 1000" | bc | cut -d. -f1)
     save_log "deploy-and-wait (with data)"
@@ -435,7 +435,7 @@ echo -e "${BLUE}--- Transfer Commands ---${NC}"
 # Uses ConnectionManager with full_deploy_and_wait (deploy -> finalize -> read)
 echo -n "Testing transfer... "
 TRANSFER_START=$(date +%s.%N)
-if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 120 --check-interval 2 > "$OUTPUT" 2>&1; then
+if cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-http-port $OBSERVER_HTTP --observer-host $OBSERVER_HOST --max-wait 120 --check-interval 2 > "$OUTPUT" 2>&1; then
     TRANSFER_END=$(date +%s.%N)
     TRANSFER_MS=$(echo "($TRANSFER_END - $TRANSFER_START) * 1000" | bc | cut -d. -f1)
     save_log "transfer"
@@ -530,7 +530,7 @@ TA_WS_PID=$!
 sleep 3  # Let WS connect
 
 # Submit a transfer
-cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-host $OBSERVER_HOST --max-wait 120 --check-interval 2 > /dev/null 2>&1 &
+cargo run -q --release -- transfer --to-address 111127RX5ZgiAdRaQy4AWy57RdvAAckdELReEBxzvWYVvdnR32PiHA --amount 1 -H $HOST -p $GRPC_PORT --http-port $HTTP_PORT --observer-port $OBSERVER_GRPC --observer-http-port $OBSERVER_HTTP --observer-host $OBSERVER_HOST --max-wait 120 --check-interval 2 > /dev/null 2>&1 &
 TA_TX_PID=$!
 
 # Wait for WS to capture events (up to remaining time)
@@ -607,13 +607,13 @@ run_test "epoch-rewards" \
 # validator-status: Check individual validator status
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "validator-status" \
-    "cargo run -q --release -- validator-status -H $OBSERVER_HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
+    "cargo run -q --release -- validator-status -H $OBSERVER_HOST --http-port $OBSERVER_HTTP -k $VALIDATOR_PUBKEY" \
     "Validator status retrieved successfully|BONDED|NOT BONDED"
 
 # network-consensus: Get network-wide consensus overview
 # Uses exploratory-deploy internally, must run on observer (read-only) node
 run_test "network-consensus" \
-    "cargo run -q --release -- network-consensus -H $OBSERVER_HOST -p $OBSERVER_GRPC --http-port $OBSERVER_HTTP" \
+    "cargo run -q --release -- network-consensus -H $OBSERVER_HOST --http-port $OBSERVER_HTTP" \
     "Network consensus data retrieved successfully|Consensus Health"
 
 # ============================================

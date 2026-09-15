@@ -1,6 +1,6 @@
 # transfer
 
-Transfer native tokens between vault addresses. Deploys a transfer contract, waits for finalization, and reports the result.
+Transfer native tokens between vault addresses. Deploys a transfer contract, waits for finalization, and reports the vault's verdict. The command exits non-zero when the deploy errors, when the vault rejects the transfer (for example `Transfer failed: vault rejected the transfer: Insufficient funds`), and when the verdict could not be read.
 
 ## Usage
 
@@ -20,10 +20,11 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--http-port` | | `40413` | HTTP port |
 | `--bigger-phlo` | `-b` | true | Use high phlo limit (recommended) |
 | `--propose` | | false | Also propose a block after deploy |
-| `--max-wait` | | `300` | Max seconds for block inclusion |
-| `--check-interval` | | `5` | Seconds between polls |
+| `--max-wait` | | `300` | Max seconds to wait for finalization |
+| `--check-interval` | | `5` | Seconds between finalization status polls |
 | `--observer-host` | | same as host | Observer for finalization |
 | `--observer-port` | | `40452` | Observer gRPC port |
+| `--observer-http-port` | | `40453` | Observer HTTP port polled for finalization status |
 | `--expiration` | | none | Expiration timestamp (ms) |
 | `--expires-in` | | none | Expiration duration (seconds) |
 | `--whole-tokens` | `-d` | false | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status (default: base units / dust) |
@@ -55,4 +56,5 @@ Transfer: 1111AtahZe...r3g -> 111127RX5Z...iHA (100000000 dust)
 - The sender address is derived from the private key automatically
 - `--amount` is in base units (dust) by default; use `--whole-tokens`/`-d` to specify whole tokens (scaled by the native token's decimals fetched from node status)
 - Uses high phlo limit by default because transfer contracts are expensive
+- `Transfer complete.` is printed only after the vault reports the transfer accepted on the deploy's `deployId` channel
 - Vault addresses must start with `1111`
