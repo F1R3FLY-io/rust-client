@@ -7,10 +7,19 @@ license = "Apache-2.0"
 [features]
 default = ["cli"]
 cli = ["dep:clap", "dep:ratatui", "dep:crossterm", "dep:tracing-subscriber"]
+# Gates the node-backed suite. Without it `cargo test --test integration`
+# fails rather than skipping, so the suite cannot pass by not running.
+integration = []
 
 [[bin]]
 name = "node_cli"
 required-features = ["cli"]
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+harness = false
+required-features = ["cli", "integration"]
 
 [dependencies]
 # F1r3fly protocol types — pinned to a released f1r3node-rust tag.
@@ -60,3 +69,6 @@ clap = { version = "4.4.6", features = ["derive", "env"], optional = true }
 ratatui = { version = "0.28", optional = true }
 crossterm = { version = "0.28", optional = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+
+[dev-dependencies]
+libtest-mimic = "0.8.2"
