@@ -1,349 +1,177 @@
-# Validator4 Bonding Guide
+# Bonding a joiner validator
 
-This guide provides complete step-by-step instructions for bonding validator4 to the F1r3fly network and integrating it with the autopropose system.
+How to take a fourth validator from "not running" to "producing blocks", and
+back out again, using this client. The integration suite performs exactly this
+sequence in `tests/integration/pos.rs`, so it is kept honest by CI.
 
-## Table of Contents
+The shard used below is the one this repository owns,
+`tests/integration/topology/compose.yml`, which holds the joiner behind a
+compose profile. The ports are the standard shard layout, so the commands
+apply unchanged to any shard with a fourth validator.
 
-1. [Prerequisites](#prerequisites)
-2. [Phase 1: Network Status Check](#phase-1-network-status-check)
-3. [Phase 2: Start Validator4 Node](#phase-2-start-validator4-node)
-4. [Phase 3: Fund Transfer (if needed)](#phase-3-fund-transfer-if-needed)
-5. [Phase 4: Bond Validator4](#phase-4-bond-validator4)
-6. [Phase 5: Monitor Quarantine Period](#phase-5-monitor-quarantine-period)
-7. [Phase 6: Verify Active Participation](#phase-6-verify-active-participation)
-8. [Phase 7: Configure Autopropose Integration](#phase-7-configure-autopropose-integration)
-9. [Phase 8: Verify Block Proposing](#phase-8-verify-block-proposing)
-10. [Troubleshooting](#troubleshooting)
+| Node | gRPC | HTTP |
+|---|---|---|
+| validator1 | 40412 | 40413 |
+| validator4 (joiner) | 40442 | 40443 |
+| read-only observer | 40452 | 40453 |
 
-## Prerequisites
+Two rules hold throughout:
 
-- F1r3fly network running with existing validators
-- Docker and docker-compose installed
-- Node-cli built and functional
-- Validator4 credentials available
+- **Deploys go to a validator.** A node whose validator is not bonded accepts
+  a deploy and strands it, because nothing can ever include it
+  (f1r3node-rust#427). The joiner is unbonded until the bond takes effect, so
+  its own bond deploy goes to validator1.
+- **Read-only queries go to the observer.** Only a read-only node serves the
+  exploratory deploys that `bonds`, `active-validators`, `validator-status`
+  and `epoch-info` are built on.
 
-### Network Credentials
-
-For all network credentials including wallet addresses, private keys, and public keys for Bootstrap Node, Validator_1, Validator_2, Validator_3, Validator_4, and the Autopropose Deploy Wallet, please refer to the [Docker README](https://github.com/F1R3FLY-io/f1r3node-rust/blob/dev/docker/README.md#wallet-information).
-
-The Docker README contains the complete and up-to-date wallet information needed for this bonding guide.
-
-## Phase 1: Network Status Check
-
-First, verify the current network state and understand the epoch configuration.
+## 1. Check the shard before you start
 
 ```bash
-cd f1r3fly-build/node-cli
-
-# Check current network health
-cargo run -- network-health
-
-# Get current epoch information (shows epoch & quarantine lengths)
-cargo run -- epoch-info
-
-# Check current network consensus
-cargo run -- network-consensus
-
-# Verify existing validators
-cargo run -- active-validators
-cargo run -- bonds
+node_cli bonds -p 40453
+node_cli active-validators -p 40453
+node_cli epoch-info -p 40452 --http-port 40453
 ```
 
-**Expected Output:**
-- Network should show 3 active validators (validator1, validator2, validator3)
-- Epoch length: 10 blocks, Quarantine length: 10 blocks (for testing)
-- No validator4 in bonds or active validators list
+`epoch-info` reports the two numbers that decide how long each step below
+takes: the epoch length, and the quarantine length. The PoS contract applies
+bonds, withdrawals and payouts **only at an epoch boundary** — nothing you do
+between boundaries takes effect until the next one.
 
-## Phase 2: Start Validator4 Node
-
-Start the validator4 node using docker-compose.
+## 2. Start the joiner
 
 ```bash
-# Navigate to docker directory
-cd ../docker
-
-# Start validator4 node
-docker-compose -f validator4.yml up
-
-# Verify validator4 node is accessible
-cd ../node-cli
-cargo run -- status --port 40443  # validator4's HTTP port
+docker compose -f tests/integration/topology/compose.yml --profile joiner up -d
 ```
 
-**Expected Output:**
-- Validator4 container should be running
-- Status check should return node information
-
-## Phase 3: Fund Transfer
-
-Check if validator4 has sufficient REV for bonding (1000 REV required).
+Wait until it answers and has caught up:
 
 ```bash
-# Check validator4 REV balance
-cargo run -- wallet-balance --address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M
-
-# If balance is insufficient, transfer REV from bootstrap
-cargo run -- transfer --to-address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M --amount 2000 --private-key 5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657
-
-# Verify transfer completed
-cargo run -- wallet-balance --address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M
+curl -s localhost:40443/api/status
 ```
 
-**Expected Output:**
-- Validator4 should have at least 1000 REV for bonding
+The node is running but not bonded. It will not propose, and `bond-status`
+reports it as not bonded.
 
-## Phase 4: Bond Validator4
+## 3. Fund it, if it is not funded already
 
-Execute the bonding transaction to add validator4 to the network.
+The joiner pays for its own bond deploy, so its vault needs a balance. In this
+topology it is funded at genesis and this step is unnecessary. On a shard
+where it is not:
 
 ```bash
-# Verify validator4 is NOT currently bonded
-cargo run -- validator-status -k 04d26c6103d7269773b943d7a9c456f9eb227e0d8b1fe30bccee4fca963f4446e3385d99f6386317f2c1ad36b9e6b0d5f97bb0a0041f05781c60a5ebca124a251d
-
-# Bond validator4 with 1000 REV stake
-cargo run -- bond-validator --stake 1000 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd
+node_cli transfer \
+  --to-address <joiner vault address> \
+  --amount 100000000 \
+  --private-key <funded key> \
+  -H localhost -p 40412 --http-port 40413 \
+  --observer-host localhost --observer-port 40452 --observer-http-port 40453
 ```
 
-**Expected Output:**
-- Bonding transaction should complete successfully
-- Deploy ID should be returned
-
-## Phase 5: Monitor Quarantine Period
-
-Monitor validator4's transition from quarantine to active status.
+## 4. Bond
 
 ```bash
-# Check validator4 status immediately after bonding
-cargo run -- validator-status -k 04d26c6103d7269773b943d7a9c456f9eb227e0d8b1fe30bccee4fca963f4446e3385d99f6386317f2c1ad36b9e6b0d5f97bb0a0041f05781c60a5ebca124a251d
-
-# Monitor epoch progression
-cargo run -- epoch-info
-
-# Check network consensus status
-cargo run -- network-consensus
+node_cli bond-validator \
+  --stake 100 \
+  --private-key <joiner private key> \
+  -H localhost -p 40412 --http-port 40413 \
+  --observer-host localhost --observer-port 40452 --observer-http-port 40453 \
+  --max-wait 180
 ```
 
-**Expected Timeline (with testing config):**
-- **Immediately after bonding**: Validator4 shows "⏳ QUARANTINE"
-- **After ~10 blocks**: Validator4 transitions to "✅ ACTIVE"
-- **Total wait time**: ~2-3 minutes (with 10-block quarantine)
+The stake must be at least the shard's `bond-minimum`. Bonding twice with the
+same key fails with "already bonded".
 
-**Expected Status Progression:**
-1. `❌ NOT BONDED` → `✅ BONDED, ⏳ QUARANTINE` → `✅ BONDED, ✅ ACTIVE`
-
-## Phase 6: Verify Active Participation
-
-Confirm validator4 is now actively participating in consensus.
+Immediately afterwards the joiner is in the bond set but **not** in the active
+set:
 
 ```bash
-# Verify validator4 is active
-cargo run -- validator-status -k 04d26c6103d7269773b943d7a9c456f9eb227e0d8b1fe30bccee4fca963f4446e3385d99f6386317f2c1ad36b9e6b0d5f97bb0a0041f05781c60a5ebca124a251d
-
-# Check all active validators
-cargo run -- active-validators
-
-# Verify network consensus health
-cargo run -- network-consensus
-
-# Check recent blocks
-cargo run -- show-main-chain --depth 10 --port 40412
+node_cli bonds -p 40453              # now lists four validators
+node_cli active-validators -p 40453  # still lists three
 ```
 
-**Expected Output:**
-- Validator4 status: "✅ ACTIVE: Validator is actively participating in consensus"
-- Active validators: 4 total (validator1, validator2, validator3, validator4)
-- Network consensus: "🟢 Healthy" with 4/4 active validators
+`bonds` marks it `(not active)`. That is not a queue position: the active set
+is capped at the shard's number of active validators, so a bond can sit there
+indefinitely if the cap is already full.
 
-## Phase 7: Configure Autopropose Integration
+## 5. Wait for the epoch boundary
 
-Add validator4 to the autopropose rotation system.
-
-### 7.1 Update Autopropose Configuration
+At the next boundary the active set is recomputed and the joiner enters it:
 
 ```bash
-cd ../docker
+node_cli validator-status --public-key <joiner public key> --http-port 40453
 ```
 
-Edit `autopropose/config.yml` to add validator4:
-
-```yaml
-validators:
-  # Existing validators...
-  - name: validator1
-    host: rnode.validator1
-    grpc_port: 40402
-    enabled: true
-    
-  - name: validator2
-    host: rnode.validator2
-    grpc_port: 40402
-    enabled: true
-    
-  - name: validator3
-    host: rnode.validator3
-    grpc_port: 40402
-    enabled: true
-  
-  # Add Validator4
-  - name: validator4
-    host: rnode.validator4
-    grpc_port: 40402
-    enabled: true
-    
-  # Bootstrap (typically disabled)
-  - name: bootstrap
-    host: rnode.bootstrap
-    grpc_port: 40402
-    enabled: false
+```
+ BONDED: stake 100
+ ACTIVE: participating in consensus
 ```
 
-> **💡 Performance Tip:** Now that the network is past genesis, you can reduce the `startup_delay` in your autopropose configuration to speed up block proposing. The startup delay was primarily needed during the initial genesis setup and can be lowered for normal operations.
-
-### 7.2 Restart Autopropose Service
+From here it is a block producer; its public key appears as the `validator`
+of blocks it authors:
 
 ```bash
-# Restart autopropose to pick up new configuration
-docker-compose -f shard-with-autopropose.yml restart autopropose
-
-# Monitor autopropose logs
-docker logs -f autopropose
+node_cli blocks -p 40413
 ```
 
-**Expected Output:**
-- Autopropose should show validator4 in the rotation
-- Logs should indicate 4-validator rotation active
-
-## Phase 8: Verify Block Proposing
-
-Confirm validator4 is successfully proposing blocks in rotation.
+## 6. Unbond
 
 ```bash
-# Monitor autopropose logs for validator4 activity
-docker logs -f autopropose | grep validator4
-
-# Check recent blocks for validator4 signatures
-cd ../node-cli
-cargo run -- show-main-chain --depth 20 --port 40412
-
-# Check network consensus continuously
-cargo run -- network-consensus
+node_cli unbond-validator \
+  --private-key <joiner private key> \
+  -H localhost -p 40412 --http-port 40413 \
+  --observer-host localhost --observer-port 40452 --observer-http-port 40453 \
+  --max-wait 180
 ```
 
-**Success Indicators:**
-- ✅ Autopropose logs show validator4 proposing blocks
-- ✅ Recent blocks show validator4 as sender/proposer
-- ✅ Network consensus remains healthy (4/4 active validators)
-- ✅ Validator4 appears in regular rotation with other validators
+`validator-status` now reports a requested withdrawal and the block its
+quarantine ends at:
+
+```
+ WITHDRAWAL REQUESTED
+```
+
+The quarantine end is `quarantine-length + epoch-length * (1 + B / epoch-length)`,
+where `B` is the block the withdrawal was recorded in — in other words, the
+quarantine measured from the end of the epoch that carried the request.
+
+At the next boundary the withdrawal is applied: the joiner leaves the bond set
+and the active set, and the shard keeps finalizing without it. Unbonding a key
+that is not bonded fails.
+
+## 7. Payout
+
+Stake plus accumulated rewards is returned at the first epoch boundary at or
+after the quarantine end. Check the vault:
+
+```bash
+node_cli wallet-balance --address <joiner vault address> -p 40452
+```
+
+The balance rises by more than the stake, because committed rewards are paid
+with it.
 
 ## Troubleshooting
 
-### Issue: Validator4 Stuck in Quarantine
+**The bond command times out.** It waits for the deploy to reach a terminal
+verdict. Confirm the deploy was included at all:
 
-**Symptoms:**
-- Validator shows "⏳ QUARANTINE" for extended time
-- No transition to active status
-
-**Solutions:**
 ```bash
-# Check current epoch timing
-cargo run -- epoch-info
-
-# Verify quarantine period
-cargo run -- network-consensus
-
-# Check if quarantine length needs adjustment in config
-# Edit f1r3fly-build/docker/conf/shared-rnode.conf:
-# quarantine-length = 10  # Reduce for faster testing
+node_cli deploy-status --sig <deploy id> --http-port 40453
 ```
 
-### Issue: Bonding Transaction Fails
+If it reports `Pending` with no block, the deploy went somewhere that cannot
+include it — check that `-p` pointed at a bonded validator's gRPC port.
 
-**Symptoms:**
-- Bond-validator command returns error
-- Insufficient funds or network connection issues
+**The bond succeeded but the validator never activates.** Compare the bond set
+against the active set, and check the shard's number of active validators. If
+the cap is already met, the bond will not activate until a slot frees.
 
-**Solutions:**
-```bash
-# Verify validator4 node is running and accessible
-cargo run -- status --port 40443
+**`bonds` fails with `readonly_node_required`.** The query ran against a
+validator. Point `-p` at the read-only node's HTTP port (40453).
 
-# Check validator4 REV balance
-cargo run -- wallet-balance --address 1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M
-
-# Ensure network connectivity
-cargo run -- network-health --standard-ports
-
-# Try different gRPC port or host
-cargo run -- bond-validator --stake 1000 --private-key 5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd --port 40412
-```
-
-### Issue: Not Appearing in Active Validators
-
-**Symptoms:**
-- Validator4 shows bonded but not active
-- Active validators list doesn't include validator4
-
-**Solutions:**
-```bash
-# Check for network consensus issues
-cargo run -- network-consensus
-
-# Verify epoch transitions are occurring
-cargo run -- epoch-info
-
-# Check if max validator limit reached
-# Verify number-of-active-validators setting in config
-```
-
-### Issue: Autopropose Not Including Validator4
-
-**Symptoms:**
-- Validator4 is active but not proposing blocks
-- Autopropose logs don't show validator4
-
-**Solutions:**
-```bash
-# Verify autopropose configuration
-cat ../docker/autopropose/config.yml
-
-# Restart autopropose service
-cd ../docker
-docker-compose -f shard-with-autopropose.yml restart autopropose
-
-# Check autopropose container logs
-docker logs autopropose
-
-# Verify validator4 network connectivity from autopropose
-docker exec autopropose ping rnode.validator4
-```
-
-### Issue: Network Health Problems
-
-**Symptoms:**
-- Network consensus shows degraded status
-- Block production issues
-
-**Solutions:**
-```bash
-# Check overall network health
-cargo run -- network-health --standard-ports
-
-# Check individual validator connectivity
-cargo run -- status --port 40403  # bootstrap
-cargo run -- status --port 40413  # validator1
-cargo run -- status --port 40423  # validator2
-cargo run -- status --port 40433  # validator3
-cargo run -- status --port 40443  # validator4
-```
-
-## Summary
-
-After completing this guide, you should have:
-
-✅ **Validator4 bonded** to the network with 1000 REV stake
-✅ **Active participation** in consensus (exited quarantine)
-✅ **Autopropose integration** with 4-validator rotation
-✅ **Block proposing** by validator4 in regular rotation
-✅ **Network health** maintained with 4/4 active validators
-
-The F1r3fly network now operates with 4 validators (validator1, validator2, validator3, validator4) in a robust, fault-tolerant configuration with automated block proposal rotation.
+**The joiner runs but never proposes.** Being bonded is not enough — it has to
+be in the *active* set, which only changes at an epoch boundary. Note that
+`/api/status` cannot be used to check this: its `isValidator` field reports
+whether autopropose is enabled, not whether the node is a validator
+(f1r3node-rust#429). Use `validator-status`.

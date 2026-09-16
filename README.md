@@ -51,7 +51,7 @@ export FIREFLY_PRIVATE_KEY=5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a
 - [Architecture](docs/architecture.md) -- module structure, deploy flow, node endpoints
 
 ### Testing
-- [Testing guide](docs/testing.md) -- integration tests (`cargo test --test smoke`) and CLI smoke test
+- [Testing guide](docs/testing.md) -- unit tests, and the integration suite that runs against a shard it creates
 
 ## Environment Variables
 

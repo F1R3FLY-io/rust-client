@@ -1,95 +1,92 @@
 # Testing
 
-## Integration Tests (`tests/smoke.rs`)
+Two suites. Unit tests need nothing; the integration suite runs every test
+against a real shard it creates itself.
 
-Rust integration tests that verify all HTTP API endpoints against a running shard. These test the API responses directly using `reqwest`, with structured assertions on JSON field types, values, and relationships.
-
-### Running
-
-```bash
-# Requires a running shard (docker compose or standalone)
-cargo test --test smoke --release
-
-# With custom ports
-FIREFLY_HTTP_PORT=40403 FIREFLY_OBSERVER_HTTP=40453 cargo test --test smoke --release
-
-# Single test
-cargo test --test smoke test_status_fields --release
-```
-
-Tests skip gracefully if no shard is reachable — `cargo test` always succeeds, tests just return `Ok(())`.
-
-### Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `FIREFLY_HOST` | `localhost` | Node hostname |
-| `FIREFLY_HTTP_PORT` | `40413` | Validator HTTP port |
-| `FIREFLY_OBSERVER_HTTP` | `40453` | Readonly HTTP port |
-
-### Test Coverage (24 tests)
-
-| Category | Tests | What's verified |
-|---|---|---|
-| Status | 1 | All 17 fields, types, `isReady=true`, `epochLength>0` |
-| Blocks (single) | 3 | Full/summary views, `isFinalized`, hash match |
-| Blocks (list) | 3 | Summary default (no deploys), full view, height range |
-| is-finalized | 1 | Returns `true` for LFB |
-| prepare-deploy | 1 | `seqNumber`, `names` present |
-| explore-deploy | 1 | `cost>0`, `expr`, `block` |
-| Epoch | 2 | All fields, derived `currentEpoch` check, `?block_hash=` param |
-| Validators | 2 | Bonded (real pubkey), unknown (fake pubkey) |
-| Bond status | 2 | Bonded on validator node, unknown returns false |
-| Epoch rewards | 1 | ExprMap structure |
-| Estimate cost | 2 | Valid term returns cost, invalid syntax returns error |
-| Removed endpoints | 2 | `/data-at-name` and `/transactions` return 404 |
-| Edge cases | 1 | Unknown `?view=` falls back to full |
-
-### What's NOT covered
-
-- `POST /deploy` — requires deploy signing
-- `GET /deploy/{id}` — requires prior deploy
-- `GET /balance/{address}` — requires REV address with vault
-- `GET /registry/{uri}` — requires deployed contract
-- WebSocket events — requires async WS client
-- gRPC endpoints — covered by system-integration integration tests
-
-## Smoke Test Script (`scripts/smoke_test.sh`)
-
-Bash script that tests the **CLI binary** end-to-end. Builds the binary, runs each command, and validates output against regex patterns.
+## Unit tests
 
 ```bash
-# Against a shard (validator1 on 40412/40413, readonly on 40452/40453)
-./scripts/smoke_test.sh localhost 40412 40413 40452
-
-# Against standalone node
-./scripts/smoke_test.sh localhost 40402 40403
+cargo test --release
 ```
 
-### What it tests
+Pure logic only — key handling, Rholang conversion, PoS and vault response
+parsing, signing. No node, no Docker.
 
-The smoke test covers all CLI commands including deploy, propose, transfer, and load testing — operations that require signing and multi-step workflows that the Rust integration tests don't cover.
+## Integration tests
 
-It also tests the new HTTP endpoints directly via `curl`:
-- `/api/epoch`, `/api/validators`, `/api/bond-status`, `/api/estimate-cost`
-- `/api/deploy/{id}?view=summary` (summary view)
-- Removed endpoints return 404
+```bash
+cargo test --release --features integration --test integration
+```
 
-### Limitations
+Requires Docker. The harness pulls the node image, records the digest it
+pulled, brings up the shard, waits on chain state, runs the tests, and tears
+everything down.
 
-- Output validation is regex-based (fragile when display format changes)
-- Sequential execution (~5 min for full suite)
-- Some tests depend on earlier test results (deploy ID cascading)
-- Transfer test can fail under load (finalization timeout)
+The `integration` feature is what makes the suite honest: without it the
+target does not build at all, so a missing shard is a hard error rather than
+a pass. The suite's predecessor failed exactly this way — CI set
+`F1R3FLY_*` variables while the tests read `FIREFLY_*`, so every test
+returned early and 28 of them "passed" in 0.63 seconds without a node.
 
-### Complementary testing
+### Options
 
-| Concern | `tests/smoke.rs` | `scripts/smoke_test.sh` |
+| Variable | Effect |
+|---|---|
+| `FIREFLY_NODE_IMAGE` | Node image to run. Default `f1r3flyindustries/f1r3fly-rust:dev` |
+| `FIREFLY_KEEP_SHARD` | Leave the shard up after the run, for debugging |
+| `RUST_LOG` | Passed to every node; the topology's own filter applies otherwise |
+
+Run one test by name:
+
+```bash
+cargo test --release --features integration --test integration -- pos::
+```
+
+Host ports 40400-40453 must be free — they are the client's own defaults, so
+a shard from another project has to be down first.
+
+### The shard
+
+Defined in `tests/integration/topology/`, which the repository owns outright:
+
+| Service | Role | gRPC / HTTP |
 |---|---|---|
-| API response structure | Yes (typed JSON) | No (regex on CLI output) |
-| CLI argument parsing | No | Yes |
-| Deploy signing flow | No | Yes |
-| Transfer end-to-end | No | Yes |
-| Load testing | No | Yes |
-| WebSocket display | No | Yes (10s capture) |
-| Speed | 0.3s | ~5 min |
+| `it-boot` | runs the genesis ceremony, absent from the bond set | 40402 / 40403 |
+| `it-validator1..3` | genesis validators, stake 100 each | 4041x / 4042x / 4043x |
+| `it-readonly` | observer; the only node serving exploratory deploys | 40452 / 40453 |
+| `it-validator4` | joiner, unbonded at genesis, started by the bonding tests | 40442 / 40443 |
+
+Every deploying test owns a key funded at genesis in
+`topology/genesis/wallets.txt`, because concurrent deploys from one deployer
+collide. Deploys go only to validators: a node whose validator is not bonded
+accepts them and strands them (f1r3node-rust#427).
+
+### Coverage
+
+| Group | What it holds to account |
+|---|---|
+| `routing` | Which node a command talks to, and on which port |
+| `deploys` | What a deploy reports on its way to a terminal verdict |
+| `transfers` | Amounts moved, rejections, and what the block report says |
+| `pos` | The bond set through a real joiner's whole lifecycle |
+| `surface` | The remaining commands against the live shard |
+
+`pos` runs last and alone: bonding, activation and payout move shard-wide
+state, so nothing else may run beside it.
+
+### When a run is red
+
+A failure against `:dev` is not automatically the client's fault — that tag
+moves. Re-run against the previous immutable `dev-v...-g<sha>` tag:
+
+- **Green there** — the node changed. File it upstream; do not block the
+  client's PR on it.
+- **Red there** — the change under test is at fault.
+
+The job records the digest it pulled, because the node's `/api/status` cannot
+identify its own build (f1r3node-rust#428).
+
+On failure the harness writes every container's log to
+`target/integration-logs/`, and CI uploads that directory. A node that died
+mid-run is named before the individual failures, since it takes every test
+that talks to it down with it.

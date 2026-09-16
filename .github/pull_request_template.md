@@ -15,7 +15,7 @@ See CONTRIBUTING.md for the branching policy.
 - [ ] `cargo fmt --check`
 - [ ] `cargo clippy --all-targets -- -D warnings`
 - [ ] `cargo test`
-- [ ] Smoke tests (if touching node interaction): `./scripts/smoke_test.sh`
+- [ ] Integration tests (if touching node interaction): `cargo test --release --features integration --test integration`
 
 ## Notes
 
