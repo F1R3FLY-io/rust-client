@@ -8,7 +8,9 @@
 
 mod common;
 mod deploys;
+mod pos;
 mod routing;
+mod surface;
 mod transfers;
 
 use std::path::Path;
@@ -25,8 +27,9 @@ fn main() -> ExitCode {
         .into_iter()
         .chain(deploys::trials())
         .chain(transfers::trials())
+        .chain(surface::trials())
         .collect();
-    let serial: Vec<Trial> = Vec::new();
+    let serial: Vec<Trial> = pos::trials();
 
     if parallel.is_empty() && serial.is_empty() {
         eprintln!("no tests were collected");
@@ -49,7 +52,13 @@ fn main() -> ExitCode {
     let parallel_result = libtest_mimic::run(&args, parallel);
 
     // The serial group shares shard-wide state - the bond set, the active
-    // validators - so it cannot run alongside anything else.
+    // validators - so it cannot run alongside anything else. The joiner is
+    // started here rather than inside a test, so the shard stays owned by the
+    // harness that tears it down.
+    if let Err(e) = shard.start_joiner() {
+        eprintln!("could not start the joiner: {e}");
+        return ExitCode::FAILURE;
+    }
     args.test_threads = Some(1);
     let serial_result = libtest_mimic::run(&args, serial);
 
