@@ -62,8 +62,10 @@ jobs:
         run: |
           sed -i "0,/^version = \".*\"/s//version = \"${{ steps.version.outputs.NEXT_VERSION }}\"/" Cargo.toml
 
+      # Syncs this package's version only. Regenerating would re-resolve every
+      # dependency, shipping a set no CI run built.
       - name: Update Cargo.lock
-        run: cargo generate-lockfile
+        run: cargo update --workspace
 
       - name: Generate CHANGELOG
         uses: orhun/git-cliff-action@v4
