@@ -241,6 +241,10 @@ impl F1r3flyConnectionManager {
         let observer_api = self.observer_api()?;
         let node_api = self.api();
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
+        // A `Failed` verdict is written only past the contestability bound
+        // (`deploy-lifespan + max-parent-depth` blocks), while `/api/deploy/{id}`
+        // describes the errored execution as soon as a block carries it.
+        let mut errored_execution: Option<String> = None;
 
         for attempt in 1..=max_attempts {
             // Map errors to String immediately: the un-Send `Box<dyn Error>`
@@ -285,14 +289,49 @@ impl F1r3flyConnectionManager {
                 }
             };
 
-            if let Some(status) = status.filter(|status| status.is_terminal()) {
-                tracing::debug!(
-                    deploy_sig = deploy_sig_hex,
-                    state = %status.state,
-                    attempt,
-                    "Deploy reached terminal state"
-                );
-                return Ok(status);
+            let included = match status {
+                Some(status) if status.is_terminal() => {
+                    tracing::debug!(
+                        deploy_sig = deploy_sig_hex,
+                        state = %status.state,
+                        attempt,
+                        "Deploy reached terminal state"
+                    );
+                    return Ok(status);
+                }
+                // A Pending answer names the block carrying the deploy, so the
+                // detail read below runs only once there is one to read.
+                Some(status) => status.latest_block_hash.is_some(),
+                None => false,
+            };
+
+            if included && errored_execution.is_none() {
+                let detail = match &node_api {
+                    Ok(api) => api
+                        .get_deploy_detail(deploy_sig_hex, self.config.http_port)
+                        .await
+                        .ok()
+                        .flatten(),
+                    Err(_) => None,
+                };
+
+                if let Some(detail) = detail.filter(|detail| detail.errored) {
+                    let reason = detail
+                        .system_deploy_error
+                        .filter(|error| !error.is_empty())
+                        .map(|error| format!(": {error}"))
+                        .unwrap_or_default();
+                    let description = format!(
+                        "block {} (cost {}){reason}",
+                        detail.block_number, detail.cost
+                    );
+                    tracing::warn!(
+                        deploy_sig = deploy_sig_hex,
+                        "Deploy executed with an error in {description}; \
+                         waiting for the canonical verdict"
+                    );
+                    errored_execution = Some(description);
+                }
             }
 
             if attempt < max_attempts {
@@ -300,8 +339,11 @@ impl F1r3flyConnectionManager {
             }
         }
 
+        let cause = errored_execution
+            .map(|description| format!("executed with an error in {description}; no verdict"))
+            .unwrap_or_else(|| "did not reach terminal state".to_string());
         Err(ConnectionError::OperationFailed(format!(
-            "Deploy {deploy_sig_hex} did not reach terminal state within {total_timeout_secs}s"
+            "Deploy {deploy_sig_hex} {cause} within {total_timeout_secs}s"
         )))
     }
 
