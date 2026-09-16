@@ -1,5 +1,6 @@
 pub mod chain;
 pub mod cli;
+pub mod contracts;
 pub mod keys;
 pub mod node;
 pub mod shard;

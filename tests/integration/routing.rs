@@ -3,6 +3,7 @@
 use libtest_mimic::Trial;
 
 use crate::common::cli::Cli;
+use crate::common::contracts;
 use crate::common::keys;
 use crate::common::node::Node;
 
@@ -32,7 +33,7 @@ pub fn trials() -> Vec<Trial> {
 /// serves the finalization endpoints on.
 fn finalization_through_the_observer_only() {
     Cli::new("deploy-and-wait")
-        .args(["-f", contract("stdout")])
+        .args(["-f", contracts::path("stdout.rho")])
         .key(&keys::DEPLOY_A)
         .args(["-H", "localhost"])
         .args(["-p", &Node::Validator1.grpc_port().to_string()])
@@ -48,7 +49,7 @@ fn finalization_through_the_observer_only() {
 /// endpoint the command must fail rather than report success.
 fn finalization_fails_without_an_observer() {
     Cli::new("deploy-and-wait")
-        .args(["-f", contract("stdout")])
+        .args(["-f", contracts::path("stdout.rho")])
         .key(&keys::DEPLOY_B)
         .args(["-H", "localhost"])
         .args(["-p", &Node::Validator1.grpc_port().to_string()])
@@ -77,21 +78,10 @@ fn a_validator_refuses_exploratory_queries() {
 
 fn the_read_only_node_refuses_deploys() {
     Cli::new("deploy")
-        .args(["-f", contract("stdout")])
+        .args(["-f", contracts::path("stdout.rho")])
         .key(&keys::SPARE)
         .grpc_at(Node::ReadOnly)
         .run()
         .expect_failure("deploy against the read-only node")
         .expect_contains("read-only mode");
-}
-
-/// Path to one of the suite's Rholang fixtures.
-fn contract(name: &str) -> &'static str {
-    match name {
-        "stdout" => concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/integration/contracts/stdout.rho"
-        ),
-        other => panic!("no contract named {other}"),
-    }
 }

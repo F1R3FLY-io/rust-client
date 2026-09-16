@@ -7,6 +7,7 @@
 //! read as a pass. `FIREFLY_KEEP_SHARD=1` leaves the shard up for debugging.
 
 mod common;
+mod deploys;
 mod routing;
 
 use std::path::Path;
@@ -19,7 +20,7 @@ use common::shard::Shard;
 fn main() -> ExitCode {
     let mut args = Arguments::from_args();
 
-    let parallel = routing::trials();
+    let parallel: Vec<Trial> = routing::trials().into_iter().chain(deploys::trials()).collect();
     let serial: Vec<Trial> = Vec::new();
 
     if parallel.is_empty() && serial.is_empty() {

@@ -95,6 +95,16 @@ impl Cli {
         ])
     }
 
+    /// For commands that name the HTTP port `--http-port` and have no `-p`.
+    pub fn http_port_at(self, node: Node) -> Self {
+        self.args([
+            "-H".to_string(),
+            "localhost".to_string(),
+            "--http-port".to_string(),
+            node.http_port().to_string(),
+        ])
+    }
+
     /// Add the observer flags, which every deploying command needs: only the
     /// read-only node serves the endpoints finalization waits on.
     pub fn observing(self, node: Node) -> Self {
