@@ -4,6 +4,45 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.2.8] - 2026-09-16
+
+### Bug Fixes
+
+- report the errored execution instead of a bare timeout
+- let deploy-and-wait commands set the observer HTTP port
+- bump rustls to 0.23.45 (RUSTSEC-2026-0285)
+- fail the CLI transfer when the vault rejects it
+- report activation, withdrawal and deploy results truthfully
+- report PoS rejections and errored deploys
+- read PoS query results instead of block header bonds
+
+### Documentation
+
+- document the integration suite and fix the observer variable name
+
+### Features
+
+- withdraw a validator's bond
+
+### Refactoring
+
+- drop the block-level finalization fallback
+
+### Testing
+
+- drop two unused keys
+- retire the smoke suites for the integration suite
+- cover PoS through a real joiner, and the rest of the CLI
+- cover transfers, and name a node that died
+- cover the deploy lifecycle
+- add the shard harness and the routing group
+- own the shard the suite runs against
+
+### Style
+
+- format the integration suite
+
+
 ## [0.2.7] - 2026-09-01
 
 ### Bug Fixes
