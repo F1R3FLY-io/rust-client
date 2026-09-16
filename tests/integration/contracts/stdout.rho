@@ -1,0 +1,4 @@
+new stdout(`rho:io:stdout`), return(`rho:rchain:deployId`) in {
+  stdout!("integration suite") |
+  return!("ok")
+}
