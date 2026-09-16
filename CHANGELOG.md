@@ -4,10 +4,11 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
-## [0.2.8] - 2026-09-16
+## [0.2.7] - 2026-09-16
 
 ### Bug Fixes
 
+- release the dependency set CI tested
 - report the errored execution instead of a bare timeout
 - let deploy-and-wait commands set the observer HTTP port
 - bump rustls to 0.23.45 (RUSTSEC-2026-0285)
@@ -15,6 +16,7 @@ This changelog is automatically generated from conventional commits.
 - report activation, withdrawal and deploy results truthfully
 - report PoS rejections and errored deploys
 - read PoS query results instead of block header bonds
+- patch h2 and chacha20 advisories
 
 ### Documentation
 
@@ -23,6 +25,7 @@ This changelog is automatically generated from conventional commits.
 ### Features
 
 - withdraw a validator's bond
+- make the observer HTTP port explicit [**breaking**]
 
 ### Refactoring
 
@@ -41,17 +44,6 @@ This changelog is automatically generated from conventional commits.
 ### Style
 
 - format the integration suite
-
-
-## [0.2.7] - 2026-09-01
-
-### Bug Fixes
-
-- patch h2 and chacha20 advisories
-
-### Features
-
-- make the observer HTTP port explicit [**breaking**]
 
 
 ## [0.2.6] - 2026-08-04
