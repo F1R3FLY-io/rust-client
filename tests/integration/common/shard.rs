@@ -68,9 +68,10 @@ impl Shard {
     }
 
     /// The name of a shard container that is no longer running, if any. A node
-    /// that refuses its configuration exits during boot, which otherwise shows
-    /// up only as a readiness timeout.
-    fn exited_container(&self) -> Result<Option<String>, String> {
+    /// that refuses its configuration exits during boot, and one that dies
+    /// mid-run fails every test that talks to it - both show up as something
+    /// other than their own cause unless this is reported.
+    pub fn exited_container(&self) -> Result<Option<String>, String> {
         let listing = self.compose_output(&["ps", "--all", "--format", "{{.Name}} {{.State}}"])?;
         Ok(listing
             .lines()

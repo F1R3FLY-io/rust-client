@@ -21,6 +21,18 @@ pub const DEPLOY_B: Key = Key {
     address: "1111C1shHpaqvPMCrsKrNdRATmFjiCUVzWiXcL4FNFR4vPCz1vDQC",
 };
 
+pub const DEPLOY_C: Key = Key {
+    private: "671eec8c930ba83af5c521bca88fbe2475beefc4db5e3af7042e8fa4d05e8903",
+    public: "04035a8e03100f16040a84132e8588ba07f119a9e82b5568623a254f88f90824921aa5906e459634265a43f950921d46fd5565c78c4ea3cac14131973b732495a2",
+    address: "111176hZeHaPYNhza4dmJRsQcgdC9AWJ5tQ6qY9hhPYZ2EgYK5WrP",
+};
+
+pub const REPORT_SENDER: Key = Key {
+    private: "c6643675a2483094f3005d1c5f57b2d776598f66f60e8c70f8ca42f5bfa730e3",
+    public: "04a3599ff9b6d72db3a94148337d106ce052cddf23efb6a2e7a9f635b68989961eca924e132fcd4e741014bab617fb86f5531f3b5841990701be402399b12048e8",
+    address: "11112JxvV3hGC6btZggyDwEnrGtPEjjqxtoiLvf5xEfcZ78EMpSMY7",
+};
+
 pub const TRANSFER_SENDER: Key = Key {
     private: "a37f06d6bc62db08fd944ced008488fbfc7dbc9bcc491a72f2d1154594526558",
     public: "04330d0ce4517f0d7a2b23d0973e67197bb160ae1f8e5caa50ae62ead0a6357c48cdb721ccd30da10e82abd6c7f3be974d32d1815ec8bad04988d0c07a2f5ba936",
@@ -34,7 +46,14 @@ pub const TRANSFER_RECIPIENT: Key = Key {
 };
 
 /// Funded with far less than the others, so a transfer of an ordinary amount
-/// overdraws the vault.
+/// overdraws the vault. Two of them: the tests that overdraw run in the
+/// parallel group, and concurrent deploys from one deployer collide.
+pub const OVERDRAFT_TRANSFER: Key = Key {
+    private: "66eb80a72ed88be223544cfe426d01abf706ea607dd83d406a2cc1133c061018",
+    public: "046482ddbb49b290085363eb51c459e81caf62b9081d894bc0fdec58cd5884abd9dacca9d14b251fa77718897bbbade81862299a898843ed52e72aa9f5a91e0128",
+    address: "1111yVo6jvuTR27HnSzTjimPjWkpYcjsjSZMjcEaQz8QZ9R3ddKc8",
+};
+
 pub const OVERDRAFT: Key = Key {
     private: "e23fe75dc0700c2c3d4d888d3c00f961992dc262ef972a3f15e6f7dfc864c002",
     public: "04c214ce1c243c31917d834ef8462a63e367bc9764f434a3279b86a1a9a944e29686c850c36aa38fe68d8de395c482df32afcdca7e7be8c34337bb59f181669cab",
@@ -59,6 +78,32 @@ pub const VALIDATOR4: Key = Key {
     private: "5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd",
     public: "04d26c6103d7269773b943d7a9c456f9eb227e0d8b1fe30bccee4fca963f4446e3385d99f6386317f2c1ad36b9e6b0d5f97bb0a0041f05781c60a5ebca124a251d",
     address: "1111La6tHaCtGjRiv4wkffbTAAjGyMsVhzSUNzQxH1jjZH9jtEi3M",
+};
+
+/// Nothing deploys from this address and nothing else credits it, so a test
+/// can assert that its balance did not move.
+pub const IDLE_RECIPIENT: Key = Key {
+    private: "0afc938ee39ae9d5634e42214867c0785e46ef2d086fce737284f600207007e4",
+    public: "04b89b2524203cca521a411967bba9ac4affa378ef0121bfae1347ca0facb0e97e414f868073f4944cce6465a5fe9363b18a7d739493b70d8d0ed4d104da8608a6",
+    address: "11112C97J4AdMnMVz5kpSbaA69P1fchDWQGaccPiVaFP3GVhNnsViW",
+};
+
+pub const ESTIMATE_COST: Key = Key {
+    private: "3f9313c35d5dc6bcbea112201a342433741f98c1198c4901576841ffc70a3857",
+    public: "0422614f2d413e5108bf949453c4edd8dacdea45f38d4e0a78c05b55eed9f3487df43c9da025a46f3bbed472a286e2feca14e68eac1ad85ad0bc1a595833694807",
+    address: "11112ErviUnWD9ModsaBfHk7yy9ZSv4QAHmexv6CwSnhzRdLqXSNdh",
+};
+
+pub const EVENTS_WATCHER: Key = Key {
+    private: "404e92b9531da7693bb5485425dc3cd2e3886cc75a07b6e3dbf4a4df2522b08d",
+    public: "04cee13e362db88ab149dacccd07789ba0226b4a9b5c91dd0a890d3256fe15d7e16b43eb452c67bc6e6a03df7c72374a08ef7c35736c7e2b2baf483ab175ae389c",
+    address: "1111nDKNqAdfi6HSew2MESYCYhL6kKNbzC7ayC3Ye6hFEsqDLyTzt",
+};
+
+pub const SURFACE: Key = Key {
+    private: "3c61cbd199e9e74a87c167bf8faf8ab1851ae5290451766ff4ac6fbb489dc713",
+    public: "049bc1c1855e6cdd864a86dba6190574eeab2fe57286492b8f86496b58327902f2efd747cd4a5e46a2a7b78f86da35994ea77524de5f4e5cf05387a74fe33b65ae",
+    address: "1111tGmi4vNp4gGCwQ61ibSxNJ5TD6Mrbo4wKvQsikCUMLwguFh9V",
 };
 
 /// Bonded at genesis; the topology runs it as validator1.

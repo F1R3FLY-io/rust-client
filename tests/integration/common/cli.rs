@@ -37,6 +37,16 @@ impl Output {
         self
     }
 
+    /// The value the client printed after `label`, from its `Label: value`
+    /// output lines.
+    pub fn value_after(&self, label: &str) -> &str {
+        self.text
+            .lines()
+            .find_map(|line| line.split_once(label)?.1.split(',').next())
+            .map(str::trim)
+            .unwrap_or_else(|| panic!("no {label:?} in output:\n{}", self.text))
+    }
+
     pub fn expect_contains(self, needle: &str) -> Self {
         assert!(
             self.contains(needle),

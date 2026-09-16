@@ -9,6 +9,7 @@
 mod common;
 mod deploys;
 mod routing;
+mod transfers;
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -20,7 +21,11 @@ use common::shard::Shard;
 fn main() -> ExitCode {
     let mut args = Arguments::from_args();
 
-    let parallel: Vec<Trial> = routing::trials().into_iter().chain(deploys::trials()).collect();
+    let parallel: Vec<Trial> = routing::trials()
+        .into_iter()
+        .chain(deploys::trials())
+        .chain(transfers::trials())
+        .collect();
     let serial: Vec<Trial> = Vec::new();
 
     if parallel.is_empty() && serial.is_empty() {
@@ -50,6 +55,11 @@ fn main() -> ExitCode {
 
     let failed = parallel_result.has_failed() || serial_result.has_failed();
     if failed {
+        // A node that died takes every test that talks to it down with it, so
+        // say so before the individual failures are read as the cause.
+        if let Ok(Some(exited)) = shard.exited_container() {
+            eprintln!("\n{exited} is no longer running - the failures above follow from that");
+        }
         let logs = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/integration-logs");
         match shard.dump_logs(&logs) {
             Ok(()) => eprintln!("container logs written to {}", logs.display()),

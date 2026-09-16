@@ -114,7 +114,7 @@ fn an_expiration_in_the_past_is_refused() {
 /// `deploy-status` reaches a terminal state for a deploy that finalized.
 fn deploy_status_reports_a_finalized_deploy() {
     let deploy_id = rt()
-        .block_on(manager(&keys::DEPLOY_A, 120).deploy_and_wait(contracts::STDOUT_TERM, false, 0))
+        .block_on(manager(&keys::DEPLOY_C, 120).deploy_and_wait(contracts::STDOUT_TERM, false, 0))
         .expect("deploy-and-wait")
         .deploy_id;
 
