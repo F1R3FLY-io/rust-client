@@ -1,6 +1,7 @@
 //! Query operations (exploratory deploy, data reads, deploy lookup)
 
 use super::F1r3flyApi;
+use crate::utils::http::EXPLORATORY_RETRY_BACKOFF;
 use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
 use f1r3fly_models::casper::v1::exploratory_deploy_response::Message as ExploratoryDeployResponseMessage;
 use f1r3fly_models::casper::v1::rho_data_response;
@@ -9,6 +10,17 @@ use f1r3fly_models::casper::{
 };
 use f1r3fly_models::rhoapi::g_unforgeable::UnfInstance;
 use f1r3fly_models::rhoapi::{GDeployId, GUnforgeable, Par};
+
+/// Report whether the node rejected an exploratory query because its
+/// exploratory-query capacity was occupied.
+///
+/// The check is narrower than the status code alone. `Unavailable` also covers a
+/// node that is down, and retrying that case for the full backoff would only
+/// delay the failure rather than recover from it.
+fn is_exploratory_capacity_rejection(status: &tonic::Status) -> bool {
+    status.code() == tonic::Code::Unavailable
+        && status.message().contains("exploratory query capacity")
+}
 
 impl<'a> F1r3flyApi<'a> {
     pub async fn exploratory_deploy(
@@ -25,7 +37,27 @@ impl<'a> F1r3flyApi<'a> {
             use_pre_state_hash,
         };
 
-        let response = client.exploratory_deploy(query).await?;
+        let mut attempt = 0;
+        let retry_started = std::time::Instant::now();
+        let response = loop {
+            match client.exploratory_deploy(query.clone()).await {
+                Ok(response) => break response,
+                Err(status) if is_exploratory_capacity_rejection(&status) => {
+                    let delay = EXPLORATORY_RETRY_BACKOFF.get(attempt).copied();
+                    let within_budget = delay.is_some_and(|delay| {
+                        self.exploratory_retry_budget
+                            .is_none_or(|budget| retry_started.elapsed() + delay <= budget)
+                    });
+                    if !within_budget {
+                        return Err(status.into());
+                    }
+                    tokio::time::sleep(delay.expect("checked delay")).await;
+                    attempt += 1;
+                }
+                Err(status) => return Err(status.into()),
+            }
+        };
+
         let resp = response.get_ref();
         let cost = resp.cost;
 

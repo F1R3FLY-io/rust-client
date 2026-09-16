@@ -34,10 +34,10 @@ Before opening a PR:
 - `cargo fmt --check` passes (run `cargo fmt` if not)
 - `cargo clippy --all-targets -- -D warnings` passes
 - `cargo test` passes (unit tests)
-- For changes that touch node interaction, also run:
+- For changes that touch node interaction, also run the integration suite,
+  which brings up its own shard (requires Docker):
   ```bash
-  ./scripts/smoke_test.sh
-  cargo test --test smoke -- --ignored
+  cargo test --release --features integration --test integration
   ```
 
 CI runs these on every PR. Failing CI blocks merge.

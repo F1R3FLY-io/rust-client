@@ -32,6 +32,19 @@ pub fn convert_rholang_to_json(
         return Ok(expr_bool.clone());
     }
 
+    // Byte arrays arrive hex-encoded.
+    if let Some(expr_bytes) = value.get("ExprBytes").and_then(|v| v.get("data")) {
+        return Ok(expr_bytes.clone());
+    }
+
+    if let Some(items) = ["ExprTuple", "ExprList", "ExprSet"]
+        .iter()
+        .find_map(|kind| value.get(*kind))
+        .and_then(|v| v.get("data"))
+    {
+        return convert_rholang_to_json(items);
+    }
+
     if let Some(arr) = value.as_array() {
         let mut result = Vec::new();
         for item in arr {
@@ -101,6 +114,24 @@ mod tests {
         });
         let result = convert_rholang_to_json(&input).unwrap();
         assert_eq!(result, json!({"user": {"name": "Bob"}}));
+    }
+
+    #[test]
+    fn test_convert_expr_bytes() {
+        let input = json!({"ExprBytes": {"data": "04d26c61"}});
+        let result = convert_rholang_to_json(&input).unwrap();
+        assert_eq!(result, json!("04d26c61"));
+    }
+
+    #[test]
+    fn test_convert_collections() {
+        let elements = json!([{"ExprInt": {"data": 1}}, {"ExprBytes": {"data": "ab"}}]);
+        for kind in ["ExprTuple", "ExprList", "ExprSet"] {
+            let mut input = serde_json::Map::new();
+            input.insert(kind.to_string(), json!({"data": elements}));
+            let result = convert_rholang_to_json(&serde_json::Value::Object(input)).unwrap();
+            assert_eq!(result, json!([1, "ab"]), "{kind}");
+        }
     }
 
     #[test]

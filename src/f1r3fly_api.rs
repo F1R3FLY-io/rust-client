@@ -112,7 +112,9 @@ pub struct DeployResult {
     pub cost: Option<u64>,
     pub errored: bool,
     pub system_deploy_error: Option<String>,
-    pub data: Vec<f1r3fly_models::rhoapi::Par>,
+    /// Data on the deploy's `deployId` channel. `Ok` with no elements when the
+    /// deploy wrote nothing; `Err` when the data could not be read.
+    pub data: Result<Vec<f1r3fly_models::rhoapi::Par>, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

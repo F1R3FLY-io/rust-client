@@ -23,11 +23,9 @@ pub struct ConnectionConfig {
     /// Observer node HTTP port, for endpoints the validators refuse — a shard
     /// serves exploratory deploys only from its read-only node (defaults to 40453)
     pub observer_http_port: u16,
-    /// Maximum seconds to wait for deploy inclusion in a block (default: 60)
-    pub deploy_timeout_secs: u32,
-    /// Maximum seconds to wait for block finalization (default: 30)
+    /// Maximum seconds to wait for a deploy to finalize (default: 90)
     pub finalization_timeout_secs: u32,
-    /// Interval between polling attempts in seconds (default: 2)
+    /// Seconds between finalization status polls (default: 2)
     pub poll_interval_secs: u64,
 }
 
@@ -40,7 +38,7 @@ impl ConnectionConfig {
     /// - `FIREFLY_GRPC_PORT`: gRPC port (default: 40401)
     /// - `FIREFLY_HTTP_PORT`: HTTP port (default: 40403)
     /// - `FIREFLY_PRIVATE_KEY`: Private key for signing (REQUIRED)
-    /// - `FIREFLY_DEPLOY_TIMEOUT`: Max seconds to wait for deploy inclusion in a block (default: 180)
+    /// - `FIREFLY_FINALIZATION_TIMEOUT`: Max seconds to wait for a deploy to finalize (default: 90)
     pub fn from_env() -> Result<Self, ConnectionError> {
         let signing_key =
             env::var("FIREFLY_PRIVATE_KEY").map_err(|_| ConnectionError::MissingPrivateKey)?;
@@ -65,14 +63,10 @@ impl ConnectionConfig {
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(40453),
-            deploy_timeout_secs: env::var("FIREFLY_DEPLOY_TIMEOUT")
-                .ok()
-                .and_then(|t| t.parse().ok())
-                .unwrap_or(60),
             finalization_timeout_secs: env::var("FIREFLY_FINALIZATION_TIMEOUT")
                 .ok()
                 .and_then(|t| t.parse().ok())
-                .unwrap_or(30),
+                .unwrap_or(90),
             poll_interval_secs: 2,
         })
     }
@@ -87,8 +81,7 @@ impl ConnectionConfig {
             observer_host: None,
             observer_grpc_port: 40452,
             observer_http_port: 40453,
-            deploy_timeout_secs: 60,
-            finalization_timeout_secs: 30,
+            finalization_timeout_secs: 90,
             poll_interval_secs: 2,
         }
     }
@@ -233,133 +226,111 @@ impl F1r3flyConnectionManager {
         .map_err(|e| ConnectionError::OperationFailed(e.to_string()))
     }
 
-    /// Wait for a deploy to be included in a block (uses gRPC find_deploy)
-    pub async fn wait_for_deploy(
-        &self,
-        deploy_id: &str,
-        max_attempts: u32,
-    ) -> Result<String, ConnectionError> {
-        let api = self.api()?;
-        let check_interval_sec = 2;
-
-        for attempt in 1..=max_attempts {
-            let result = api
-                .find_deploy_grpc(deploy_id)
-                .await
-                .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
-
-            match result {
-                Some(block_info) => {
-                    let block_hash = block_info.block_hash;
-                    tracing::debug!(deploy_id, block_hash, attempt, "Deploy found in block");
-                    return Ok(block_hash);
-                }
-                None => {
-                    if attempt >= max_attempts {
-                        return Err(ConnectionError::OperationFailed(format!(
-                            "Deploy not included in block after {max_attempts} attempts"
-                        )));
-                    }
-                    tokio::time::sleep(tokio::time::Duration::from_secs(check_interval_sec)).await;
-                }
-            }
-        }
-
-        Err(ConnectionError::OperationFailed(
-            "Deploy wait timeout".to_string(),
-        ))
-    }
-
-    /// Wait for a deploy to reach a terminal finalization state via the
-    /// `/api/deploy-finalization-status/{sig}` endpoint (sig-level polling).
+    /// Wait for a deploy to reach a terminal finalization state (`Finalized` /
+    /// `Failed` / `Expired`) via `/api/deploy-finalization-status/{sig}`.
     ///
-    /// Queries the observer first; on 404 or network error, falls back to the
-    /// deploy node. Polling stops on any terminal state (`Finalized` / `Failed`
-    /// / `Expired`) or when the budget elapses. Returns the final status, or
-    /// `Ok(None)` if the endpoint is unavailable (404) on both observer and node —
-    /// caller should fall back to the legacy block-hash flow.
+    /// Queries the observer first and the deploy node when the observer does not
+    /// answer. Fails immediately when neither node serves the endpoint, and when
+    /// the budget elapses without a terminal state.
     pub async fn wait_for_deploy_finalization(
         &self,
         deploy_sig_hex: &str,
         total_timeout_secs: u64,
         poll_interval_secs: u64,
-    ) -> Result<Option<crate::f1r3fly_api::DeployFinalizationStatus>, ConnectionError> {
+    ) -> Result<crate::f1r3fly_api::DeployFinalizationStatus, ConnectionError> {
         let observer_api = self.observer_api()?;
         let node_api = self.api();
-        let http_port = self.config.observer_http_port;
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
+        // A `Failed` verdict is written only past the contestability bound
+        // (`deploy-lifespan + max-parent-depth` blocks), while `/api/deploy/{id}`
+        // describes the errored execution as soon as a block carries it.
+        let mut errored_execution: Option<String> = None;
 
         for attempt in 1..=max_attempts {
-            // Map the error to String immediately: the un-Send `Box<dyn Error>`
+            // Map errors to String immediately: the un-Send `Box<dyn Error>`
             // must not live across the poll sleep below, or every future built
             // on this loop (transfer, deploy_and_wait) stops being Send.
-            let observer_result = observer_api
-                .deploy_finalization_status(deploy_sig_hex, http_port)
+            let observer = observer_api
+                .deploy_finalization_status(deploy_sig_hex, self.config.observer_http_port)
                 .await
                 .map_err(|e| e.to_string());
 
-            match &observer_result {
-                Ok(Some(status)) if status.is_terminal() => {
+            let status = match observer {
+                Ok(Some(status)) => Some(status),
+                observer => {
+                    let node = match &node_api {
+                        Ok(api) => Some(
+                            api.deploy_finalization_status(deploy_sig_hex, self.config.http_port)
+                                .await
+                                .map_err(|e| e.to_string()),
+                        ),
+                        Err(_) => None,
+                    };
+                    match (observer, node) {
+                        (_, Some(Ok(Some(status)))) => Some(status),
+                        (Ok(None), Some(Ok(None)) | None) => {
+                            return Err(ConnectionError::OperationFailed(
+                                "the node does not serve /api/deploy-finalization-status \
+                                 (requires f1r3node-rust v0.4.15 or later)"
+                                    .to_string(),
+                            ));
+                        }
+                        (observer, node) => {
+                            tracing::warn!(
+                                deploy_sig = deploy_sig_hex,
+                                attempt,
+                                observer = ?observer,
+                                node = ?node,
+                                "deploy-finalization-status unavailable; will retry"
+                            );
+                            None
+                        }
+                    }
+                }
+            };
+
+            let included = match status {
+                Some(status) if status.is_terminal() => {
                     tracing::debug!(
                         deploy_sig = deploy_sig_hex,
                         state = %status.state,
                         attempt,
                         "Deploy reached terminal state"
                     );
-                    return Ok(Some(status.clone()));
+                    return Ok(status);
                 }
-                // Non-terminal status — keep polling to the next attempt.
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => {
-                    // Observer returned 404 or error — try the node before falling back to legacy.
-                    let observer_issue = match &observer_result {
-                        Ok(None) => "observer returned 404".to_string(),
-                        Err(e) => format!("observer error: {e}"),
-                        _ => unreachable!(),
-                    };
+                // A Pending answer names the block carrying the deploy, so the
+                // detail read below runs only once there is one to read.
+                Some(status) => status.latest_block_hash.is_some(),
+                None => false,
+            };
 
-                    match &node_api {
-                        Ok(na) => {
-                            match na
-                                .deploy_finalization_status(deploy_sig_hex, self.config.http_port)
-                                .await
-                            {
-                                Ok(Some(status)) if status.is_terminal() => {
-                                    tracing::debug!(
-                                        deploy_sig = deploy_sig_hex,
-                                        state = %status.state,
-                                        attempt,
-                                        "Deploy reached terminal state (node API)"
-                                    );
-                                    return Ok(Some(status));
-                                }
-                                Ok(Some(_)) => {}
-                                Ok(None) => return Ok(None),
-                                Err(node_err) => {
-                                    tracing::warn!(
-                                        deploy_sig = deploy_sig_hex,
-                                        attempt,
-                                        observer = %observer_issue,
-                                        node_error = %node_err,
-                                        "deploy-finalization-status failed on observer and fallback node; will retry"
-                                    );
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            // No node connection available — if observer had 404, fall back to legacy.
-                            // If observer had an error, warn and retry.
-                            if matches!(&observer_result, Ok(None)) {
-                                return Ok(None);
-                            }
-                            tracing::warn!(
-                                deploy_sig = deploy_sig_hex,
-                                attempt,
-                                observer = %observer_issue,
-                                "deploy-finalization-status failed on observer and no fallback node; will retry"
-                            );
-                        }
-                    }
+            if included && errored_execution.is_none() {
+                let detail = match &node_api {
+                    Ok(api) => api
+                        .get_deploy_detail(deploy_sig_hex, self.config.http_port)
+                        .await
+                        .ok()
+                        .flatten(),
+                    Err(_) => None,
+                };
+
+                if let Some(detail) = detail.filter(|detail| detail.errored) {
+                    let reason = detail
+                        .system_deploy_error
+                        .filter(|error| !error.is_empty())
+                        .map(|error| format!(": {error}"))
+                        .unwrap_or_default();
+                    let description = format!(
+                        "block {} (cost {}){reason}",
+                        detail.block_number, detail.cost
+                    );
+                    tracing::warn!(
+                        deploy_sig = deploy_sig_hex,
+                        "Deploy executed with an error in {description}; \
+                         waiting for the canonical verdict"
+                    );
+                    errored_execution = Some(description);
                 }
             }
 
@@ -368,53 +339,20 @@ impl F1r3flyConnectionManager {
             }
         }
 
+        let cause = errored_execution
+            .map(|description| format!("executed with an error in {description}; no verdict"))
+            .unwrap_or_else(|| "did not reach terminal state".to_string());
         Err(ConnectionError::OperationFailed(format!(
-            "Deploy {deploy_sig_hex} did not reach terminal state within {total_timeout_secs}s"
+            "Deploy {deploy_sig_hex} {cause} within {total_timeout_secs}s"
         )))
     }
 
-    /// Wait for a block to be finalized (uses observer node if configured).
+    /// Deploy Rholang code, wait for canonical finalization, and read result.
     ///
-    /// **Deprecated**: this performs block-level finalization polling, which
-    /// can mislead callers when a block finalizes but their deploy's effects
-    /// were dropped during merge. Use `wait_for_deploy_finalization` (sig-level)
-    /// when possible.
-    pub async fn wait_for_finalization(
-        &self,
-        block_hash: &str,
-        max_attempts: u32,
-    ) -> Result<(), ConnectionError> {
-        tracing::warn!(
-            "wait_for_finalization is deprecated — block-level polling can miss \
-             merge-dropped deploys. Prefer wait_for_deploy_finalization."
-        );
-        let api = self.observer_api()?;
-        let retry_delay_sec = 5;
-
-        let is_finalized = api
-            .is_finalized(block_hash, max_attempts, retry_delay_sec)
-            .await
-            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
-
-        if is_finalized {
-            Ok(())
-        } else {
-            Err(ConnectionError::OperationFailed(format!(
-                "Block {block_hash} not finalized after {max_attempts} attempts"
-            )))
-        }
-    }
-
-    /// Deploy Rholang code, wait for canonical-finalization, and read result.
-    ///
-    /// Preferred path: sig-level polling via `/api/deploy-finalization-status`,
-    /// which reports whether the deploy's effects are in canonical state
-    /// (not just whether some containing block finalized).
-    ///
-    /// Legacy fallback: if the endpoint is unavailable (404), falls back to
-    /// the two-phase block-hash flow (find block + check block finalization)
-    /// with a deprecation warning. This older path can misreport success when
-    /// a deploy is dropped during merge of a finalized block.
+    /// Polls `/api/deploy-finalization-status`, which reports whether the
+    /// deploy's effects are in canonical state rather than whether some
+    /// containing block finalized. A node that does not serve the endpoint is
+    /// an error.
     pub async fn deploy_and_wait(
         &self,
         rholang_code: &str,
@@ -450,77 +388,51 @@ impl F1r3flyConnectionManager {
             .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {e}")))?;
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
 
-        // Phase 2: Sig-level polling (preferred), fall back to legacy on 404
-        const SIG_POLL_INTERVAL_SECS: u64 = 2;
-        let total_timeout = (self.config.deploy_timeout_secs as u64)
-            .saturating_add(self.config.finalization_timeout_secs as u64);
-
-        let block_hash = match self
-            .wait_for_deploy_finalization(&deploy_id, total_timeout, SIG_POLL_INTERVAL_SECS)
-            .await?
-        {
-            Some(status) => match status.state.as_str() {
-                "Finalized" => {
-                    let block_hash = status.latest_block_hash.ok_or_else(|| {
-                        ConnectionError::OperationFailed(
-                            "Finalized state without latest_block_hash (node bug)".to_string(),
-                        )
-                    })?;
-                    tracing::info!(block_hash = %block_hash, "Deploy canonically finalized");
-                    block_hash
-                }
-                "Failed" => {
-                    return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {deploy_id} failed during execution (Rholang error or insufficient phlo)"
-                    )));
-                }
-                "Expired" => {
-                    return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {deploy_id} expired without canonical inclusion"
-                    )));
-                }
-                other => {
-                    return Err(ConnectionError::OperationFailed(format!(
-                        "Deploy {deploy_id} in unexpected non-terminal state {other} after timeout"
-                    )));
-                }
-            },
-            None => {
-                tracing::warn!(
-                    "deploy-finalization-status endpoint unavailable; falling back to \
-                     legacy block-hash polling. This path will be removed once all \
-                     supported nodes ship the new endpoint."
-                );
-                let max_block_wait = (self.config.deploy_timeout_secs as u64
-                    / self.config.poll_interval_secs) as u32;
-                let block_hash = self.wait_for_deploy(&deploy_id, max_block_wait).await?;
-                tracing::info!(block_hash = %block_hash, "Deploy included in block");
-
-                let finalization_poll_secs: u64 = 5;
-                let max_finalization = ((self.config.finalization_timeout_secs as u64
-                    / finalization_poll_secs) as u32)
-                    .max(1);
-                self.wait_for_finalization(&block_hash, max_finalization)
-                    .await?;
-                tracing::info!("Block finalized (legacy path)");
+        // Phase 2: Wait for a terminal finalization state
+        let status = self
+            .wait_for_deploy_finalization(
+                &deploy_id,
+                self.config.finalization_timeout_secs as u64,
+                self.config.poll_interval_secs,
+            )
+            .await?;
+        let block_hash = match status.state.as_str() {
+            "Finalized" => {
+                let block_hash = status.latest_block_hash.ok_or_else(|| {
+                    ConnectionError::OperationFailed(
+                        "Finalized state without latest_block_hash (node bug)".to_string(),
+                    )
+                })?;
+                tracing::info!(block_hash = %block_hash, "Deploy canonically finalized");
                 block_hash
             }
-        };
-
-        // Phase 3: Read deploy result AFTER finalization
-        // Empty data is normal when the contract doesn't write to deployId
-        let data = match api.get_data_at_deploy_id(&deploy_id, &block_hash).await {
-            Ok(data) => data,
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("No data found") || msg.contains("None") {
-                    tracing::info!("No deployId data for deploy {}", deploy_id);
-                } else {
-                    tracing::warn!("Failed to read deploy data: {}", msg);
-                }
-                vec![]
+            "Failed" => {
+                return Err(ConnectionError::OperationFailed(format!(
+                    "Deploy {deploy_id} failed during execution (Rholang error or insufficient phlo)"
+                )));
+            }
+            "Expired" => {
+                return Err(ConnectionError::OperationFailed(format!(
+                    "Deploy {deploy_id} expired without canonical inclusion"
+                )));
+            }
+            other => {
+                return Err(ConnectionError::OperationFailed(format!(
+                    "Deploy {deploy_id} reached unexpected state {other}"
+                )));
             }
         };
+
+        // Phase 3: Read deploy result AFTER finalization. A deploy that writes
+        // nothing to deployId reads as an empty payload, so every error is a
+        // failed read.
+        let data = api
+            .get_data_at_deploy_id(&deploy_id, &block_hash)
+            .await
+            .map_err(|e| {
+                tracing::warn!(deploy_id = %deploy_id, error = %e, "Failed to read deployId data");
+                format!("reading deployId data at block {block_hash}: {e}")
+            });
 
         // Phase 4: Get deploy execution details
         // May fail on older nodes that don't support ?view=detail
@@ -585,17 +497,8 @@ impl F1r3flyConnectionManager {
             .deploy_and_wait_with_phlo_limit(&rholang, crate::vault::TRANSFER_PHLO_LIMIT, 0)
             .await?;
 
-        // A finalized deploy is not a successful transfer: the deploy can
-        // error on-chain (e.g. phlo exhaustion), and the vault itself can
-        // reject the transfer without any deploy error. Both must fail here.
-        if result.errored || result.system_deploy_error.is_some() {
-            return Err(ConnectionError::OperationFailed(format!(
-                "transfer deploy {} errored on-chain (cost: {:?}, system error: {:?})",
-                result.deploy_id, result.cost, result.system_deploy_error
-            )));
-        }
-        crate::vault::parse_transfer_result(&result.data).map_err(|e| {
-            ConnectionError::OperationFailed(format!("transfer deploy {}: {e}", result.deploy_id))
+        crate::vault::check_transfer_result(&result).map_err(|e| {
+            ConnectionError::OperationFailed(format!("{e} (deploy {})", result.deploy_id))
         })?;
 
         tracing::info!(

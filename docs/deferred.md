@@ -10,11 +10,8 @@ These commands currently construct Rholang and use exploratory deploy. They coul
 
 | Command | Current approach | Dedicated endpoint | Benefit |
 |---|---|---|---|
-| `bonds` | HTTP explore-deploy with `@PoS!("getBonds")` | `GET /api/validators` | Simpler, structured response |
 | `epoch-info` | gRPC explore-deploy with `getEpochLength`/`getQuarantineLength` | `GET /api/epoch` | No readonly needed, faster |
-| `bond-status` | HTTP explore-deploy, parse bonds map | `GET /api/bond-status/{pubkey}` | No readonly needed |
-| `validator-status` | Multiple explore-deploys | `GET /api/validator/{pubkey}` | Single request |
 | `epoch-rewards` | HTTP explore-deploy with `getCurrentEpochRewards` | `GET /api/epoch/rewards` | Simpler |
 | `estimate-cost` | gRPC exploratory deploy | `POST /api/estimate-cost` | Could use HTTP instead |
 
-The existing approach works correctly. Migration is an optimization.
+`bond-status` already uses `GET /api/bond-status/{pubkey}`. `bonds`, `active-validators`, `validator-status`, and `network-consensus` stay on the PoS snapshot query: `GET /api/validators` and `GET /api/validator/{pubkey}` report a single validator set, without the activation and withdrawal state those commands show.

@@ -46,7 +46,10 @@ let result = manager
 println!("Deploy: {}", result.deploy_id);
 println!("Block:  {}", result.block_hash);
 println!("Cost:   {:?}", result.cost);
-println!("Data:   {:?}", result.data);  // Vec<Par> from deployId channel
+match &result.data {
+    Ok(pars) => println!("Data:   {pars:?}"),  // empty when the deploy wrote nothing
+    Err(e) => eprintln!("deployId data could not be read: {e}"),
+}
 ```
 
 The boolean maps to a phlo limit of 50k (`false`) or 5B (`true`). When the
@@ -122,7 +125,7 @@ pub struct DeployResult {
     pub cost: Option<u64>,
     pub errored: bool,
     pub system_deploy_error: Option<String>,
-    pub data: Vec<Par>,  // from deployId channel
+    pub data: Result<Vec<Par>, String>,  // deployId channel; Err when the read failed
 }
 
 // DeployDetail — from get_deploy_detail (HTTP)
@@ -152,6 +155,5 @@ pub enum ProposeResult {
 | `signing_key` | required | Private key (hex) |
 | `observer_host` | same as node | Observer for finalization |
 | `observer_grpc_port` | `40452` | Observer gRPC port |
-| `deploy_timeout_secs` | `60` | Max seconds for block inclusion |
-| `finalization_timeout_secs` | `30` | Max seconds for finalization |
-| `poll_interval_secs` | `2` | Seconds between polls |
+| `finalization_timeout_secs` | `90` | Max seconds to wait for a deploy to finalize |
+| `poll_interval_secs` | `2` | Seconds between finalization status polls |

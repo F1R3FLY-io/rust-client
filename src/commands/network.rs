@@ -1,77 +1,30 @@
 use crate::args::*;
 use crate::commands::query::query_node_status;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
-use crate::f1r3fly_api::{F1r3flyApi, ProposeResult};
+use crate::f1r3fly_api::{DeployResult, F1r3flyApi, ProposeResult};
+use crate::pos::{build_bond_rholang, parse_pos_call_result, WITHDRAW_RHOLANG};
 use std::fs;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-#[allow(clippy::too_many_arguments)]
-fn build_config(
-    host: &str,
-    port: u16,
-    http_port: u16,
-    private_key: &str,
-    max_wait: u64,
-    finalization_timeout: u64,
-    check_interval: u64,
-    observer_host: Option<&str>,
-    observer_port: Option<u16>,
-) -> ConnectionConfig {
-    let mut config =
-        ConnectionConfig::new(host.to_string(), port, http_port, private_key.to_string());
-    config.deploy_timeout_secs = max_wait as u32;
-    config.finalization_timeout_secs = finalization_timeout as u32;
+fn build_config(wait: &DeployWaitArgs, private_key: &str, check_interval: u64) -> ConnectionConfig {
+    let mut config = ConnectionConfig::new(
+        wait.host.clone(),
+        wait.port,
+        wait.http_port,
+        private_key.to_string(),
+    );
+    config.finalization_timeout_secs = wait.max_wait as u32;
     config.poll_interval_secs = check_interval;
-    if let Some(obs_host) = observer_host {
-        config.observer_host = Some(obs_host.to_string());
+    if let Some(obs_host) = &wait.observer_host {
+        config.observer_host = Some(obs_host.clone());
     }
-    if let Some(obs_port) = observer_port {
+    if let Some(obs_port) = wait.observer_port {
         config.observer_grpc_port = obs_port;
     }
+    if let Some(obs_http_port) = wait.observer_http_port {
+        config.observer_http_port = obs_http_port;
+    }
     config
-}
-
-fn config_from_deploy_args(args: &DeployAndWaitArgs) -> ConnectionConfig {
-    let private_key = args.private_key.as_str();
-    build_config(
-        &args.host,
-        args.port,
-        args.http_port,
-        private_key,
-        args.max_wait,
-        args.finalization_timeout,
-        args.check_interval,
-        args.observer_host.as_deref(),
-        args.observer_port,
-    )
-}
-
-fn config_from_transfer_args(args: &TransferArgs) -> ConnectionConfig {
-    build_config(
-        &args.host,
-        args.port,
-        args.http_port,
-        &args.private_key,
-        args.max_wait,
-        args.max_wait, // Use max_wait for finalization too (no separate arg)
-        args.check_interval,
-        args.observer_host.as_deref(),
-        args.observer_port,
-    )
-}
-
-fn config_from_bond_args(args: &BondValidatorArgs) -> ConnectionConfig {
-    build_config(
-        &args.host,
-        args.port,
-        args.http_port,
-        &args.private_key,
-        args.max_wait,
-        args.max_wait, // Use max_wait for finalization too (no separate arg)
-        args.check_interval,
-        args.observer_host.as_deref(),
-        args.observer_port,
-    )
 }
 
 /// Calculates the expiration timestamp from CLI arguments.
@@ -387,29 +340,16 @@ pub async fn bond_validator_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Bonding validator with stake: {}", args.stake);
 
-    let bonding_code = format!(
-        r#"new rl(`rho:registry:lookup`), poSCh, retCh, stdout(`rho:io:stdout`) in {{
- stdout!("About to lookup PoS contract...") |
- rl!(`rho:system:pos`, *poSCh) |
- for(@(_, PoS) <- poSCh) {{
- stdout!("About to bond...") |
- new deployerId(`rho:system:deployerId`) in {{
- @PoS!("bond", *deployerId, {}, *retCh) |
- for (@(result, message) <- retCh) {{
- stdout!(("Bond result:", result, "Message:", message))
- }}
- }}
- }}
-}}"#,
-        args.stake
-    );
-
-    let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    let manager = F1r3flyConnectionManager::new(config_from_bond_args(args));
+    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
+    let manager = F1r3flyConnectionManager::new(build_config(
+        &args.wait,
+        &args.private_key,
+        args.check_interval,
+    ));
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(&bonding_code, true, expiration)
+        .deploy_and_wait(&build_bond_rholang(args.stake), true, expiration)
         .await
         .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
@@ -417,8 +357,10 @@ pub async fn bond_validator_command(
     println!("Block hash: {}", result.block_hash);
     println!("Total time: {:.2?}", start.elapsed());
 
+    ensure_pos_call_succeeded("Bond", &result)?;
+
     if args.propose {
-        let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
         match api.propose().await {
             Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
             Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
@@ -428,6 +370,61 @@ pub async fn bond_validator_command(
 
     println!("Bonding complete. Verify with: node_cli bonds");
     Ok(())
+}
+
+pub async fn unbond_validator_command(
+    args: &UnbondValidatorArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::utils::CryptoUtils;
+
+    let public_key = {
+        let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
+        CryptoUtils::serialize_public_key(&CryptoUtils::derive_public_key(&secret_key), false)
+    };
+    println!("Requesting withdrawal for validator: {public_key}");
+
+    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
+    let manager = F1r3flyConnectionManager::new(build_config(
+        &args.wait,
+        &args.private_key,
+        args.check_interval,
+    ));
+    let start = Instant::now();
+
+    let result = manager
+        .deploy_and_wait(WITHDRAW_RHOLANG, true, expiration)
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+
+    println!("Deploy ID: {}", result.deploy_id);
+    println!("Block hash: {}", result.block_hash);
+    println!("Total time: {:.2?}", start.elapsed());
+
+    ensure_pos_call_succeeded("Withdrawal", &result)?;
+
+    println!("Withdrawal requested. The validator leaves the bond set at the next epoch boundary.");
+    println!("Track progress with: node_cli validator-status -k {public_key}");
+    Ok(())
+}
+
+/// Fail when a PoS method deploy errored, its verdict could not be read, or the
+/// contract rejected the call.
+fn ensure_pos_call_succeeded(
+    action: &str,
+    result: &DeployResult,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if result.errored {
+        let err = result
+            .system_deploy_error
+            .as_deref()
+            .unwrap_or("unknown error");
+        return Err(format!("{action} deploy failed: {err}").into());
+    }
+    let data = result.data.as_ref().map_err(|err| {
+        format!("{action} deploy finalized, but its PoS verdict could not be read: {err}")
+    })?;
+    parse_pos_call_result(data)
+        .map_err(|reason| format!("{action} rejected by PoS: {reason}").into())
 }
 
 pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -446,8 +443,13 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
 
     let amount_dust = if args.whole_tokens {
         // Whole-token mode: ask the node how many decimals the native token has.
-        let (status_json, _) =
-            query_node_status(&reqwest::Client::new(), &args.host, args.http_port, false).await?;
+        let (status_json, _) = query_node_status(
+            &reqwest::Client::new(),
+            &args.wait.host,
+            args.wait.http_port,
+            false,
+        )
+        .await?;
         let decimals = status_json
             .get("nativeTokenDecimals")
             .and_then(|v| v.as_u64())
@@ -468,25 +470,21 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         from_address, args.to_address, amount_dust
     );
 
-    let rholang_code = generate_transfer_contract(&from_address, &args.to_address, amount_dust);
-    let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
+    let rholang_code =
+        crate::vault::build_transfer_rholang(&from_address, &args.to_address, amount_dust);
+    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
 
-    let manager = F1r3flyConnectionManager::new(config_from_transfer_args(args));
+    let manager = F1r3flyConnectionManager::new(build_config(
+        &args.wait,
+        &args.private_key,
+        args.check_interval,
+    ));
     let start = Instant::now();
 
     let result = manager
         .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
         .await
         .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
-
-    if result.errored {
-        let err = result
-            .system_deploy_error
-            .as_deref()
-            .unwrap_or("unknown error");
-        println!("Transfer failed: {err}");
-        return Err(format!("Transfer failed: {err}").into());
-    }
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -495,8 +493,10 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     }
     println!("Total time: {:.2?}", start.elapsed());
 
+    crate::vault::check_transfer_result(&result).map_err(|e| format!("Transfer failed: {e}"))?;
+
     if args.propose {
-        let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
         match api.propose().await {
             Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
             Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
@@ -514,8 +514,12 @@ pub async fn deploy_and_wait_command(
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
-    let manager = F1r3flyConnectionManager::new(config_from_deploy_args(args));
-    let expiration = calculate_expiration_timestamp(args.expiration, args.expires_in);
+    let manager = F1r3flyConnectionManager::new(build_config(
+        &args.wait,
+        &args.private_key,
+        args.check_interval,
+    ));
+    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
 
     println!("Deploying and waiting for finalization...");
     let start = Instant::now();
@@ -539,20 +543,21 @@ pub async fn deploy_and_wait_command(
             println!("Deploy error: {err}");
         }
     }
-    if result.data.is_empty() {
-        println!("Data: (none)");
-    } else {
-        for (i, par) in result.data.iter().enumerate() {
-            let simplified =
-                crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
-            println!("Data[{i}]: {simplified}");
+    match &result.data {
+        Ok(data) if data.is_empty() => println!("Data: (none)"),
+        Ok(data) => {
+            for (i, par) in data.iter().enumerate() {
+                let simplified =
+                    crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
+                println!("Data[{i}]: {simplified}");
+            }
         }
+        Err(err) => println!("Data: unreadable ({err})"),
     }
     println!("Total time: {:.2?}", start.elapsed());
 
     if args.propose {
-        let private_key = args.private_key.as_str();
-        let api = F1r3flyApi::new(private_key, &args.host, args.port)?;
+        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
         match api.propose().await {
             Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
             Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
@@ -560,7 +565,14 @@ pub async fn deploy_and_wait_command(
         }
     }
 
-    Ok(())
+    match result.data {
+        Ok(_) => Ok(()),
+        Err(err) => Err(format!(
+            "deploy {} finalized, but its deployId data could not be read: {err}",
+            result.deploy_id
+        )
+        .into()),
+    }
 }
 
 pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -684,47 +696,6 @@ fn validate_vault_address(address: &str) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn generate_transfer_contract(from_address: &str, to_address: &str, amount_dust: u64) -> String {
-    format!(
-        r#"new 
- deployerId(`rho:system:deployerId`),
- stdout(`rho:io:stdout`),
- rl(`rho:registry:lookup`),
- systemVaultCh,
- vaultCh,
- toVaultCh,
- systemVaultKeyCh,
- resultCh
-in {{
- rl!(`rho:vault:system`, *systemVaultCh) |
- for (@(_, SystemVault) <- systemVaultCh) {{
- @SystemVault!("findOrCreate", "{from_address}", *vaultCh) |
- @SystemVault!("findOrCreate", "{to_address}", *toVaultCh) |
- @SystemVault!("deployerAuthKey", *deployerId, *systemVaultKeyCh) |
- for (@(true, vault) <- vaultCh; key <- systemVaultKeyCh; @(true, toVault) <- toVaultCh) {{
- @vault!("transfer", "{to_address}", {amount_dust}, *key, *resultCh) |
- for (@result <- resultCh) {{
- match result {{
- (true, Nil) => {{
- stdout!(("Transfer successful:", {amount_dust}, "tokens"))
- }}
- (false, reason) => {{
- stdout!(("Transfer failed:", reason))
- }}
- }}
- }}
- }} |
- for (@(false, errorMsg) <- vaultCh) {{
- stdout!(("Sender vault error:", errorMsg))
- }} |
- for (@(false, errorMsg) <- toVaultCh) {{
- stdout!(("Destination vault error:", errorMsg))
- }}
- }}
-}}"# // success message amount
-    )
-}
-
 /// Read data at a deploy ID from a specific block
 pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
     let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
@@ -803,4 +774,99 @@ pub async fn deploy_status_command(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use f1r3fly_models::rhoapi::expr::ExprInstance;
+    use f1r3fly_models::rhoapi::{ETuple, Expr, Par};
+
+    fn finalized(data: Result<Vec<Par>, String>) -> DeployResult {
+        DeployResult {
+            deploy_id: "3045".to_string(),
+            block_hash: "abcd".to_string(),
+            block_number: Some(46),
+            cost: Some(1),
+            errored: false,
+            system_deploy_error: None,
+            data,
+        }
+    }
+
+    fn verdict(accepted: bool) -> Vec<Par> {
+        let flag = Par {
+            exprs: vec![Expr {
+                expr_instance: Some(ExprInstance::GBool(accepted)),
+            }],
+            ..Default::default()
+        };
+        vec![Par {
+            exprs: vec![Expr {
+                expr_instance: Some(ExprInstance::ETupleBody(ETuple {
+                    ps: vec![flag, Par::default()],
+                    ..Default::default()
+                })),
+            }],
+            ..Default::default()
+        }]
+    }
+
+    #[test]
+    fn an_unreadable_verdict_is_not_reported_as_a_rejection() {
+        let err = ensure_pos_call_succeeded(
+            "Withdrawal",
+            &finalized(Err(
+                "reading deployId data at block abcd: timed out".to_string()
+            )),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("could not be read"), "{err}");
+        assert!(err.contains("timed out"), "{err}");
+        assert!(!err.contains("rejected"), "{err}");
+    }
+
+    #[test]
+    fn observer_ports_reach_the_connection_config_independently() {
+        use clap::Parser;
+
+        let args = DeployAndWaitArgs::try_parse_from([
+            "deploy-and-wait",
+            "-f",
+            "contract.rho",
+            "-k",
+            "00",
+            "--observer-port",
+            "40402",
+            "--observer-http-port",
+            "40403",
+        ])
+        .unwrap();
+        let config = build_config(&args.wait, &args.private_key, args.check_interval);
+        assert_eq!(config.observer_grpc_port, 40402);
+        assert_eq!(config.observer_http_port, 40403);
+
+        let defaults =
+            DeployAndWaitArgs::try_parse_from(["deploy-and-wait", "-f", "c.rho", "-k", "00"])
+                .unwrap();
+        let config = build_config(
+            &defaults.wait,
+            &defaults.private_key,
+            defaults.check_interval,
+        );
+        assert_eq!(config.observer_grpc_port, 40452);
+        assert_eq!(config.observer_http_port, 40453);
+    }
+
+    #[test]
+    fn a_read_verdict_decides_the_outcome() {
+        assert!(ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(true)))).is_ok());
+
+        let err = ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(false))))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("rejected by PoS"), "{err}");
+    }
 }

@@ -17,8 +17,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # f1r3node image for smoke tests, pinned to a released version.
-  RUST_NODE_IMAGE_TAG: v0.4.23
+  # The node the client is developed against. A red run here is re-run against
+  # the previous immutable dev-v...-g<sha> tag: green there means the node
+  # changed, not the client. The job records the digest it pulled, because the
+  # node's own /api/status cannot identify its build (f1r3node-rust#428).
+  FIREFLY_NODE_IMAGE: f1r3flyindustries/f1r3fly-rust:dev
 
 jobs:
   # Format and lint checks: fast, runs in parallel with build_base.
@@ -272,10 +275,10 @@ jobs:
           path: /tmp/test-logs/
           retention-days: 7
 
-  # Smoke tests against a standalone f1r3node.
-  # Pulls the pre-built f1r3node Docker image from Docker Hub.
-  smoke_tests:
-    name: Smoke Tests (${{ matrix.arch.name }})
+  # The node-backed suite. It owns its shard: bootstrap, three validators, a
+  # read-only observer and a joiner, all defined in tests/integration/topology.
+  integration_tests:
+    name: Integration Tests (${{ matrix.arch.name }})
     needs:
       - build_base
       - unit_tests
@@ -306,18 +309,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
 
-      - name: Clone system-integration
-        uses: actions/checkout@v4
-        with:
-          repository: F1R3FLY-io/system-integration
-          # Pinned so smoke is not exposed to compose churn in another repo: a
-          # rename, port change or removal there would otherwise break CI here
-          # with no change on this side. Bump deliberately when smoke needs a
-          # newer topology, and check that the standalone compose still provides
-          # container rnode.standalone, ports 40402/40403 and F1R3FLY_NODE_IMAGE.
-          ref: fc009bd2a74b8b2d716c7b57195881ff079b8bda
-          path: system-integration
-
       - name: Load Working Tree
         uses: actions/download-artifact@v4
         with:
@@ -328,74 +319,31 @@ jobs:
         shell: bash -ex {0}
         run: tar -H posix -xzf /tmp/rust-client-worktree.tar.gz
 
-      - name: Pull f1r3node Docker image
+      # The harness pulls the image, records its digest, brings the shard up
+      # and tears it down, so there is nothing to start or stop here.
+      - name: Run Integration Tests
         shell: bash -ex {0}
-        run: docker pull "f1r3flyindustries/f1r3fly-rust:${RUST_NODE_IMAGE_TAG}"
-
-      - name: Start node
-        shell: bash -ex {0}
-        run: |
-          cd system-integration
-          F1R3FLY_NODE_IMAGE="f1r3flyindustries/f1r3fly-rust:${RUST_NODE_IMAGE_TAG}" \
-            docker compose -f compose/f1r3node-rust-standalone.yml up -d
-
-      - name: Wait for node healthy
-        shell: bash {0}
-        run: |
-          echo "Waiting for standalone node to become healthy..."
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:40403/api/status >/dev/null 2>&1; then
-              echo "Node is healthy after $((i * 5))s"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Node failed to become healthy after 300s"
-          docker logs rnode.standalone 2>&1 | tail -50
-          exit 1
-
-      - name: Run Smoke Tests (bash)
-        shell: bash -ex {0}
-        run: ./scripts/smoke_test.sh localhost 40402 40403
-
-      - name: Run Integration Tests (Rust)
-        shell: bash -ex {0}
+        timeout-minutes: 25
         env:
-          F1R3FLY_HTTP_PORT: "40403"
-          F1R3FLY_OBSERVER_HTTP: "40403"
-          F1R3FLY_GRPC_PORT: "40402"
-        run: cargo test --test smoke --release -- --ignored
+          RUST_BACKTRACE: "1"
+        run: cargo test --release --features integration --test integration
 
-      - name: Upload Smoke Test Logs
-        if: always()
+      - name: Upload Container Logs
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-logs-${{ matrix.arch.name }}
-          path: logs/
-          retention-days: 7
-
-      - name: Capture Docker Logs
-        if: always()
-        shell: bash {0}
-        run: |
-          mkdir -p /tmp/docker-logs
-          docker logs rnode.standalone > /tmp/docker-logs/standalone.log 2>&1 || true
-
-      - name: Upload Docker Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-logs-${{ matrix.arch.name }}
-          path: /tmp/docker-logs/
+          name: integration-logs-${{ matrix.arch.name }}
+          path: target/integration-logs/
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Teardown
+      - name: Tear the shard down
         if: always()
         shell: bash {0}
         run: |
-          cd system-integration
-          docker compose -f compose/f1r3node-rust-standalone.yml down -v
+          docker compose -p rust-client-it \
+            -f tests/integration/topology/compose.yml \
+            --profile joiner down -v --remove-orphans || true
 
   # GitHub Release with compiled binaries and changelog.
   release_packages:
@@ -404,7 +352,7 @@ jobs:
     permissions:
       contents: write
     needs:
-      - smoke_tests
+      - integration_tests
       - build
     runs-on: ubuntu-latest
     steps:
