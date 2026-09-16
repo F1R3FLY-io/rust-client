@@ -69,30 +69,33 @@ pub fn trials() -> Vec<Trial> {
                 .expect_success("epoch-rewards");
             Ok(())
         }),
-        Trial::test("surface::a_term_is_costed_and_a_broken_one_is_refused", || {
-            // Costing runs an exploratory deploy, so it needs the read-only
-            // node, and an identity-dependent term needs the deployer.
-            let estimate = Cli::new("estimate-cost")
-                .args(["-f", contracts::path("stdout.rho")])
-                .args(["--deployer", keys::ESTIMATE_COST.public])
-                .http_port_at(Node::ReadOnly)
-                .run()
-                .expect_success("estimate-cost");
-            assert!(
-                estimate.text.trim().parse::<u64>().is_ok(),
-                "estimate-cost printed something other than a cost: {}",
-                estimate.text
-            );
+        Trial::test(
+            "surface::a_term_is_costed_and_a_broken_one_is_refused",
+            || {
+                // Costing runs an exploratory deploy, so it needs the read-only
+                // node, and an identity-dependent term needs the deployer.
+                let estimate = Cli::new("estimate-cost")
+                    .args(["-f", contracts::path("stdout.rho")])
+                    .args(["--deployer", keys::ESTIMATE_COST.public])
+                    .http_port_at(Node::ReadOnly)
+                    .run()
+                    .expect_success("estimate-cost");
+                assert!(
+                    estimate.text.trim().parse::<u64>().is_ok(),
+                    "estimate-cost printed something other than a cost: {}",
+                    estimate.text
+                );
 
-            Cli::new("estimate-cost")
-                .args(["-f", contracts::path("broken.rho")])
-                .args(["--deployer", keys::ESTIMATE_COST.public])
-                .http_port_at(Node::ReadOnly)
-                .run()
-                .expect_failure("estimate-cost on a term that does not parse")
-                .expect_contains("rholang_bad_term");
-            Ok(())
-        }),
+                Cli::new("estimate-cost")
+                    .args(["-f", contracts::path("broken.rho")])
+                    .args(["--deployer", keys::ESTIMATE_COST.public])
+                    .http_port_at(Node::ReadOnly)
+                    .run()
+                    .expect_failure("estimate-cost on a term that does not parse")
+                    .expect_contains("rholang_bad_term");
+                Ok(())
+            },
+        ),
         Trial::test("surface::network_health_reports_the_shard", || {
             Cli::new("network-health")
                 .args(["-H", "localhost"])

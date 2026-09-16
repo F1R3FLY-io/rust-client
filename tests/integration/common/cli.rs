@@ -33,7 +33,11 @@ impl Output {
     }
 
     pub fn expect_failure(self, what: &str) -> Self {
-        assert!(!self.success(), "{what} unexpectedly succeeded:\n{}", self.text);
+        assert!(
+            !self.success(),
+            "{what} unexpectedly succeeded:\n{}",
+            self.text
+        );
         self
     }
 

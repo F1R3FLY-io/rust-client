@@ -28,9 +28,13 @@ const AMOUNT: u64 = 1_000_000;
 fn a_transfer_moves_exactly_the_amount() {
     let before = balance(keys::TRANSFER_RECIPIENT.address);
 
-    transfer(&keys::TRANSFER_SENDER, keys::TRANSFER_RECIPIENT.address, AMOUNT)
-        .expect_success("transfer")
-        .expect_contains("Transfer complete");
+    transfer(
+        &keys::TRANSFER_SENDER,
+        keys::TRANSFER_RECIPIENT.address,
+        AMOUNT,
+    )
+    .expect_success("transfer")
+    .expect_contains("Transfer complete");
 
     let after = balance(keys::TRANSFER_RECIPIENT.address);
     assert_eq!(
@@ -68,8 +72,8 @@ fn an_overdraft_fails_and_moves_nothing() {
 /// The read-only node reports who paid whom, which is what a client watching
 /// the chain reads back.
 fn the_block_report_describes_the_transfer() {
-    let sent = transfer(&keys::REPORT_SENDER, keys::SPARE.address, AMOUNT)
-        .expect_success("transfer");
+    let sent =
+        transfer(&keys::REPORT_SENDER, keys::SPARE.address, AMOUNT).expect_success("transfer");
     let block = sent.value_after("Block hash:").to_string();
 
     Cli::new("block-transfers")

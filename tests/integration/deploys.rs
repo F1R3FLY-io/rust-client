@@ -14,18 +14,24 @@ use crate::common::rt;
 
 pub fn trials() -> Vec<Trial> {
     vec![
-        Trial::test("deploys::a_deploy_writing_to_deploy_id_returns_its_data", || {
-            a_deploy_writing_to_deploy_id_returns_its_data();
-            Ok(())
-        }),
+        Trial::test(
+            "deploys::a_deploy_writing_to_deploy_id_returns_its_data",
+            || {
+                a_deploy_writing_to_deploy_id_returns_its_data();
+                Ok(())
+            },
+        ),
         Trial::test("deploys::a_deploy_writing_nothing_returns_no_data", || {
             a_deploy_writing_nothing_returns_no_data();
             Ok(())
         }),
-        Trial::test("deploys::an_errored_deploy_reports_its_execution_failure", || {
-            an_errored_deploy_reports_its_execution_failure();
-            Ok(())
-        }),
+        Trial::test(
+            "deploys::an_errored_deploy_reports_its_execution_failure",
+            || {
+                an_errored_deploy_reports_its_execution_failure();
+                Ok(())
+            },
+        ),
         Trial::test("deploys::an_expiration_in_the_past_is_refused", || {
             an_expiration_in_the_past_is_refused();
             Ok(())
@@ -78,11 +84,8 @@ fn a_deploy_writing_nothing_returns_no_data() {
 /// writes its `Failed` verdict only past the contestability bound, so the
 /// command must name the execution failure rather than time out silently.
 fn an_errored_deploy_reports_its_execution_failure() {
-    let term = vault::build_transfer_rholang(
-        keys::OVERDRAFT.address,
-        keys::TRANSFER_RECIPIENT.address,
-        1,
-    );
+    let term =
+        vault::build_transfer_rholang(keys::OVERDRAFT.address, keys::TRANSFER_RECIPIENT.address, 1);
     let error = rt()
         .block_on(manager(&keys::OVERDRAFT, 90).deploy_and_wait(&term, false, 0))
         .expect_err("a 50k-phlo vault transfer should not succeed");
@@ -103,7 +106,11 @@ fn an_expiration_in_the_past_is_refused() {
         .as_millis() as i64;
 
     let error = rt()
-        .block_on(manager(&keys::LOAD_TEST, 30).deploy_and_wait(contracts::STDOUT_TERM, false, expired))
+        .block_on(manager(&keys::LOAD_TEST, 30).deploy_and_wait(
+            contracts::STDOUT_TERM,
+            false,
+            expired,
+        ))
         .expect_err("an expired deploy should be refused");
     assert!(
         error.to_string().to_lowercase().contains("expire"),

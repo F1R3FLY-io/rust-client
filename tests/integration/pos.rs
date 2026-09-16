@@ -75,9 +75,7 @@ fn a_joiner_bonds_and_becomes_active() {
         .expect_success("bond-validator")
         .expect_contains("Bond");
 
-    bonds()
-        .expect_success("bonds")
-        .expect_contains("4 total");
+    bonds().expect_success("bonds").expect_contains("4 total");
 
     bond(&keys::VALIDATOR4)
         .expect_failure("a second bond of the same key")
@@ -101,9 +99,7 @@ fn unbonding_quarantines_the_stake() {
 
     chain::next_epoch_boundary(Node::ReadOnly, EPOCH_LENGTH, Duration::from_secs(180));
 
-    bonds()
-        .expect_success("bonds")
-        .expect_contains("3 total");
+    bonds().expect_success("bonds").expect_contains("3 total");
 
     // The shard must still make progress with the joiner gone.
     chain::advance(Node::ReadOnly, 2, Duration::from_secs(180));

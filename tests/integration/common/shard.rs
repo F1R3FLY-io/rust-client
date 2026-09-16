@@ -100,7 +100,13 @@ impl Shard {
 
     fn image_digest(&self, image: &str) -> String {
         Command::new("docker")
-            .args(["image", "inspect", "--format", "{{index .RepoDigests 0}}", image])
+            .args([
+                "image",
+                "inspect",
+                "--format",
+                "{{index .RepoDigests 0}}",
+                image,
+            ])
             .output()
             .ok()
             .filter(|out| out.status.success())
