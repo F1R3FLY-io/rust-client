@@ -94,18 +94,6 @@ pub const ESTIMATE_COST: Key = Key {
     address: "11112ErviUnWD9ModsaBfHk7yy9ZSv4QAHmexv6CwSnhzRdLqXSNdh",
 };
 
-pub const EVENTS_WATCHER: Key = Key {
-    private: "404e92b9531da7693bb5485425dc3cd2e3886cc75a07b6e3dbf4a4df2522b08d",
-    public: "04cee13e362db88ab149dacccd07789ba0226b4a9b5c91dd0a890d3256fe15d7e16b43eb452c67bc6e6a03df7c72374a08ef7c35736c7e2b2baf483ab175ae389c",
-    address: "1111nDKNqAdfi6HSew2MESYCYhL6kKNbzC7ayC3Ye6hFEsqDLyTzt",
-};
-
-pub const SURFACE: Key = Key {
-    private: "3c61cbd199e9e74a87c167bf8faf8ab1851ae5290451766ff4ac6fbb489dc713",
-    public: "049bc1c1855e6cdd864a86dba6190574eeab2fe57286492b8f86496b58327902f2efd747cd4a5e46a2a7b78f86da35994ea77524de5f4e5cf05387a74fe33b65ae",
-    address: "1111tGmi4vNp4gGCwQ61ibSxNJ5TD6Mrbo4wKvQsikCUMLwguFh9V",
-};
-
 /// Bonded at genesis; the topology runs it as validator1.
 pub const VALIDATOR1_PUBLIC: &str = "04fa70d7be5eb750e0915c0f6d19e7085d18bb1c22d030feb2a877ca2cd226d04438aa819359c56c720142fbc66e9da03a5ab960a3d8b75363a226b7c800f60420";
 
