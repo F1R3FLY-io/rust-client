@@ -25,14 +25,15 @@ cargo run -- load-test \
 
 - `--to-address` - Recipient address (required)
 - `--num-tests` - Number of transfers (default: 20)
-- `--amount` - REV per transfer (default: 1)
+- `--amount` - Base units (dust) per transfer (default: 1); `--whole-tokens`/`-d` treats it as whole tokens
 - `--interval` - Seconds between tests (default: 10)
 - `--check-interval` - Fast polling interval (default: 1s)
 - `--chain-depth` - Main chain depth for orphan check (default: 200)
-- `--private-key` - Signing key (default: test key)
-- `-H, --host` - Node host (default: localhost)
+- `--private-key` - Signing key, required (or set `FIREFLY_PRIVATE_KEY`)
+- `-H, --host` - Node host (default: localhost) — must be a bonded validator
 - `-p, --port` - gRPC port (default: 40412)
 - `--http-port` - HTTP port (default: 40413)
+- `--readonly-port` - Read-only gRPC port for balance checks (default: 40452)
 
 ### Features
 

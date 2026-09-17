@@ -14,17 +14,33 @@ Use `F1r3flyApi` directly when you need a single operation (exploratory deploy, 
 
 ## Deploy Flow
 
-### deploy_and_wait (5 phases)
+### deploy_and_wait (4 phases)
 
 ```
 1. Deploy         F1r3flyApi::deploy_with_phlo_limit_and_expiration() -> deploy_id
                   (deploy_and_wait maps its bigger_phlo bool to 50k/5B;
                    deploy_and_wait_with_phlo_limit takes the limit directly)
-2. Block wait     F1r3flyApi::find_deploy_grpc()      polls until deploy in block -> block_hash
-3. Finalization   F1r3flyApi::is_finalized()           polls observer until finalized
-4. Data read      F1r3flyApi::get_data_at_deploy_id()  -> Vec<Par> (AFTER finalization)
-5. Details        F1r3flyApi::get_deploy_detail()       -> cost, errored, blockNumber
+2. Finalization   wait_for_deploy_finalization() polls
+                  GET /api/deploy-finalization-status/{sig} on the observer,
+                  then the deploy node, until the state is terminal
+                  (Finalized / Failed / Expired)
+3. Data read      F1r3flyApi::get_data_at_deploy_id()  -> Vec<Par> (AFTER finalization)
+4. Details        F1r3flyApi::get_deploy_detail()       -> cost, errored, blockNumber
 ```
+
+There is no block-inclusion phase: the sig-level finalization status is the
+only wait. The block-level fallback (`find_deploy_grpc` + `is_finalized`) was
+removed, along with `deploy-and-wait --finalization-timeout`,
+`ConnectionConfig.deploy_timeout_secs` and `FIREFLY_DEPLOY_TIMEOUT`.
+`--max-wait` is now the whole finalization budget. A node that does not serve
+`/api/deploy-finalization-status` errors with a message naming f1r3node-rust
+v0.4.15 as the minimum.
+
+The status is a canonical-state verdict, not a block-level one: a block can
+finalize while some of its deploys' effects are dropped during merge, so the
+node withholds a terminal verdict until the finalized floor passes the deploy's
+contestability bound. A deploy that has already landed and failed can therefore
+still read as `Pending` here (see rust-client#37).
 
 Data is read AFTER finalization, not before. Reading before finalization can return empty results on shards because the block may not be replayed on the validator being queried.
 
@@ -48,6 +64,11 @@ Data is read AFTER finalization, not before. Reading before finalization can ret
 | Endpoint | Used by | Notes |
 |----------|---------|-------|
 | `GET /api/deploy/{id}` | get_deploy_detail, get_deploy_block_hash | Deploy execution details |
+| `GET /api/deploy-finalization-status/{sig}` | deploy_finalization_status, wait_for_deploy_finalization | Canonical-state verdict; polled on the observer, then the deploy node |
+| `POST /api/explore-deploy` | fetch_pos_snapshot, exploratory queries | Read-only node only |
+| `GET /api/bond-status/{pk}` | bond-status | Bond state for a public key |
+| `GET /api/status` | status, token metadata, tip sampling | Node identity and chain position |
+| `GET /metrics` | network-health | Prometheus metrics |
 
 ### WebSocket (port 40403)
 

@@ -10,6 +10,10 @@ node_cli status [-H HOST] [-p HTTP_PORT]
 
 Queries the node's `/api/status` endpoint and displays node identity, network membership, and native token metadata.
 
+`-p` defaults to `40453`, the read-only observer's HTTP port, so a bare
+`node_cli status` reports on the observer rather than a validator. `blocks`
+below defaults to `40413` instead.
+
 ```
 $ node_cli status -H localhost -p 40413
 
@@ -32,7 +36,7 @@ $ node_cli status -H localhost -p 40413
 |-------|-------------|
 | Native Token | Name, symbol, decimals — baked into genesis, immutable |
 | LFB Number | Last finalized block number (-1 if not yet initialized) |
-| Validator | Whether this node can propose blocks |
+| Validator | Whether autopropose is enabled — **not** whether the node is a bonded validator (f1r3node-rust#429). A bonded, actively proposing validator reports `false` here. Use `validator-status` to check bonding |
 | Read Only | Whether this node is in read-only mode |
 | Ready | Whether the engine has entered Running state |
 | Epoch | Current epoch and epoch length from genesis config |

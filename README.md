@@ -23,11 +23,16 @@ cargo run --release -- exploratory-deploy -f rho_examples/query_token_metadata.r
 
 ## Local development
 
-Commands need a signing key, provided via `--private-key` or the `FIREFLY_PRIVATE_KEY` environment variable; if neither is set, the command exits with an error. Local dev/test Docker node setups are funded with a well-known development key (not a secret — it ships in those Docker configs). Export it when running against a local node:
+Commands need a signing key, provided via `--private-key` or the `FIREFLY_PRIVATE_KEY` environment variable; if neither is set, the command exits with an error.
 
 ```bash
-export FIREFLY_PRIVATE_KEY=5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657
+export FIREFLY_PRIVATE_KEY=<your key>
 ```
+
+Local dev/test Docker setups fund a well-known development key, which ships in
+those Docker configs — take it from the node setup you are running against
+(`.env.node` in system-integration, `docker/.env` in f1r3node-rust) rather than
+from here. Never reuse a key from a README against anything real.
 
 ## Documentation
 
@@ -37,13 +42,17 @@ export FIREFLY_PRIVATE_KEY=5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a
 - [exploratory-deploy](docs/commands/exploratory-deploy.md) -- read-only Rholang execution
 - [estimate-cost](docs/commands/estimate-cost.md) -- estimate phlogiston cost before deploying
 - [get-deploy](docs/commands/get-deploy.md) -- get deploy execution details
+- [deploy-status](docs/commands/deploy-status.md) -- canonical finalization status of a deploy signature
 - [get-data](docs/commands/get-data.md) -- read deploy result data
 - [propose](docs/commands/propose.md) -- manually propose a block
 - [is-finalized](docs/commands/is-finalized.md) -- check block finalization
 - [transfer](docs/commands/transfer.md) -- transfer native tokens
 - [Node inspection](docs/commands/inspection.md) -- status, blocks, bonds, balance, etc.
 - [Key management](docs/commands/keys.md) -- generate keys, addresses
-- [Advanced](docs/commands/advanced.md) -- load-test, watch-events, dag, bond-validator
+- [Advanced](docs/commands/advanced.md) -- load-test, watch-events, dag, bond-validator, unbond-validator, PoS queries
+
+### Guides
+- [Bonding a validator](docs/guides/bonding-a-validator.md) -- fund, bond, activate, unbond, payout
 
 ### Library
 - [Getting started](docs/library/getting-started.md) -- ConnectionManager API, config, examples

@@ -50,6 +50,7 @@ Query time:   15.38ms
 | `cost` | Yes | Phlogiston consumed |
 | `errored` | Yes | Whether execution failed |
 | `isFinalized` | Yes | Whether containing block is finalized |
+| `finalizationState` | Yes | Canonical verdict for the deploy — `Finalized`, `Failed`, `Pending` or `Expired`. Not parsed by this client (rust-client#37); read it from the raw response |
 | `deployer` | Full view | Deployer public key |
 | `term` | Full view | Rholang source |
 | `systemDeployError` | Full view | System deploy error (empty if none) |
