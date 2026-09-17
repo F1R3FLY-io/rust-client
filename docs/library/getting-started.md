@@ -33,8 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 let config = ConnectionConfig::new("localhost".into(), 40412, 40413, key.into())
-    .with_observer("localhost".into(), 40452);
+    .with_observer("localhost".into(), 40452, 40453);
 ```
+
+`with_observer` takes the observer's gRPC port and its HTTP port. The HTTP port
+is the one polled for finalization status, so it must be set explicitly rather
+than derived.
 
 ### Deploy and wait
 
@@ -87,8 +91,10 @@ let transfer = manager.transfer("1111recipient...", 100_000_000).await?;
 println!("TX: {} in block {}", transfer.deploy_id, transfer.block_hash);
 ```
 
-Transfer deploys use `vault::TRANSFER_PHLO_LIMIT` (500k): the RevVault
-transfer contract costs ~250k phlo, above the 50k default deploy limit.
+Library transfers use `vault::TRANSFER_PHLO_LIMIT` (500k): the RevVault
+transfer contract costs ~250k phlo, above the 50k default deploy limit. The
+CLI's `transfer` is different — it defaults `--bigger-phlo` to true and so
+deploys with a 5,000,000,000 limit.
 
 ## F1r3flyApi (Low-Level)
 
@@ -134,7 +140,7 @@ pub struct DeployDetail {
     pub block_number: i64,
     pub cost: u64,
     pub errored: bool,
-    pub system_deploy_error: String,
+    pub system_deploy_error: Option<String>,
     // ... plus deployer, term, phlo, sig, timestamp
 }
 
@@ -155,5 +161,6 @@ pub enum ProposeResult {
 | `signing_key` | required | Private key (hex) |
 | `observer_host` | same as node | Observer for finalization |
 | `observer_grpc_port` | `40452` | Observer gRPC port |
+| `observer_http_port` | `40453` | Observer HTTP port polled for finalization status |
 | `finalization_timeout_secs` | `90` | Max seconds to wait for a deploy to finalize |
 | `poll_interval_secs` | `2` | Seconds between finalization status polls |

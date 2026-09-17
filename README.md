@@ -37,13 +37,17 @@ export FIREFLY_PRIVATE_KEY=5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a
 - [exploratory-deploy](docs/commands/exploratory-deploy.md) -- read-only Rholang execution
 - [estimate-cost](docs/commands/estimate-cost.md) -- estimate phlogiston cost before deploying
 - [get-deploy](docs/commands/get-deploy.md) -- get deploy execution details
+- [deploy-status](docs/commands/deploy-status.md) -- canonical finalization status of a deploy signature
 - [get-data](docs/commands/get-data.md) -- read deploy result data
 - [propose](docs/commands/propose.md) -- manually propose a block
 - [is-finalized](docs/commands/is-finalized.md) -- check block finalization
 - [transfer](docs/commands/transfer.md) -- transfer native tokens
 - [Node inspection](docs/commands/inspection.md) -- status, blocks, bonds, balance, etc.
 - [Key management](docs/commands/keys.md) -- generate keys, addresses
-- [Advanced](docs/commands/advanced.md) -- load-test, watch-events, dag, bond-validator
+- [Advanced](docs/commands/advanced.md) -- load-test, watch-events, dag, bond-validator, unbond-validator, PoS queries
+
+### Guides
+- [Bonding a validator](docs/guides/bonding-a-validator.md) -- fund, bond, activate, unbond, payout
 
 ### Library
 - [Getting started](docs/library/getting-started.md) -- ConnectionManager API, config, examples

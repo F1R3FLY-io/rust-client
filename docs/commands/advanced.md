@@ -11,15 +11,19 @@ node_cli load-test --to-address <ADDR> --num-tests <N> --amount <AMT> [OPTIONS]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--to-address` | required | Recipient address |
-| `--num-tests` | required | Number of transfers to send |
-| `--amount` | required | Amount per transfer in base units (dust). Use `--whole-tokens`/`-d` for whole tokens. |
-| `--whole-tokens` | `-d` | false | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status (default: base units / dust) |
-| `--interval` | `5` | Seconds between deploys |
+| `--private-key` | required (`FIREFLY_PRIVATE_KEY`) | Key for signing |
+| `--num-tests` | `20` | Number of transfers to send |
+| `--amount` | `1` | Amount per transfer in base units (dust). Use `--whole-tokens`/`-d` for whole tokens. |
+| `--whole-tokens`, `-d` | `false` | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status |
+| `--interval` | `10` | Seconds between deploys |
+| `-H`, `--host` | `localhost` | Node host |
+| `-p`, `--port` | `40412` | Node gRPC port |
+| `--http-port` | `40413` | Node HTTP port for status queries |
 | `--inclusion-timeout` | `120` | Max seconds for block inclusion |
 | `--finalization-timeout` | `120` | Max seconds for finalization |
-| `--check-interval` | `3` | Seconds between polls |
-| `--chain-depth` | `10` | Depth to check for orphaned blocks |
-| `--readonly-port` | same as port | Read-only gRPC port for balance check |
+| `--check-interval` | `1` | Seconds between polls |
+| `--chain-depth` | `200` | Depth to check for orphaned blocks |
+| `--readonly-port` | `40452` | Read-only gRPC port for balance check |
 
 ```
 $ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000
@@ -50,7 +54,9 @@ Timeout:     0
 
 ## watch-events
 
-Monitor real-time node events via WebSocket. Connects to `/ws/events` and streams all 10 event types defined by the node. On connect, the node replays any startup events that occurred before the client connected.
+Monitor real-time node events via WebSocket. Connects to `/ws/events` and streams the node's events. On connect, the node replays any startup events that occurred before the client connected.
+
+The node defines ten event types (`F1r3flyEvent`); this client deserializes the nine below. `block-approval-received`, emitted during the genesis ceremony, is not currently surfaced.
 
 ```bash
 node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-forever]
@@ -149,11 +155,28 @@ node_cli bond-validator --stake <AMOUNT> --private-key <KEY> [OPTIONS]
 |------|---------|-------------|
 | `--stake` | required | Stake amount |
 | `--private-key` | required | Validator's signing key |
+| `-H`, `--host` | `localhost` | Node to submit the deploy to — must be a **bonded validator** |
+| `-p`, `--port` | `40412` | That node's gRPC port |
+| `--http-port` | `40413` | That node's HTTP port |
 | `--propose` | false | Propose block after bonding |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer-host` | | Observer for finalization |
 | `--observer-port` | `40452` | Observer gRPC port |
 | `--observer-http-port` | `40453` | Observer HTTP port polled for finalization status |
+
+**Submit to a bonded validator.** Any other node — including a bootstrap or
+ceremony-master node, and the validator being bonded, which is not yet in the
+bond set — accepts the deploy and strands it, because nothing can ever include
+it (f1r3node-rust#427). The command then runs out `--max-wait` and reports a
+timeout.
+
+**Fund the validator's vault first.** The bond is paid for by the key being
+bonded, and the vault must hold `phlo limit × phlo price` **plus** the stake at
+submission. `bond-validator` uses the bigger phlo limit, 5,000,000,000, and the
+default phlo price is 1. An under-funded vault does not reject the deploy: it
+is included in a block and fails there with
+`systemDeployError: "Deploy payment failed: Insufficient funds"`. See
+[Bonding a validator](../guides/bonding-a-validator.md) for the full sequence.
 
 ```
 $ node_cli bond-validator --stake 1000 --private-key <KEY>
@@ -194,10 +217,16 @@ node_cli unbond-validator --private-key <KEY> [OPTIONS]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--private-key` | required | Signing key of the validator to unbond |
+| `-H`, `--host` | `localhost` | Node to submit the deploy to — must be a **bonded validator** |
+| `-p`, `--port` | `40412` | That node's gRPC port |
+| `--http-port` | `40413` | That node's HTTP port |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer-host` | | Observer for finalization |
 | `--observer-port` | `40452` | Observer gRPC port |
 | `--observer-http-port` | `40453` | Observer HTTP port polled for finalization status |
+
+The same routing rule as `bond-validator` applies: submit to a bonded
+validator, or the deploy is accepted and never included.
 
 The withdrawal takes effect in stages, each at an epoch boundary:
 
@@ -249,7 +278,32 @@ Network Health Summary:
 
 ## PoS Query Commands
 
-Query Proof-of-Stake contract state. All use exploratory deploy internally and must run against an observer node. `validator-status` and `network-consensus` read over HTTP only.
+Query Proof-of-Stake contract state. All are built on exploratory deploys, which
+only a **read-only node** serves — against any other node they fail with
+`Exploratory deploy can only be executed on read-only node`.
+
+### Port and transport
+
+The read-only node exposes both a gRPC and an HTTP port, and these commands do
+not all use the same one. Passing the gRPC port to an HTTP command fails with
+`error sending request for url (…/api/explore-deploy)`, which does not name the
+real problem.
+
+| Command | Transport | Port flag | Default |
+|---|---|---|---|
+| `bonds` | HTTP | `-p` | `40453` |
+| `active-validators` | HTTP | `-p` | `40453` |
+| `validator-status` | HTTP | `--http-port` | `40453` |
+| `network-consensus` | HTTP | `--http-port` | `40453` |
+| `epoch-rewards` | HTTP | `--http-port` | `40453` |
+| `epoch-info` | gRPC | `-p` | `40452` |
+| `wallet-balance` | gRPC | `-p` | `40452` |
+
+`epoch-info` also accepts `--http-port`, but does not read it.
+
+Two non-PoS commands share the confusion, since they default to different
+nodes: `status` defaults to `40453` (the observer), while `blocks` defaults to
+`40413` (validator1).
 
 ### epoch-info
 

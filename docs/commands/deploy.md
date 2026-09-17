@@ -40,5 +40,10 @@ Deploy ID: 3045022100a7378028e7bdfb8ea7c908f5effc1d2018a0448090e14be5f35ba722251
 ## Notes
 
 - The deploy is submitted to the node but NOT yet in a block
+- **Submit to a bonded validator.** The deploy queue is node-local and deploys
+  do not gossip, so a node that cannot propose — a bootstrap or ceremony-master
+  node, or an unbonded validator — accepts the deploy, returns a deploy ID, and
+  never includes it (f1r3node-rust#427). Nothing reports an error; the deploy
+  simply never appears in a block
 - On shards with heartbeat enabled, the node auto-proposes — no manual `propose` needed
 - The deploy ID is the DER-encoded secp256k1 signature of the deploy data
