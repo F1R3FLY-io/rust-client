@@ -118,7 +118,8 @@ pub struct DeployTransfers {
 pub struct TransferEvent {
     pub from_addr: String,
     pub to_addr: String,
-    pub amount: i64,
+    #[serde(deserialize_with = "crate::vault::deserialize_amount")]
+    pub amount: num_bigint::BigUint,
     pub success: bool,
 }
 
@@ -451,4 +452,27 @@ fn display_block_payload(payload: &BlockEventPayload) {
         println!(" Deploys:  {}", payload.deploys.len());
     }
     println!();
+}
+
+#[cfg(test)]
+mod bigint_tests {
+    use super::TransferEvent;
+
+    #[test]
+    fn reads_legacy_and_bigint_transfer_events() {
+        for amount in [
+            serde_json::json!(1000),
+            serde_json::json!("1606938044258990275541962092341162602522202993782792835301377"),
+        ] {
+            let event: TransferEvent = serde_json::from_value(serde_json::json!({
+                "from-addr": "sender", "to-addr": "recipient", "amount": amount, "success": true
+            }))
+            .unwrap();
+            let expected = amount
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| amount.to_string());
+            assert_eq!(event.amount.to_string(), expected);
+        }
+    }
 }

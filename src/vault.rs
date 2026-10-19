@@ -5,11 +5,10 @@
 //!
 //! # Units
 //!
-//! - 1 token = 100,000,000 dust
+//! - Precision comes from node metadata.
 //! - All amounts in this module are in dust unless otherwise specified
 
-/// Token to dust conversion factor (1 token = 100,000,000 dust)
-pub const DUST_FACTOR: u64 = 100_000_000;
+use num_bigint::BigUint;
 
 /// Phlo limit for vault transfer deploys.
 ///
@@ -32,13 +31,12 @@ pub struct TransferResult {
     /// Recipient's vault address
     pub to_address: String,
     /// Amount transferred in dust
-    pub amount_dust: u64,
+    pub amount_dust: BigUint,
 }
 
 impl TransferResult {
-    /// Get amount in tokens (1 token = 100,000,000 dust)
-    pub fn amount_tokens(&self) -> f64 {
-        self.amount_dust as f64 / DUST_FACTOR as f64
+    pub fn amount_tokens(&self, decimals: u32) -> Result<String, String> {
+        dust_to_tokens(&self.amount_dust, decimals)
     }
 }
 
@@ -48,9 +46,14 @@ impl TransferResult {
 ///
 /// * `from_address` - Sender's vault address (1111...)
 /// * `to_address` - Recipient's vault address (1111...)
-/// * `amount_dust` - Amount in dust (1 token = 100,000,000 dust)
-pub fn build_transfer_rholang(from_address: &str, to_address: &str, amount_dust: u64) -> String {
-    format!(
+/// * `amount_dust` - Amount in raw base units
+pub fn build_transfer_rholang(
+    from_address: &str,
+    to_address: &str,
+    amount_dust: &BigUint,
+) -> Result<String, String> {
+    let amount_literal = amount_literal(amount_dust)?;
+    Ok(format!(
         r#"new
  deployId(`rho:rchain:deployId`),
  deployerId(`rho:system:deployerId`),
@@ -67,7 +70,7 @@ in {{
  @SystemVault!("findOrCreate", "{to_address}", *toVaultCh) |
  @SystemVault!("deployerAuthKey", *deployerId, *systemVaultKeyCh) |
  for (@(true, vault) <- vaultCh; key <- systemVaultKeyCh; @(true, toVault) <- toVaultCh) {{
- @vault!("transfer", "{to_address}", {amount_dust}, *key, *resultCh)
+ @vault!("transfer", "{to_address}", {amount_literal}, *key, *resultCh)
  }} |
  for (@(false, errorMsg) <- vaultCh) {{
  resultCh!(("error", "Sender vault error", errorMsg))
@@ -80,7 +83,7 @@ in {{
  deployId!(result)
  }}
 }}"#
-    )
+    ))
 }
 
 /// Fail unless a finalized transfer deploy positively reports a completed transfer:
@@ -187,14 +190,146 @@ pub fn validate_address(address: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Convert token amount to dust
-pub fn tokens_to_dust(tokens: f64) -> u64 {
-    (tokens * DUST_FACTOR as f64) as u64
+pub fn validate_amount(value: &BigUint) -> Result<(), String> {
+    if value.bits() > 256 {
+        return Err("amount exceeds uint256".into());
+    }
+    Ok(())
 }
 
-/// Convert dust amount to tokens
-pub fn dust_to_tokens(dust: u64) -> f64 {
-    dust as f64 / DUST_FACTOR as f64
+pub fn amount_literal(value: &BigUint) -> Result<String, String> {
+    validate_amount(value)?;
+    Ok(if value.bits() <= 63 {
+        value.to_string()
+    } else {
+        format!("{value}n")
+    })
+}
+
+pub fn parse_amount(value: &str) -> Result<BigUint, String> {
+    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("amount must be an unsigned decimal integer".into());
+    }
+    let amount = value.parse::<BigUint>().map_err(|e| e.to_string())?;
+    validate_amount(&amount)?;
+    Ok(amount)
+}
+
+pub fn json_amount(value: &serde_json::Value) -> Option<BigUint> {
+    match value {
+        serde_json::Value::String(text) => parse_amount(text).ok(),
+        serde_json::Value::Number(number) => number.as_u64().map(BigUint::from),
+        _ => None,
+    }
+}
+
+pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigUint, D::Error> {
+    let value = <serde_json::Value as serde::Deserialize>::deserialize(d)?;
+    json_amount(&value).ok_or_else(|| serde::de::Error::custom("invalid uint256 amount"))
+}
+
+pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint, String> {
+    if decimals > 77 {
+        return Err("invalid decimals".into());
+    }
+    let (whole, fraction) = tokens.split_once('.').unwrap_or((tokens, ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|b| b.is_ascii_digit())
+        || !fraction.bytes().all(|b| b.is_ascii_digit())
+        || fraction.len() > decimals as usize
+    {
+        return Err("invalid token amount or excess precision".into());
+    }
+    parse_amount(&format!(
+        "{}{}{}",
+        whole,
+        fraction,
+        "0".repeat(decimals as usize - fraction.len())
+    ))
+}
+
+pub fn dust_to_tokens(dust: &BigUint, decimals: u32) -> Result<String, String> {
+    validate_amount(dust)?;
+    if decimals > 77 {
+        return Err("invalid decimals".into());
+    }
+    let text = format!(
+        "{:0>width$}",
+        dust.to_string(),
+        width = decimals as usize + 1
+    );
+    if decimals == 0 {
+        return Ok(text);
+    }
+    let (whole, fraction) = text.split_at(text.len() - decimals as usize);
+    let fraction = fraction.trim_end_matches('0');
+    Ok(if fraction.is_empty() {
+        whole.to_owned()
+    } else {
+        format!("{whole}.{fraction}")
+    })
+}
+
+#[cfg(test)]
+mod bigint_tests {
+    use super::*;
+    #[test]
+    fn literals_preserve_legacy_ints_and_encode_wide_amounts() {
+        let last_int = BigUint::from(i64::MAX as u64);
+        assert_eq!(amount_literal(&last_int).unwrap(), i64::MAX.to_string());
+        let first_bigint = &last_int + BigUint::from(1u8);
+        assert_eq!(
+            amount_literal(&first_bigint).unwrap(),
+            "9223372036854775808n"
+        );
+        let term = build_transfer_rholang("from", "to", &first_bigint).unwrap();
+        assert!(term.contains("9223372036854775808n"));
+        assert!(term.contains("deployId!(result)"));
+        assert!(build_transfer_rholang("from", "to", &(BigUint::from(1u8) << 256usize)).is_err());
+    }
+
+    #[test]
+    fn invalid_amounts_do_not_round_or_wrap() {
+        for value in ["", "-1", "+1", "1.0", "1e18", " 1"] {
+            assert!(parse_amount(value).is_err(), "{value}");
+        }
+        for value in [".1", "1.2.3", "NaN", "0.0000000000000000001"] {
+            assert!(tokens_to_dust(value, 18).is_err(), "{value}");
+        }
+        assert!(tokens_to_dust("1", 78).is_err());
+        assert_eq!(
+            tokens_to_dust("1.00000001", 8).unwrap(),
+            BigUint::from(100000001u32)
+        );
+        assert_eq!(
+            json_amount(&serde_json::json!(u64::MAX)),
+            Some(u64::MAX.into())
+        );
+        assert!(json_amount(&serde_json::json!(-1)).is_none());
+        assert!(json_amount(&serde_json::json!(1.5)).is_none());
+    }
+
+    #[test]
+    fn exact_amounts_above_machine_limits() {
+        for bits in [53, 63, 64, 128, 255] {
+            let value = (BigUint::from(1u8) << bits) + BigUint::from(1u8);
+            assert_eq!(
+                tokens_to_dust(&dust_to_tokens(&value, 18).unwrap(), 18).unwrap(),
+                value
+            );
+        }
+        let maximum = (BigUint::from(1u8) << 256usize) - BigUint::from(1u8);
+        assert!(tokens_to_dust(&maximum.to_string(), 0).is_ok());
+        assert!(parse_amount(&(maximum + BigUint::from(1u8)).to_string()).is_err());
+        assert!(tokens_to_dust("0.0000000000000000001", 18).is_err());
+        assert!(tokens_to_dust("-1", 18).is_err());
+        assert_eq!(
+            tokens_to_dust("1.000000000000000001", 18)
+                .unwrap()
+                .to_string(),
+            "1000000000000000001"
+        );
+    }
 }
 
 #[cfg(test)]

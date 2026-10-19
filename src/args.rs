@@ -523,7 +523,7 @@ pub struct BondValidatorArgs {
 
     /// Stake amount for the validator (required)
     #[arg(short, long)]
-    pub stake: u64,
+    pub stake: String,
 
     /// Private key for signing the deploy (hex format) - determines which validator gets bonded
     #[arg(long)]
@@ -594,7 +594,7 @@ pub struct TransferArgs {
 
     /// Amount to transfer
     #[arg(short, long)]
-    pub amount: u64,
+    pub amount: String,
     /// Treat --amount as whole tokens, scaled by the native token's decimals from node status (default: base units / dust)
     #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
     pub whole_tokens: bool,
@@ -631,8 +631,8 @@ pub struct LoadTestArgs {
     pub num_tests: u32,
 
     /// Amount per transfer
-    #[arg(long, default_value_t = 1)]
-    pub amount: u64,
+    #[arg(long, default_value = "1")]
+    pub amount: String,
 
     /// Treat --amount as whole tokens, scaled by the native token's decimals from node status (default: base units / dust)
     #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
@@ -815,4 +815,38 @@ pub struct BlockTransfersArgs {
     /// Show all deploys, not just those with transfers
     #[arg(long = "all-deploys", default_value_t = false)]
     pub all_deploys: bool,
+}
+
+#[cfg(test)]
+mod bigint_tests {
+    use super::*;
+
+    #[test]
+    fn transfer_keeps_raw_units_default_and_whole_token_flag() {
+        let raw = TransferArgs::try_parse_from([
+            "transfer",
+            "--to-address",
+            "recipient",
+            "--amount",
+            "18446744073709551616",
+            "--private-key",
+            "test-key",
+        ])
+        .unwrap();
+        assert_eq!(raw.amount, "18446744073709551616");
+        assert!(!raw.whole_tokens);
+        let tokens = TransferArgs::try_parse_from([
+            "transfer",
+            "--to-address",
+            "recipient",
+            "--amount",
+            "1.000000000000000001",
+            "--whole-tokens",
+            "--private-key",
+            "test-key",
+        ])
+        .unwrap();
+        assert_eq!(tokens.amount, "1.000000000000000001");
+        assert!(tokens.whole_tokens);
+    }
 }

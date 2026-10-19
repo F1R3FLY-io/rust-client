@@ -349,7 +349,11 @@ pub async fn bond_validator_command(
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(&build_bond_rholang(args.stake), true, expiration)
+        .deploy_and_wait(
+            &build_bond_rholang(&crate::vault::parse_amount(&args.stake)?)?,
+            true,
+            expiration,
+        )
         .await
         .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
 
@@ -453,16 +457,11 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
         let decimals = status_json
             .get("nativeTokenDecimals")
             .and_then(|v| v.as_u64())
-            .ok_or("node did not report token decimals; cannot convert whole tokens")?
-            as u32;
-        let factor = 10u64
-            .checked_pow(decimals)
-            .ok_or("token decimals too large for u64 multiplier")?;
-        args.amount
-            .checked_mul(factor)
-            .ok_or("amount overflows u64 after applying token decimals")?
+            .and_then(|v| u32::try_from(v).ok())
+            .ok_or("node did not report valid token decimals; cannot convert whole tokens")?;
+        crate::vault::tokens_to_dust(&args.amount, decimals)?
     } else {
-        args.amount
+        crate::vault::parse_amount(&args.amount)?
     };
 
     println!(
@@ -471,7 +470,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     );
 
     let rholang_code =
-        crate::vault::build_transfer_rholang(&from_address, &args.to_address, amount_dust);
+        crate::vault::build_transfer_rholang(&from_address, &args.to_address, &amount_dust)?;
     let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
 
     let manager = F1r3flyConnectionManager::new(build_config(
