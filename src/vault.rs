@@ -215,6 +215,7 @@ pub fn parse_amount(value: &str) -> Result<BigUint, String> {
     Ok(amount)
 }
 
+/// Decode an unsigned uint256 amount, not a potentially rejected transfer attempt.
 pub fn json_amount(value: &serde_json::Value) -> Option<BigUint> {
     match value {
         serde_json::Value::String(text) => parse_amount(text).ok(),
@@ -226,6 +227,37 @@ pub fn json_amount(value: &serde_json::Value) -> Option<BigUint> {
 pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigUint, D::Error> {
     let value = <serde_json::Value as serde::Deserialize>::deserialize(d)?;
     json_amount(&value).ok_or_else(|| serde::de::Error::custom("invalid uint256 amount"))
+}
+
+/// Reports include rejected attempts, so their amounts are signed and not uint256-bounded.
+/// Never use this decoder to validate outgoing transfers or stored balances.
+#[cfg(feature = "cli")]
+pub(crate) fn json_reported_amount(value: &serde_json::Value) -> Option<num_bigint::BigInt> {
+    use num_bigint::BigInt;
+
+    match value {
+        serde_json::Value::String(text) => {
+            let digits = text.strip_prefix('-').unwrap_or(text);
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            text.parse().ok()
+        }
+        serde_json::Value::Number(number) => number
+            .as_i64()
+            .map(BigInt::from)
+            .or_else(|| number.as_u64().map(BigInt::from)),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "cli")]
+pub(crate) fn deserialize_reported_amount<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<num_bigint::BigInt, D::Error> {
+    let value = <serde_json::Value as serde::Deserialize>::deserialize(d)?;
+    json_reported_amount(&value)
+        .ok_or_else(|| serde::de::Error::custom("invalid reported integer amount"))
 }
 
 pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint, String> {
@@ -268,6 +300,72 @@ pub fn dust_to_tokens(dust: &BigUint, decimals: u32) -> Result<String, String> {
     } else {
         format!("{whole}.{fraction}")
     })
+}
+
+#[cfg(all(test, feature = "cli"))]
+mod reported_amount_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn reported_amounts_preserve_signed_and_unsigned_integers() {
+        for value in [
+            json!(0),
+            json!(-1),
+            json!(i64::MIN),
+            json!(i64::MAX),
+            json!(u64::MAX),
+            json!("0"),
+            json!("-1"),
+            json!("18446744073709551617"),
+            json!("-18446744073709551617"),
+        ] {
+            let expected = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string());
+            assert_eq!(json_reported_amount(&value).unwrap().to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn rejected_attempts_do_not_relax_unsigned_amount_limits() {
+        let oversized = (BigUint::from(1u8) << 300usize) + BigUint::from(1u8);
+        for text in [oversized.to_string(), format!("-{oversized}"), "-1".into()] {
+            let value = json!(text);
+            assert_eq!(json_reported_amount(&value).unwrap().to_string(), text);
+            assert!(parse_amount(&text).is_err());
+            assert!(json_amount(&value).is_none());
+        }
+        assert!(json_amount(&json!(-1)).is_none());
+        assert!(amount_literal(&oversized).is_err());
+    }
+
+    #[test]
+    fn reported_amounts_reject_non_integer_values() {
+        for value in [
+            json!(""),
+            json!("-"),
+            json!("+1"),
+            json!("--1"),
+            json!("-+1"),
+            json!("1.5"),
+            json!("1e18"),
+            json!("1_000"),
+            json!(" 1"),
+            json!("1 "),
+            json!("NaN"),
+            json!("１"),
+            json!(1.0),
+            json!(1.5),
+            json!(true),
+            json!(null),
+            json!([]),
+            json!({}),
+        ] {
+            assert!(json_reported_amount(&value).is_none(), "{value}");
+        }
+    }
 }
 
 #[cfg(test)]

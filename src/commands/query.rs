@@ -1406,7 +1406,7 @@ pub async fn block_transfers_command(
                     .unwrap_or("?");
                 let amount = transfer
                     .get("amount")
-                    .and_then(crate::vault::json_amount)
+                    .and_then(crate::vault::json_reported_amount)
                     .ok_or("invalid transfer amount")?;
                 let success = transfer
                     .get("success")

@@ -21,6 +21,10 @@ path = "tests/integration/main.rs"
 harness = false
 required-features = ["cli", "integration"]
 
+[[test]]
+name = "transfer_reports"
+required-features = ["cli"]
+
 [dependencies]
 num-bigint = "0.4"
 # F1r3fly protocol types — pinned to a released f1r3node-rust tag.

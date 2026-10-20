@@ -179,3 +179,8 @@ These conversions return errors for excess precision or amounts above
 `vault::build_transfer_rholang` and `pos::build_bond_rholang` take borrowed
 `BigUint` amounts and return `Result<String, String>` after checking bounds.
 Quarantine heights remain ordinary integers.
+
+Transfer reports describe attempted amounts, including rejected transfers.
+With the `cli` feature, `commands::events::TransferEvent.amount` uses signed
+`num_bigint::BigInt` to preserve negative and oversized attempts. Outgoing
+amounts and stored balances still use unsigned uint256 validation.
