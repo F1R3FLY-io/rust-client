@@ -27,6 +27,9 @@ pub struct ConnectionConfig {
     pub finalization_timeout_secs: u32,
     /// Seconds between finalization status polls (default: 2)
     pub poll_interval_secs: u64,
+    /// Hexadecimal genesis resource policy of the target shard. Deploys sign
+    /// its schedule (default: the ASI policy, [`crate::grpc::ASI_RESOURCE_POLICY_HEX`])
+    pub resource_policy: String,
 }
 
 impl ConnectionConfig {
@@ -39,6 +42,7 @@ impl ConnectionConfig {
     /// - `FIREFLY_HTTP_PORT`: HTTP port (default: 40403)
     /// - `FIREFLY_PRIVATE_KEY`: Private key for signing (REQUIRED)
     /// - `FIREFLY_FINALIZATION_TIMEOUT`: Max seconds to wait for a deploy to finalize (default: 90)
+    /// - `FIREFLY_RESOURCE_POLICY`: Hexadecimal genesis resource policy of the shard (default: the ASI policy)
     pub fn from_env() -> Result<Self, ConnectionError> {
         let signing_key =
             env::var("FIREFLY_PRIVATE_KEY").map_err(|_| ConnectionError::MissingPrivateKey)?;
@@ -68,6 +72,8 @@ impl ConnectionConfig {
                 .and_then(|t| t.parse().ok())
                 .unwrap_or(90),
             poll_interval_secs: 2,
+            resource_policy: env::var("FIREFLY_RESOURCE_POLICY")
+                .unwrap_or_else(|_| crate::grpc::ASI_RESOURCE_POLICY_HEX.to_string()),
         })
     }
 
@@ -83,6 +89,7 @@ impl ConnectionConfig {
             observer_http_port: 40453,
             finalization_timeout_secs: 90,
             poll_interval_secs: 2,
+            resource_policy: crate::grpc::ASI_RESOURCE_POLICY_HEX.to_string(),
         }
     }
 
@@ -152,6 +159,7 @@ impl F1r3flyConnectionManager {
             &self.config.node_host,
             self.config.grpc_port,
         )
+        .map(|api| api.with_resource_policy(&self.config.resource_policy))
         .map_err(|e| ConnectionError::ConnectionFailed(e.to_string()))
     }
 
@@ -166,6 +174,7 @@ impl F1r3flyConnectionManager {
             host,
             self.config.observer_grpc_port,
         )
+        .map(|api| api.with_resource_policy(&self.config.resource_policy))
         .map_err(|e| ConnectionError::ConnectionFailed(e.to_string()))
     }
 
@@ -446,6 +455,23 @@ impl F1r3flyConnectionManager {
                 None
             }
         };
+
+        // Changed for the cost-accounted f1r3node (ASI:Chain migration): the
+        // node charges an offered deploy whose execution failed and reports it
+        // `Finalized`, with `errored` set, where the legacy node wrote a
+        // `Failed` verdict. It is still a failed execution.
+        if let Some(detail) = detail.as_ref().filter(|detail| detail.errored) {
+            let reason = detail
+                .system_deploy_error
+                .as_deref()
+                .filter(|error| !error.is_empty())
+                .map(|error| format!(": {error}"))
+                .unwrap_or_default();
+            return Err(ConnectionError::OperationFailed(format!(
+                "Deploy {deploy_id} executed with an error in block {} (cost {}){reason}",
+                detail.block_number, detail.cost
+            )));
+        }
 
         Ok(crate::f1r3fly_api::DeployResult {
             deploy_id,

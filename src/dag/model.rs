@@ -184,7 +184,10 @@ impl Dag {
     /// Get blocks sorted by block number (descending)
     pub fn blocks_by_number(&self) -> Vec<&DagBlock> {
         let mut blocks: Vec<_> = self.blocks.values().collect();
-        blocks.sort_by(|a, b| b.block_number.cmp(&a.block_number));
+        // Changed for the cost-accounted f1r3node (ASI:Chain migration): the
+        // pinned toolchain's clippy requires this form (unnecessary_sort_by).
+        // blocks.sort_by(|a, b| b.block_number.cmp(&a.block_number));
+        blocks.sort_by_key(|b| std::cmp::Reverse(b.block_number));
         blocks
     }
 

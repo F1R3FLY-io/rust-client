@@ -1,17 +1,24 @@
 //! Deploy and propose operations
 
 use super::F1r3flyApi;
-use blake2::{Blake2b, Digest};
+// Changed for the cost-accounted f1r3node (ASI:Chain migration, R-2): only the
+// legacy body-only deploy, which the node refuses, used these imports and
+// `blake2b_256_hash`. Unused, they fail the CI lint job (`-D warnings`).
+// use blake2::{Blake2b, Digest};
+use f1r3fly_casper::rust::util::rholang::costacc::owner_offer::owner_direct_offer;
+use f1r3fly_crypto::rust::private_key::PrivateKey;
 use f1r3fly_models::casper::v1::deploy_response::Message as DeployResponseMessage;
 use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
 use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
 use f1r3fly_models::casper::{DeployDataProto, ProposeQuery};
-use f1r3fly_models::ByteString;
-use prost::Message;
-use secp256k1::{Message as Secp256k1Message, Secp256k1};
+use f1r3fly_models::rust::cost_deploy_data::DeployData;
+use f1r3fly_models::rust::phlo_schedule::PhloGenesisPolicy;
+// use f1r3fly_models::ByteString;
+// use prost::Message;
+// use secp256k1::{Message as Secp256k1Message, Secp256k1};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use typenum::U32;
+// use typenum::U32;
 
 use crate::f1r3fly_api::ProposeResult;
 
@@ -81,7 +88,7 @@ impl<'a> F1r3flyApi<'a> {
             current_block,
             expiration_timestamp,
             None,
-        );
+        )?;
 
         let connect_start = Instant::now();
         let mut deploy_service_client = DeployServiceClient::connect(self.grpc_url()).await?;
@@ -195,7 +202,7 @@ impl<'a> F1r3flyApi<'a> {
             current_block,
             expiration_timestamp,
             timestamp_override,
-        );
+        )?;
 
         let mut client = DeployServiceClient::connect(self.grpc_url()).await?;
         let deploy_response = client.do_deploy(deployment).await?;
@@ -252,7 +259,7 @@ impl<'a> F1r3flyApi<'a> {
         valid_after_block_number: i64,
         expiration_timestamp: i64,
         timestamp_override: Option<i64>,
-    ) -> DeployDataProto {
+    ) -> Result<DeployDataProto, Box<dyn std::error::Error>> {
         let timestamp = timestamp_override.unwrap_or_else(|| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -260,55 +267,86 @@ impl<'a> F1r3flyApi<'a> {
                 .as_millis() as i64
         });
 
-        let projection = DeployDataProto {
-            term: code.clone(),
-            timestamp,
-            phlo_price: 1,
-            phlo_limit,
+        // Changed for the cost-accounted f1r3node (ASI:Chain migration, R-2):
+        // the legacy body-only deploy below is refused by the node. The
+        // owner-direct offer after this comment replaces it.
+        // let projection = DeployDataProto {
+        //     term: code.clone(),
+        //     timestamp,
+        //     phlo_price: 1,
+        //     phlo_limit,
+        //     valid_after_block_number,
+        //     shard_id: "root".into(),
+        //     language: String::new(),
+        //     sig: ByteString::new(),
+        //     deployer: ByteString::new(),
+        //     sig_algorithm: String::new(),
+        //     expiration_timestamp,
+        // };
+        //
+        // let serialized = projection.encode_to_vec();
+        // let digest = blake2b_256_hash(&serialized);
+        //
+        // let signing_key = self
+        //     .signing_key
+        //     .as_ref()
+        //     .expect("build_deploy_msg requires a signing key");
+        // let secp = Secp256k1::new();
+        // let message = Secp256k1Message::from_digest(digest);
+        // let signature = secp.sign_ecdsa(message, signing_key);
+        // let sig_bytes = signature.serialize_der().to_vec();
+        // let public_key = signing_key.public_key(&secp);
+        // let pub_key_bytes = public_key.serialize_uncompressed().to_vec();
+        //
+        // DeployDataProto {
+        //     term: code,
+        //     timestamp,
+        //     phlo_price: 1,
+        //     phlo_limit,
+        //     valid_after_block_number,
+        //     shard_id: "root".into(),
+        //     language,
+        //     sig: ByteString::from(sig_bytes),
+        //     sig_algorithm: "secp256k1".into(),
+        //     deployer: ByteString::from(pub_key_bytes),
+        //     expiration_timestamp,
+        // }
+
+        let phlo_limit =
+            u64::try_from(phlo_limit).map_err(|_| "The phlo limit must be nonnegative")?;
+        let policy_bytes = hex::decode(self.resource_policy)
+            .map_err(|e| format!("Invalid resource policy hex: {e}"))?;
+        let policy = PhloGenesisPolicy::decode(&policy_bytes)
+            .map_err(|e| format!("Invalid resource policy: {e}"))?;
+        let schedule = policy
+            .schedule()
+            .map_err(|e| format!("Invalid resource policy schedule: {e}"))?;
+        let body = DeployData {
+            term: code,
+            language,
+            time_stamp: timestamp,
             valid_after_block_number,
             shard_id: "root".into(),
-            language: String::new(),
-            sig: ByteString::new(),
-            deployer: ByteString::new(),
-            sig_algorithm: String::new(),
-            expiration_timestamp,
+            // 0 means no expiration, as in the node's protobuf mapping.
+            expiration_timestamp: (expiration_timestamp != 0).then_some(expiration_timestamp),
+            authority_presentations: Vec::new(),
         };
-
-        let serialized = projection.encode_to_vec();
-        let digest = blake2b_256_hash(&serialized);
-
         let signing_key = self
             .signing_key
             .as_ref()
             .expect("build_deploy_msg requires a signing key");
-        let secp = Secp256k1::new();
-        let message = Secp256k1Message::from_digest(digest);
-        let signature = secp.sign_ecdsa(message, signing_key);
-        let sig_bytes = signature.serialize_der().to_vec();
-        let public_key = signing_key.public_key(&secp);
-        let pub_key_bytes = public_key.serialize_uncompressed().to_vec();
-
-        DeployDataProto {
-            term: code,
-            timestamp,
-            phlo_price: 1,
-            phlo_limit,
-            valid_after_block_number,
-            shard_id: "root".into(),
-            language,
-            sig: ByteString::from(sig_bytes),
-            sig_algorithm: "secp256k1".into(),
-            deployer: ByteString::from(pub_key_bytes),
-            expiration_timestamp,
-        }
+        let owner = PrivateKey::from_bytes(&signing_key.secret_bytes());
+        Ok(owner_direct_offer(&owner, body, phlo_limit, 1, &schedule)?)
     }
 }
 
-fn blake2b_256_hash(data: &[u8]) -> [u8; 32] {
-    let mut blake = Blake2b::<U32>::new();
-    blake.update(data);
-    let hash = blake.finalize();
-    let mut result = [0u8; 32];
-    result.copy_from_slice(&hash);
-    result
-}
+// Changed for the cost-accounted f1r3node (ASI:Chain migration, R-2): only the
+// legacy body-only deploy used this hash. Unused, it fails the CI lint job.
+// fn blake2b_256_hash(data: &[u8]) -> [u8; 32] {
+//     let mut blake = Blake2b::<U32>::new();
+//     blake.update(data);
+//     let hash = blake.finalize();
+//     let mut result = [0u8; 32];
+//     result.copy_from_slice(&hash);
+//     result
+// }
