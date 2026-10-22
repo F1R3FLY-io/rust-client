@@ -83,7 +83,11 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
     println!();
 
     // Initialize API once (reuse connection)
-    let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?.with_resource_policy(
+        args.resource_policy
+            .as_deref()
+            .unwrap_or_else(|| crate::grpc::default_resource_policy_hex()),
+    );
 
     let mut results = Vec::new();
 

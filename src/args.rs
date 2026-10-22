@@ -1,6 +1,81 @@
 use clap::{ArgAction, Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+#[cfg(test)]
+mod resource_policy_tests {
+    use super::*;
+    use crate::connection_manager::ConnectionConfig;
+
+    #[test]
+    fn policy_precedence_covers_all_signing_commands() {
+        const CHILD: &str = "NODE_CLI_POLICY_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            for policy in [None, Some(""), Some("0011")] {
+                let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+                child.args(["--exact", "args::resource_policy_tests::policy_precedence_covers_all_signing_commands", "--nocapture"])
+                    .env(CHILD, "1")
+                    .env("FIREFLY_PRIVATE_KEY", "01".repeat(32))
+                    .env_remove("FIREFLY_RESOURCE_POLICY");
+                if let Some(policy) = policy {
+                    child.env("FIREFLY_RESOURCE_POLICY", policy);
+                }
+                let output = child.output().unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            return;
+        }
+        let environment = std::env::var("FIREFLY_RESOURCE_POLICY").ok();
+        for command in [
+            vec!["deploy", "--file", "contract.rho"],
+            vec!["deploy-and-wait", "--file", "contract.rho"],
+            vec!["transfer", "--to-address", "recipient", "--amount", "1"],
+            vec!["bond-validator", "--stake", "100", "--private-key", "00"],
+            vec!["unbond-validator", "--private-key", "00"],
+            vec!["load-test", "--to-address", "recipient"],
+        ] {
+            for explicit in [None, Some("2233")] {
+                let mut args = vec!["node_cli"];
+                args.extend(command.iter().copied());
+                if let Some(policy) = explicit {
+                    args.extend(["--resource-policy", policy]);
+                }
+                let cli = Cli::try_parse_from(args).unwrap();
+                let selected = match cli.command {
+                    Commands::Deploy(args) => args.resource_policy,
+                    Commands::DeployAndWait(args) => args.wait.resource_policy,
+                    Commands::Transfer(args) => args.wait.resource_policy,
+                    Commands::BondValidator(args) => args.wait.resource_policy,
+                    Commands::UnbondValidator(args) => args.wait.resource_policy,
+                    Commands::LoadTest(args) => args.resource_policy,
+                    _ => panic!("expected a signing command"),
+                };
+                assert_eq!(
+                    selected.as_deref(),
+                    explicit.or(environment.as_deref()),
+                    "{}",
+                    command[0]
+                );
+            }
+        }
+        assert_eq!(
+            ConnectionConfig::from_env().unwrap().resource_policy,
+            environment
+                .as_deref()
+                .unwrap_or_else(|| crate::grpc::default_resource_policy_hex())
+        );
+        assert_eq!(
+            ConnectionConfig::new("localhost".into(), 40412, 40413, "01".repeat(32))
+                .resource_policy,
+            crate::grpc::default_resource_policy_hex()
+        );
+    }
+}
+
 /// Command-line interface for interacting with F1r3fly nodes
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -121,6 +196,13 @@ pub enum Commands {
 /// wait for the deploy to finalize
 #[derive(Args, Debug)]
 pub struct DeployWaitArgs {
+    #[arg(
+        long = "resource-policy",
+        env = "FIREFLY_RESOURCE_POLICY",
+        help = "Hexadecimal genesis resource policy of the target shard"
+    )]
+    pub resource_policy: Option<String>,
+
     /// Node hostname
     #[arg(short = 'H', long = "host", default_value = "localhost")]
     pub host: String,
@@ -252,6 +334,13 @@ pub struct DeployStatusArgs {
 /// Arguments for deploy and full-deploy commands
 #[derive(Parser)]
 pub struct DeployArgs {
+    #[arg(
+        long = "resource-policy",
+        env = "FIREFLY_RESOURCE_POLICY",
+        help = "Hexadecimal genesis resource policy of the target shard"
+    )]
+    pub resource_policy: Option<String>,
+
     /// Path to the Rholang file to deploy
     #[arg(short, long)]
     pub file: PathBuf,
@@ -622,6 +711,13 @@ pub struct TransferArgs {
 /// Arguments for load-test command
 #[derive(Parser)]
 pub struct LoadTestArgs {
+    #[arg(
+        long = "resource-policy",
+        env = "FIREFLY_RESOURCE_POLICY",
+        help = "Hexadecimal genesis resource policy of the target shard"
+    )]
+    pub resource_policy: Option<String>,
+
     /// Recipient vault address
     #[arg(long)]
     pub to_address: String,

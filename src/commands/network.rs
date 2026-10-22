@@ -15,6 +15,9 @@ fn build_config(wait: &DeployWaitArgs, private_key: &str, check_interval: u64) -
     );
     config.finalization_timeout_secs = wait.max_wait as u32;
     config.poll_interval_secs = check_interval;
+    if let Some(policy) = &wait.resource_policy {
+        config.resource_policy = policy.clone();
+    }
     if let Some(obs_host) = &wait.observer_host {
         config.observer_host = Some(obs_host.clone());
     }
@@ -160,7 +163,12 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
 
     // Initialize the F1r3fly API client
     println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?
+        .with_resource_policy(
+            args.resource_policy
+                .as_deref()
+                .unwrap_or_else(|| crate::grpc::default_resource_policy_hex()),
+        );
 
     let phlo_limit = if args.bigger_phlo {
         "5,000,000,000"
@@ -244,7 +252,12 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
 
     // Initialize the F1r3fly API client
     println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?
+        .with_resource_policy(
+            args.resource_policy
+                .as_deref()
+                .unwrap_or_else(|| crate::grpc::default_resource_policy_hex()),
+        );
 
     let phlo_limit = if args.bigger_phlo {
         "5,000,000,000"
@@ -858,6 +871,26 @@ mod tests {
         );
         assert_eq!(config.observer_grpc_port, 40452);
         assert_eq!(config.observer_http_port, 40453);
+    }
+
+    #[test]
+    fn explicit_policy_reaches_the_deploy_wait_connection_config() {
+        use clap::Parser;
+
+        let args = DeployAndWaitArgs::try_parse_from([
+            "deploy-and-wait",
+            "-f",
+            "contract.rho",
+            "-k",
+            "00",
+            "--resource-policy",
+            "0011",
+        ])
+        .unwrap();
+        assert_eq!(
+            build_config(&args.wait, &args.private_key, args.check_interval).resource_policy,
+            "0011"
+        );
     }
 
     #[test]

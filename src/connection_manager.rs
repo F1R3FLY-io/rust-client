@@ -28,7 +28,7 @@ pub struct ConnectionConfig {
     /// Seconds between finalization status polls (default: 2)
     pub poll_interval_secs: u64,
     /// Hexadecimal genesis resource policy of the target shard. Deploys sign
-    /// its schedule (default: the ASI policy, [`crate::grpc::ASI_RESOURCE_POLICY_HEX`])
+    /// its schedule (default: the standard node resource policy).
     pub resource_policy: String,
 }
 
@@ -42,7 +42,7 @@ impl ConnectionConfig {
     /// - `FIREFLY_HTTP_PORT`: HTTP port (default: 40403)
     /// - `FIREFLY_PRIVATE_KEY`: Private key for signing (REQUIRED)
     /// - `FIREFLY_FINALIZATION_TIMEOUT`: Max seconds to wait for a deploy to finalize (default: 90)
-    /// - `FIREFLY_RESOURCE_POLICY`: Hexadecimal genesis resource policy of the shard (default: the ASI policy)
+    /// - `FIREFLY_RESOURCE_POLICY`: Hexadecimal genesis resource policy of the shard (default: the standard node resource policy)
     pub fn from_env() -> Result<Self, ConnectionError> {
         let signing_key =
             env::var("FIREFLY_PRIVATE_KEY").map_err(|_| ConnectionError::MissingPrivateKey)?;
@@ -73,7 +73,7 @@ impl ConnectionConfig {
                 .unwrap_or(90),
             poll_interval_secs: 2,
             resource_policy: env::var("FIREFLY_RESOURCE_POLICY")
-                .unwrap_or_else(|_| crate::grpc::ASI_RESOURCE_POLICY_HEX.to_string()),
+                .unwrap_or_else(|_| crate::grpc::default_resource_policy_hex().to_string()),
         })
     }
 
@@ -89,7 +89,7 @@ impl ConnectionConfig {
             observer_http_port: 40453,
             finalization_timeout_secs: 90,
             poll_interval_secs: 2,
-            resource_policy: crate::grpc::ASI_RESOURCE_POLICY_HEX.to_string(),
+            resource_policy: crate::grpc::default_resource_policy_hex().to_string(),
         }
     }
 
@@ -129,6 +129,123 @@ impl std::fmt::Display for ConnectionError {
 }
 
 impl std::error::Error for ConnectionError {}
+
+#[cfg(test)]
+mod resource_policy_tests {
+    use super::*;
+    use f1r3fly_casper::rust::util::rholang::costacc::owner_offer::{
+        default_resource_policy, default_resource_schedule,
+    };
+    use f1r3fly_models::rust::cost_protocol_limits::offered_funded_v6_limits;
+    use f1r3fly_models::rust::phlo_intent::{
+        PhloFundingIntentV2Limits, PhloFundingIntentVersioned,
+    };
+    use f1r3fly_models::rust::phlo_schedule::PhloGenesisPolicy;
+    use f1r3fly_models::rust::signed_phlo_deploy::OfferedFundedDeploy;
+
+    fn assert_signed_policy(api: &F1r3flyApi<'_>, policy: &PhloGenesisPolicy) {
+        let proto = api
+            .build_deploy_msg("Nil".into(), 50_000, "rholang".into(), 0, 0, Some(1))
+            .unwrap();
+        let limits = offered_funded_v6_limits().envelope.payload;
+        let signed = OfferedFundedDeploy::from_proto(proto, limits).unwrap();
+        let syntax = limits.funding;
+        let intent = PhloFundingIntentVersioned::decode(
+            signed.data.funding_intent(),
+            PhloFundingIntentV2Limits {
+                wire: syntax.wire,
+                base: syntax,
+                grant_uses: syntax.wire.total_bytes / 8,
+                grant_id_bytes: syntax.wire.field_bytes,
+                quote_evidence_bytes: syntax.wire.field_bytes,
+            },
+        )
+        .unwrap();
+        let PhloFundingIntentVersioned::V2(intent) = intent else {
+            panic!("expected a V2 offer")
+        };
+        let mut schedule = policy.schedule().unwrap();
+        schedule.actual_price = 1;
+        assert_eq!(
+            intent.base.controls.permitted_schedules,
+            vec![schedule.clone()]
+        );
+        assert_eq!(
+            intent.base.schedule_commitment,
+            schedule.digest(PhloGenesisPolicy::LIMITS).unwrap()
+        );
+    }
+
+    #[test]
+    fn standard_policy_reaches_api_and_connection_manager_offers() {
+        let key = "01".repeat(32);
+        let policy = default_resource_policy("root").unwrap();
+        let api = F1r3flyApi::new(&key, "localhost", 40412).unwrap();
+        assert_signed_policy(&api, &policy);
+        let manager = F1r3flyConnectionManager::new(ConnectionConfig::new(
+            "localhost".into(),
+            40412,
+            40413,
+            key,
+        ));
+        assert_signed_policy(&manager.api().unwrap(), &policy);
+        assert_signed_policy(&manager.observer_api().unwrap(), &policy);
+        assert_eq!(
+            F1r3flyApi::new_readonly("localhost", 40452).resource_policy,
+            crate::grpc::default_resource_policy_hex()
+        );
+        let schedule = policy.schedule().unwrap();
+        assert_eq!(schedule.settlement_asset, b"REV");
+        assert_eq!(schedule.settlement_unit, b"atomic-REV");
+    }
+
+    #[test]
+    fn custom_policy_reaches_api_and_connection_manager_offers() {
+        let key = "01".repeat(32);
+        let mut schedule = default_resource_schedule("root");
+        schedule.settlement_asset = b"CUSTOM";
+        schedule.settlement_unit = b"atomic-CUSTOM";
+        let policy = PhloGenesisPolicy::from_schedule(&schedule)
+            .unwrap()
+            .with_offered_funded_v6_active();
+        let encoded = hex::encode(policy.encode().unwrap());
+        let api = F1r3flyApi::new(&key, "localhost", 40412)
+            .unwrap()
+            .with_resource_policy(&encoded);
+        assert_signed_policy(&api, &policy);
+        let mut config = ConnectionConfig::new("localhost".into(), 40412, 40413, key);
+        config.resource_policy = encoded;
+        let manager = F1r3flyConnectionManager::new(config);
+        assert_signed_policy(&manager.api().unwrap(), &policy);
+        assert_signed_policy(&manager.observer_api().unwrap(), &policy);
+    }
+
+    #[test]
+    fn invalid_explicit_policies_are_not_replaced_with_defaults() {
+        let key = "01".repeat(32);
+        for policy in ["", "not-hex", "00"] {
+            let api = F1r3flyApi::new(&key, "localhost", 40412)
+                .unwrap()
+                .with_resource_policy(policy);
+            let error = api
+                .build_deploy_msg("Nil".into(), 50_000, "rholang".into(), 0, 0, Some(1))
+                .unwrap_err();
+            assert!(error.to_string().contains("Invalid resource policy"));
+        }
+    }
+
+    #[test]
+    fn integration_genesis_uses_the_standard_policy() {
+        let config = include_str!("../tests/integration/topology/node.conf");
+        let encoded = config
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("resource-policy = \""))
+            .unwrap()
+            .trim_end_matches('"');
+        let actual = PhloGenesisPolicy::decode(&hex::decode(encoded).unwrap()).unwrap();
+        assert_eq!(actual, default_resource_policy("root").unwrap());
+    }
+}
 
 /// Manages F1r3fly node connections with connection reuse
 #[derive(Clone)]

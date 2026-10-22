@@ -34,6 +34,18 @@ those Docker configs — take it from the node setup you are running against
 (`.env.node` in system-integration, `docker/.env` in f1r3node-rust) rather than
 from here. Never reuse a key from a README against anything real.
 
+## Resource policy
+
+Deploys use F1R3node's standard `root` resource policy by default. This policy settles costs in `REV` and `atomic-REV`.
+
+For a custom network, supply its hexadecimal genesis `resource-policy` through `--resource-policy HEX` or `FIREFLY_RESOURCE_POLICY`.
+The CLI option overrides the environment variable for every command that signs a deploy.
+Invalid supplied policies cause an error.
+
+Library callers can use `F1r3flyApi::with_resource_policy` or set `ConnectionConfig.resource_policy`.
+`ConnectionConfig::from_env()` reads `FIREFLY_RESOURCE_POLICY`.
+Explicit constructors use the standard policy and do not read the environment.
+
 ## Documentation
 
 ### Commands
@@ -67,6 +79,7 @@ from here. Never reuse a key from a README against anything real.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `FIREFLY_PRIVATE_KEY` | Yes | -- | Signing key (64 hex chars) |
+| `FIREFLY_RESOURCE_POLICY` | No | Standard node policy | Hexadecimal genesis resource policy for signing commands and `ConnectionConfig::from_env()` |
 | `FIREFLY_HOST` | No | `localhost` | Node hostname |
 | `FIREFLY_GRPC_PORT` | No | `40401` | gRPC port |
 | `FIREFLY_HTTP_PORT` | No | `40403` | HTTP port |
