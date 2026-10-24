@@ -171,6 +171,9 @@ pub fn extract_par_data(par: &Par) -> Option<String> {
                 ExprInstance::GString(s) => Some(format!("\"{s}\"")),
                 ExprInstance::GUri(u) => Some(format!("`{u}`")),
                 ExprInstance::GInt(i) => Some(i.to_string()),
+                ExprInstance::GBigInt(bytes) => {
+                    Some(num_bigint::BigInt::from_signed_bytes_be(bytes).to_string())
+                }
                 ExprInstance::GBool(b) => Some(b.to_string()),
                 ExprInstance::GByteArray(bytes) => Some(format!("0x{}", hex::encode(bytes))),
                 ExprInstance::EListBody(list) => {

@@ -22,6 +22,7 @@ harness = false
 required-features = ["cli", "integration"]
 
 [dependencies]
+num-bigint = "0.4"
 # F1r3fly protocol types — pinned to a released f1r3node-rust tag.
 f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "fe6cce76e8a0766039342eac644b0dbbecf5bae1" }
 f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "fe6cce76e8a0766039342eac644b0dbbecf5bae1" }
