@@ -1103,7 +1103,10 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
                 })
                 .collect();
             let total_rewards: i64 = entries.iter().map(|(_, r)| r).sum();
-            entries.sort_by(|a, b| b.1.cmp(&a.1));
+            // Changed for the cost-accounted f1r3node (ASI:Chain migration): the
+            // pinned toolchain's clippy requires this form (unnecessary_sort_by).
+            // entries.sort_by(|a, b| b.1.cmp(&a.1));
+            entries.sort_by_key(|b| std::cmp::Reverse(b.1));
 
             for (key, reward) in &entries {
                 let short_key = if key.len() > 16 {
@@ -1334,7 +1337,23 @@ pub async fn block_transfers_command(
         return Err(format!("HTTP {}", response.status()).into());
     }
 
-    let block_json: serde_json::Value = response.json().await?;
+    let mut block_json: serde_json::Value = response.json().await?;
+    // Changed for the cost-accounted f1r3node (ASI:Chain migration): the node
+    // omits `transfers` while the block report is pending, so re-read every
+    // 2 s for up to 60 s.
+    for _ in 1..30 {
+        if !transfers_pending(&block_json) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        block_json = client
+            .get(&url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+    }
 
     println!("Block retrieved successfully!");
     println!("Time taken: {duration:.2?}");
@@ -1444,6 +1463,10 @@ pub async fn block_transfers_command(
     // Summary
     println!("Summary:");
     println!(" Total deploys in block: {}", deploys.len());
+    if transfers_pending(&block_json) {
+        println!(" Total transfers: transfers unavailable");
+        return Ok(());
+    }
     println!(" Deploys with transfers: {deploys_with_transfers}");
     println!(" Total transfers: {total_transfers}");
     if total_transfers > 0 {
@@ -1452,4 +1475,16 @@ pub async fn block_transfers_command(
     }
 
     Ok(())
+}
+
+/// A deploy without `transfers` means that the node's block report is pending.
+fn transfers_pending(block_json: &serde_json::Value) -> bool {
+    block_json
+        .get("deploys")
+        .and_then(|deploys| deploys.as_array())
+        .is_some_and(|deploys| {
+            deploys
+                .iter()
+                .any(|deploy| deploy.get("transfers").is_none())
+        })
 }

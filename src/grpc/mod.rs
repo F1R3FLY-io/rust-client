@@ -12,6 +12,22 @@ use std::time::Duration;
 
 const TIP_FLOOR_UNSET: i64 = -1;
 
+pub(crate) fn default_resource_policy_hex() -> &'static str {
+    static POLICY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        let policy =
+            f1r3fly_casper::rust::util::rholang::costacc::owner_offer::default_resource_policy(
+                "root",
+            )
+            .expect("the standard resource policy is valid");
+        hex::encode(
+            policy
+                .encode()
+                .expect("the standard resource policy encodes"),
+        )
+    });
+    &POLICY
+}
+
 /// Client for interacting with the F1r3fly node via gRPC and HTTP
 pub struct F1r3flyApi<'a> {
     pub(crate) signing_key: Option<SecretKey>,
@@ -19,6 +35,8 @@ pub struct F1r3flyApi<'a> {
     pub(crate) grpc_port: u16,
     pub(crate) tip_floor: Arc<AtomicI64>,
     pub(crate) exploratory_retry_budget: Option<Duration>,
+    /// Hexadecimal genesis resource policy whose schedule each offer signs
+    pub(crate) resource_policy: &'a str,
 }
 
 impl<'a> F1r3flyApi<'a> {
@@ -38,6 +56,7 @@ impl<'a> F1r3flyApi<'a> {
             grpc_port,
             tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
             exploratory_retry_budget: None,
+            resource_policy: default_resource_policy_hex(),
         })
     }
 
@@ -50,6 +69,7 @@ impl<'a> F1r3flyApi<'a> {
             grpc_port,
             tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
             exploratory_retry_budget: None,
+            resource_policy: default_resource_policy_hex(),
         }
     }
 
@@ -58,6 +78,14 @@ impl<'a> F1r3flyApi<'a> {
     /// schedule is used.
     pub fn with_exploratory_retry_budget(mut self, budget: Duration) -> Self {
         self.exploratory_retry_budget = Some(budget);
+        self
+    }
+
+    /// Sign offers under this genesis resource policy: the hexadecimal
+    /// `resource-policy` of the target shard's genesis configuration. Without
+    /// it, offers sign the standard node resource policy.
+    pub fn with_resource_policy(mut self, resource_policy_hex: &'a str) -> Self {
+        self.resource_policy = resource_policy_hex;
         self
     }
 
