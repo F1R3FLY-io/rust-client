@@ -102,14 +102,15 @@ pub fn parse_pos_snapshot(response: &Value) -> Result<PosSnapshot, String> {
         .and_then(Value::as_array)
         .and_then(|exprs| exprs.first())
         .ok_or_else(|| format!("response carries no PoS state: {response}"))?;
-    let state = convert_rholang_to_json(expr).map_err(|e| e.to_string())?;
-    let [_, active, pending, _, quarantine] = state
-        .as_array()
+    let [bonds, active, pending, withdrawers, quarantine] = expr
+        .get("ExprTuple")
+        .and_then(|v| v.get("data"))
+        .and_then(Value::as_array)
         .and_then(|parts| <&[Value; 5]>::try_from(parts.as_slice()).ok())
         .ok_or_else(|| {
             format!(
                 "expected (bonds, active, pendingWithdrawers, withdrawers, quarantineLength), \
-                 got {state}"
+                 got {expr}"
             )
         })?;
     let block_number = response
@@ -118,17 +119,14 @@ pub fn parse_pos_snapshot(response: &Value) -> Result<PosSnapshot, String> {
         .and_then(Value::as_i64)
         .ok_or_else(|| format!("response does not name the block it read: {response}"))?;
 
-    let raw = expr
-        .get("ExprTuple")
-        .and_then(|v| v.get("data"))
-        .and_then(Value::as_array)
-        .ok_or("PoS snapshot is not a tuple")?;
+    let to_json = |part: &Value| convert_rholang_to_json(part).map_err(|e| e.to_string());
+    let quarantine = to_json(quarantine)?;
     Ok(PosSnapshot {
         block_number,
-        bonds: amount_map(&raw[0])?,
-        active: key_set(active)?,
-        pending_withdrawals: integer_map(pending, "pendingWithdrawers")?,
-        withdrawals: withdrawal_map(&raw[3])?,
+        bonds: amount_map(bonds)?,
+        active: key_set(&to_json(active)?)?,
+        pending_withdrawals: integer_map(&to_json(pending)?, "pendingWithdrawers")?,
+        withdrawals: withdrawal_map(withdrawers)?,
         quarantine_length: quarantine
             .as_i64()
             .ok_or_else(|| format!("quarantineLength is not an integer: {quarantine}"))?,
