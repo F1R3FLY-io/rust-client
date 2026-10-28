@@ -2018,6 +2018,7 @@ dependencies = [
  "hex",
  "libtest-mimic",
  "log",
+ "num-bigint",
  "models",
  "prost",
  "rand 0.8.7",

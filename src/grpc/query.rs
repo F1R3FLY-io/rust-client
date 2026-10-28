@@ -171,6 +171,9 @@ pub fn extract_par_data(par: &Par) -> Option<String> {
                 ExprInstance::GString(s) => Some(format!("\"{s}\"")),
                 ExprInstance::GUri(u) => Some(format!("`{u}`")),
                 ExprInstance::GInt(i) => Some(i.to_string()),
+                ExprInstance::GBigInt(bytes) => {
+                    Some(num_bigint::BigInt::from_signed_bytes_be(bytes).to_string())
+                }
                 ExprInstance::GBool(b) => Some(b.to_string()),
                 ExprInstance::GByteArray(bytes) => Some(format!("0x{}", hex::encode(bytes))),
                 ExprInstance::EListBody(list) => {
@@ -230,5 +233,39 @@ pub fn extract_par_data(par: &Par) -> Option<String> {
         Some("New declaration".to_string())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod bigint_tests {
+    use super::*;
+    use f1r3fly_models::rhoapi::{expr::ExprInstance, EList, Expr};
+    use num_bigint::BigInt;
+
+    #[test]
+    fn decodes_signed_bigints_and_nested_values_exactly() {
+        for value in [
+            BigInt::from(0),
+            (BigInt::from(1) << 200usize) + 1,
+            -(BigInt::from(1) << 200usize) - 1,
+        ] {
+            let par = Par {
+                exprs: vec![Expr {
+                    expr_instance: Some(ExprInstance::GBigInt(value.to_signed_bytes_be())),
+                }],
+                ..Default::default()
+            };
+            assert_eq!(extract_par_data(&par), Some(value.to_string()));
+            let list = Par {
+                exprs: vec![Expr {
+                    expr_instance: Some(ExprInstance::EListBody(EList {
+                        ps: vec![par],
+                        ..Default::default()
+                    })),
+                }],
+                ..Default::default()
+            };
+            assert_eq!(extract_par_data(&list), Some(format!("[{value}]")));
+        }
     }
 }

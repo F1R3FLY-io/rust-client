@@ -12,6 +12,15 @@ use crate::common::node::Node;
 
 pub fn trials() -> Vec<Trial> {
     vec![
+        Trial::test("surface::bigint_query_preserves_values_above_u64", || {
+            Cli::new("exploratory-deploy")
+                .args(["-f", contracts::path("bigint.rho")])
+                .grpc_at(Node::ReadOnly)
+                .run()
+                .expect_success("BigInt exploratory-deploy")
+                .expect_contains("(18446744073709551617, -18446744073709551617)");
+            Ok(())
+        }),
         Trial::test("surface::status_describes_the_shard", || {
             Cli::new("status")
                 .http_at(Node::ReadOnly)

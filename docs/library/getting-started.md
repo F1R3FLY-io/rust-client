@@ -87,7 +87,7 @@ println!("Estimated cost: {} phlogiston", cost);
 
 ```rust
 // amount is in base units (dust); use the CLI --whole-tokens flag for whole-token amounts
-let transfer = manager.transfer("1111recipient...", 100_000_000).await?;
+let transfer = manager.transfer("1111recipient...", 100_000_000u64.into()).await?;
 println!("TX: {} in block {}", transfer.deploy_id, transfer.block_hash);
 ```
 
@@ -164,3 +164,23 @@ pub enum ProposeResult {
 | `observer_http_port` | `40453` | Observer HTTP port polled for finalization status |
 | `finalization_timeout_secs` | `90` | Max seconds to wait for a deploy to finalize |
 | `poll_interval_secs` | `2` | Seconds between finalization status polls |
+
+### Exact token amounts
+
+Vault transfer arguments and `TransferResult.amount_dust` use
+`num_bigint::BigUint`. Parse raw units with `vault::parse_amount(text)`;
+convert decimal tokens with `vault::tokens_to_dust(text, decimals)`.
+`vault::dust_to_tokens(&amount, decimals)` and
+`TransferResult::amount_tokens(decimals)` return exact decimal strings.
+These conversions return errors for excess precision or amounts above
+`2^256 - 1`. The fixed-eight-decimal `DUST_FACTOR` export has been removed.
+
+`pos::PosSnapshot` bond values and `pos::Withdrawal.stake` also use `BigUint`.
+`vault::build_transfer_rholang` and `pos::build_bond_rholang` take borrowed
+`BigUint` amounts and return `Result<String, String>` after checking bounds.
+Quarantine heights remain ordinary integers.
+
+Transfer reports describe attempted amounts, including rejected transfers.
+With the `cli` feature, `commands::events::TransferEvent.amount` uses signed
+`num_bigint::BigInt` to preserve negative and oversized attempts. Outgoing
+amounts and stored balances still use unsigned uint256 validation.

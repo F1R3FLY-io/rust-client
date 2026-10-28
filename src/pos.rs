@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use f1r3fly_models::rhoapi::expr::ExprInstance;
 use f1r3fly_models::rhoapi::Par;
+use num_bigint::BigUint;
 use serde_json::Value;
 
 use crate::rholang_helpers::convert_rholang_to_json;
@@ -32,9 +33,9 @@ pub const POS_SNAPSHOT_QUERY: &str = r#"new return, rl(`rho:registry:lookup`), p
 }"#;
 
 /// A validator removed from the bond set whose stake is still quarantined.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Withdrawal {
-    pub stake: i64,
+    pub stake: BigUint,
     /// Stake plus accumulated rewards are paid out at the first epoch boundary
     /// at or after this block.
     pub quarantine_end: i64,
@@ -48,7 +49,7 @@ pub struct PosSnapshot {
     /// The block whose post-state was read.
     pub block_number: i64,
     /// Bonded validators and their stake. A bond enters as soon as its deploy executes.
-    pub bonds: BTreeMap<String, i64>,
+    pub bonds: BTreeMap<String, BigUint>,
     /// Validators in consensus. Recomputed at each epoch boundary from `bonds`,
     /// capped at the shard's number of active validators.
     pub active: BTreeSet<String>,
@@ -61,8 +62,8 @@ pub struct PosSnapshot {
 }
 
 impl PosSnapshot {
-    pub fn stake(&self, public_key: &str) -> Option<i64> {
-        self.bonds.get(&public_key.to_ascii_lowercase()).copied()
+    pub fn stake(&self, public_key: &str) -> Option<BigUint> {
+        self.bonds.get(&public_key.to_ascii_lowercase()).cloned()
     }
 
     pub fn is_active(&self, public_key: &str) -> bool {
@@ -79,18 +80,18 @@ impl PosSnapshot {
     pub fn withdrawal(&self, public_key: &str) -> Option<Withdrawal> {
         self.withdrawals
             .get(&public_key.to_ascii_lowercase())
-            .copied()
+            .cloned()
     }
 
     /// Bonded validators outside the active set.
     ///
     /// Not a queue: the active set is capped at the shard's number of active
     /// validators, so a bond listed here may never activate.
-    pub fn inactive_bonds(&self) -> impl Iterator<Item = (&str, i64)> {
+    pub fn inactive_bonds(&self) -> impl Iterator<Item = (&str, &BigUint)> {
         self.bonds
             .iter()
             .filter(|(key, _)| !self.active.contains(*key))
-            .map(|(key, stake)| (key.as_str(), *stake))
+            .map(|(key, stake)| (key.as_str(), stake))
     }
 }
 
@@ -102,7 +103,7 @@ pub fn parse_pos_snapshot(response: &Value) -> Result<PosSnapshot, String> {
         .and_then(|exprs| exprs.first())
         .ok_or_else(|| format!("response carries no PoS state: {response}"))?;
     let state = convert_rholang_to_json(expr).map_err(|e| e.to_string())?;
-    let [bonds, active, pending, withdrawers, quarantine] = state
+    let [_, active, pending, _, quarantine] = state
         .as_array()
         .and_then(|parts| <&[Value; 5]>::try_from(parts.as_slice()).ok())
         .ok_or_else(|| {
@@ -117,12 +118,17 @@ pub fn parse_pos_snapshot(response: &Value) -> Result<PosSnapshot, String> {
         .and_then(Value::as_i64)
         .ok_or_else(|| format!("response does not name the block it read: {response}"))?;
 
+    let raw = expr
+        .get("ExprTuple")
+        .and_then(|v| v.get("data"))
+        .and_then(Value::as_array)
+        .ok_or("PoS snapshot is not a tuple")?;
     Ok(PosSnapshot {
         block_number,
-        bonds: integer_map(bonds, "bonds")?,
+        bonds: amount_map(&raw[0])?,
         active: key_set(active)?,
         pending_withdrawals: integer_map(pending, "pendingWithdrawers")?,
-        withdrawals: withdrawal_map(withdrawers)?,
+        withdrawals: withdrawal_map(&raw[3])?,
         quarantine_length: quarantine
             .as_i64()
             .ok_or_else(|| format!("quarantineLength is not an integer: {quarantine}"))?,
@@ -156,27 +162,49 @@ fn key_set(value: &Value) -> Result<BTreeSet<String>, String> {
         .collect()
 }
 
+fn amount_map(value: &Value) -> Result<BTreeMap<String, BigUint>, String> {
+    value
+        .get("ExprMap")
+        .and_then(|v| v.get("data"))
+        .and_then(Value::as_object)
+        .ok_or("bonds is not a map")?
+        .iter()
+        .map(|(key, value)| {
+            crate::rholang_helpers::rholang_amount(value)
+                .map(|stake| (key.to_ascii_lowercase(), stake))
+        })
+        .collect()
+}
+
 fn withdrawal_map(value: &Value) -> Result<BTreeMap<String, Withdrawal>, String> {
     value
-        .as_object()
-        .ok_or_else(|| format!("withdrawers is not a map: {value}"))?
+        .get("ExprMap")
+        .and_then(|v| v.get("data"))
+        .and_then(Value::as_object)
+        .ok_or("withdrawers is not a map")?
         .iter()
         .map(|(key, entry)| {
-            let numbers = entry
-                .as_array()
-                .and_then(|items| items.iter().map(Value::as_i64).collect::<Option<Vec<_>>>());
-            match numbers.as_deref() {
-                Some(&[stake, quarantine_end]) => Ok((
-                    key.to_ascii_lowercase(),
-                    Withdrawal {
-                        stake,
-                        quarantine_end,
-                    },
-                )),
-                _ => Err(format!(
-                    "withdrawers[{key}] is not a (stake, quarantineEnd) pair: {entry}"
-                )),
-            }
+            let pair = entry
+                .get("ExprTuple")
+                .and_then(|v| v.get("data"))
+                .and_then(Value::as_array)
+                .filter(|pair| pair.len() == 2)
+                .ok_or_else(|| {
+                    format!("withdrawers[{key}] is not a (stake, quarantineEnd) pair: {entry}")
+                })?;
+            let stake = crate::rholang_helpers::rholang_amount(&pair[0])?;
+            let quarantine_end = pair[1]
+                .get("ExprInt")
+                .and_then(|v| v.get("data"))
+                .and_then(Value::as_i64)
+                .ok_or("quarantineEnd is not an integer")?;
+            Ok((
+                key.to_ascii_lowercase(),
+                Withdrawal {
+                    stake,
+                    quarantine_end,
+                },
+            ))
         })
         .collect()
 }
@@ -185,8 +213,9 @@ fn withdrawal_map(value: &Value) -> Result<BTreeMap<String, Withdrawal>, String>
 ///
 /// The PoS verdict goes to the deploy's `deployId` channel; read it with
 /// [`parse_pos_call_result`].
-pub fn build_bond_rholang(stake: u64) -> String {
-    format!(
+pub fn build_bond_rholang(stake: &BigUint) -> Result<String, String> {
+    let stake = crate::vault::amount_literal(stake)?;
+    Ok(format!(
         r#"new deployId(`rho:system:deployId`), deployerId(`rho:system:deployerId`), rl(`rho:registry:lookup`), poSCh, resultCh in {{
  rl!(`rho:system:pos`, *poSCh) |
  for (@(_, PoS) <- poSCh) {{
@@ -196,7 +225,7 @@ pub fn build_bond_rholang(stake: u64) -> String {
  deployId!(result)
  }}
 }}"#
-    )
+    ))
 }
 
 /// Deploy term that withdraws the signing key's bond.
@@ -303,6 +332,28 @@ mod tests {
     }
 
     #[test]
+    fn bigint_stakes_and_withdrawals_keep_their_exact_value() {
+        let stake = (BigUint::from(1u8) << 200usize) + BigUint::from(1u8);
+        let bonds = json!({"ExprMap": {"data": {V4: {"ExprBigInt": {"data": stake.to_string()}}}}});
+        let withdrawers = json!({"ExprMap": {"data": {V1: {"ExprTuple": {"data": [
+            {"ExprBigInt": {"data": stake.to_string()}}, {"ExprInt": {"data": 49610}}
+        ]}}}}});
+        let snapshot =
+            parse_pos_snapshot(&response(bonds, active(&[V4]), empty_map(), withdrawers)).unwrap();
+        assert_eq!(snapshot.stake(V4), Some(stake.clone()));
+        assert_eq!(
+            snapshot.withdrawal(V1).unwrap(),
+            Withdrawal {
+                stake: stake.clone(),
+                quarantine_end: 49610
+            }
+        );
+        let term = build_bond_rholang(&stake).unwrap();
+        assert!(term.contains(&format!("{stake}n")));
+        assert!(build_bond_rholang(&(BigUint::from(1u8) << 256usize)).is_err());
+    }
+
+    #[test]
     fn parses_bonded_and_active_validators() {
         let snapshot = parse_pos_snapshot(&response(
             bonds(&[(V1, 1000), (V4, 1000)]),
@@ -314,7 +365,7 @@ mod tests {
 
         assert_eq!(snapshot.block_number, 51148);
         assert_eq!(snapshot.quarantine_length, 50000);
-        assert_eq!(snapshot.stake(V1), Some(1000));
+        assert_eq!(snapshot.stake(V1), Some(BigUint::from(1000u32)));
         assert!(snapshot.is_active(V4));
         assert_eq!(snapshot.inactive_bonds().count(), 0);
         assert!(snapshot.pending_withdrawals.is_empty());
@@ -331,11 +382,11 @@ mod tests {
         ))
         .unwrap();
 
-        assert_eq!(snapshot.stake(V4), Some(1000));
+        assert_eq!(snapshot.stake(V4), Some(BigUint::from(1000u32)));
         assert!(!snapshot.is_active(V4));
         assert_eq!(
             snapshot.inactive_bonds().collect::<Vec<_>>(),
-            vec![(V4, 1000)]
+            vec![(V4, &BigUint::from(1000u32))]
         );
     }
 
@@ -357,7 +408,7 @@ mod tests {
         assert_eq!(
             snapshot.withdrawal(V1),
             Some(Withdrawal {
-                stake: 1000,
+                stake: BigUint::from(1000u32),
                 quarantine_end: 49610
             })
         );
@@ -374,7 +425,10 @@ mod tests {
         ))
         .unwrap();
 
-        assert_eq!(snapshot.stake(&V1.to_ascii_uppercase()), Some(1000));
+        assert_eq!(
+            snapshot.stake(&V1.to_ascii_uppercase()),
+            Some(BigUint::from(1000u32))
+        );
         assert!(snapshot.is_active(&V1.to_ascii_uppercase()));
     }
 
@@ -480,7 +534,7 @@ mod tests {
 
     #[test]
     fn bond_term_passes_the_stake_to_pos() {
-        let term = build_bond_rholang(1000);
+        let term = build_bond_rholang(&BigUint::from(1000u32)).unwrap();
         assert!(
             term.contains(r#"@PoS!("bond", *deployerId, 1000, *resultCh)"#),
             "{term}"

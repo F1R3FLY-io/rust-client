@@ -65,3 +65,17 @@ Transfer: 1111AtahZe...r3g -> 111127RX5Z...iHA (100000000 dust)
   price` plus the amount being transferred
 - `Transfer complete.` is printed only after the vault reports the transfer accepted on the deploy's `deployId` channel
 - Vault addresses must start with `1111`
+
+## Exact amounts
+
+`--amount` accepts an unsigned decimal integer in raw base units, up to
+`2^256 - 1`. With `--whole-tokens`, it accepts a decimal token amount and uses
+the node's reported precision. For example, on an 18-decimal node,
+`--amount 1.000000000000000001 --whole-tokens` sends
+`1000000000000000001` raw units. Excess decimal places and overflow are errors;
+amounts are never rounded.
+
+The client keeps ordinary Rholang integer literals for amounts through
+`2^63 - 1` and uses BigInt literals above that range. Large transfers require
+a node whose vault supports BigInt amounts. Node balance and stake limits
+still apply.
