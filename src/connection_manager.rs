@@ -473,10 +473,18 @@ impl F1r3flyConnectionManager {
         // Phase 3: Read deploy result AFTER finalization. A deploy that writes
         // nothing to deployId reads as an empty payload, so every error is a
         // failed read.
-        let data = api.get_data_at_deploy_id(&deploy_id, &block_hash).await;
-        if let Err(error) = &data {
-            tracing::warn!(deploy_id = %deploy_id, %block_hash, %error, "Failed to read deployId data");
-        }
+        // A failed read must not look retryable: the deploy is already final.
+        let data = api
+            .get_data_at_deploy_id(&deploy_id, &block_hash)
+            .await
+            .map_err(|cause| {
+                tracing::warn!(deploy_id = %deploy_id, %block_hash, %cause, "Failed to read deployId data");
+                Error::DeployResultUnreadable {
+                    deploy_id: deploy_id.clone(),
+                    block_hash: block_hash.clone(),
+                    cause: Box::new(cause),
+                }
+            });
 
         // Phase 4: Get deploy execution details
         // May fail on older nodes that don't support ?view=detail

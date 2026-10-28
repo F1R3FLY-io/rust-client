@@ -512,12 +512,19 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_result_is_not_reported_as_a_rejection() {
-        let unreadable = Error::transport(
-            "http://localhost:40412/",
-            crate::error::TransportError::TimedOut(std::time::Duration::from_secs(1)),
-        );
+    fn an_unreadable_result_is_reported_as_final_not_retryable() {
+        let unreadable = Error::DeployResultUnreadable {
+            deploy_id: "3045".into(),
+            block_hash: "abcd".into(),
+            cause: Box::new(Error::transport(
+                "http://localhost:40412/",
+                crate::error::TransportError::TimedOut(std::time::Duration::from_secs(1)),
+            )),
+        };
         let err = check_transfer_result(finalized(Err(unreadable))).unwrap_err();
-        assert!(matches!(err, Error::Transport { .. }), "{err}");
+        assert!(
+            matches!(err, Error::DeployResultUnreadable { ref deploy_id, .. } if deploy_id == "3045"),
+            "{err}"
+        );
     }
 }

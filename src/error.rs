@@ -7,17 +7,21 @@ use std::time::Duration;
 /// Everything a library call can fail with.
 ///
 /// Variants describe what went wrong for the caller, not which function
-/// noticed it, so code can branch on them: a [`Transport`](Error::Transport)
-/// failure is worth retrying, an [`InvalidInput`](Error::InvalidInput) is not.
+/// noticed it, so code can branch on them: a failed read is worth retrying,
+/// an [`InvalidInput`](Error::InvalidInput) is not.
+///
+/// Each message includes its cause, so `source()` returns `None`: reporting
+/// the cause both ways would print it twice. Code that needs the cause reads
+/// the variant's field.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
     /// The request did not reach the node, or its answer did not come back.
-    #[error("cannot reach {endpoint}: {source}")]
+    /// A deploy that failed this way may still have been submitted.
+    #[error("cannot reach {endpoint}: {cause}")]
     Transport {
         endpoint: String,
-        #[source]
-        source: TransportError,
+        cause: TransportError,
     },
 
     /// The node answered an HTTP request with a non-success status.
@@ -34,7 +38,6 @@ pub enum Error {
     #[error("{endpoint} answered gRPC {}: {}", .status.code(), .status.message())]
     Grpc {
         endpoint: String,
-        #[source]
         status: Box<tonic::Status>,
     },
 
@@ -58,11 +61,10 @@ pub enum Error {
     MissingConfig { var: &'static str },
 
     /// A local file could not be read or written.
-    #[error("{}: {source}", .path.display())]
+    #[error("{}: {cause}", .path.display())]
     Io {
         path: PathBuf,
-        #[source]
-        source: std::io::Error,
+        cause: std::io::Error,
     },
 
     /// The deploy executed and failed.
@@ -71,6 +73,18 @@ pub enum Error {
         deploy_id: String,
         /// The node's account of the failed execution, when it gave one.
         execution: Option<String>,
+    },
+
+    /// The deploy finalized, but its result on the `deployId` channel could not
+    /// be read. Its effects are final: read the result again by deploy ID, and
+    /// never resubmit the deploy.
+    #[error(
+        "deploy {deploy_id} finalized in block {block_hash}, but its result could not be read: {cause}"
+    )]
+    DeployResultUnreadable {
+        deploy_id: String,
+        block_hash: String,
+        cause: Box<Error>,
     },
 
     /// The deploy's validity window closed without it landing canonically.
@@ -166,7 +180,7 @@ impl Error {
     ) -> Self {
         Error::Transport {
             endpoint: endpoint.into(),
-            source: source.into(),
+            cause: source.into(),
         }
     }
 
@@ -234,6 +248,45 @@ mod tests {
         assert_eq!(
             timeout.to_string(),
             "deploy abc reached no verdict within 300s"
+        );
+    }
+
+    #[test]
+    fn causes_are_reported_once_in_the_message_not_again_as_source() {
+        use std::error::Error as _;
+        let transport = Error::transport(
+            "http://n:40412/",
+            TransportError::TimedOut(Duration::from_secs(2)),
+        );
+        let grpc = Error::grpc("http://n:40412/", tonic::Status::unavailable("busy"));
+        let io = Error::Io {
+            path: "/tmp/key".into(),
+            cause: std::io::Error::other("disk full"),
+        };
+        for (error, cause) in [
+            (transport, "no answer within 2s"),
+            (grpc, "busy"),
+            (io, "disk full"),
+        ] {
+            assert!(error.to_string().contains(cause), "{error}");
+            assert!(error.source().is_none(), "{error}");
+        }
+    }
+
+    #[test]
+    fn an_unreadable_result_names_the_finalized_deploy_and_its_cause() {
+        let error = Error::DeployResultUnreadable {
+            deploy_id: "abc".into(),
+            block_hash: "b1".into(),
+            cause: Box::new(Error::transport(
+                "http://n:40412/",
+                TransportError::TimedOut(Duration::from_secs(2)),
+            )),
+        };
+        assert_eq!(
+            error.to_string(),
+            "deploy abc finalized in block b1, but its result could not be read: \
+             cannot reach http://n:40412/: no answer within 2s"
         );
     }
 

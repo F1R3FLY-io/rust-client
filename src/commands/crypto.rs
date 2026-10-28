@@ -30,9 +30,9 @@ pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> CliResult {
 
     if args.save {
         let output_dir = Path::new(&args.output_dir);
-        fs::create_dir_all(output_dir).map_err(|source| crate::Error::Io {
+        fs::create_dir_all(output_dir).map_err(|cause| crate::Error::Io {
             path: output_dir.to_path_buf(),
-            source,
+            cause,
         })?;
 
         let private_key_file = output_dir.join("private_key.hex");

@@ -160,7 +160,7 @@ variant rather than the message:
 
 | Variant | Meaning | Retry? |
 |---|---|---|
-| `Transport` | The request did not reach the node or the answer did not come back | Yes |
+| `Transport` | The request did not reach the node or the answer did not come back | For reads, yes. A deploy or transfer may already have been submitted: do not resend it blindly |
 | `Http` | The node answered HTTP with an error status; `code` carries its error code, such as `readonly_node_required` | Depends on `code` |
 | `Grpc` | A gRPC call ended with a non-OK status | Depends on the status |
 | `NodeRejected` | The node handled the request and refused it, such as a deploy with a bad signature | No |
@@ -168,6 +168,7 @@ variant rather than the message:
 | `InvalidInput`, `MissingConfig` | An argument or environment variable was wrong or missing | No |
 | `Io` | A local file could not be read or written | No |
 | `DeployFailed`, `DeployExpired` | The deploy's terminal verdict | No; a new deploy is a new transaction |
+| `DeployResultUnreadable` | The deploy finalized, but its result could not be read | Read the result again by deploy ID; never resubmit, its effects are final |
 | `FinalizationTimeout` | No verdict within the wait; the deploy may still finalize | Wait again, do not redeploy |
 | `ConflictingVerdicts`, `NodeTooOld` | The nodes disagree, or cannot serve the call | No |
 | `ContractRejected` | The vault or PoS contract executed the call and refused it | No |
@@ -176,7 +177,8 @@ variant rather than the message:
 match manager.transfer("1111recipient...", amount).await {
     Ok(transfer) => println!("sent in {}", transfer.block_hash),
     Err(node_cli::Error::ContractRejected { reason, .. }) => eprintln!("refused: {reason}"),
-    Err(node_cli::Error::Transport { .. }) => { /* retry */ }
+    // The transfer may have landed: look before sending it again.
+    Err(node_cli::Error::Transport { .. }) => { /* check the recipient's balance */ }
     Err(other) => return Err(other),
 }
 ```

@@ -406,9 +406,10 @@ fn ensure_pos_call_succeeded(action: &str, result: &DeployResult) -> CliResult {
     if let Some(failure) = result.execution_failure() {
         return Err(format!("{action} deploy failed: {failure}").into());
     }
-    let data = result.data.as_ref().map_err(|err| {
-        format!("{action} deploy finalized, but its PoS verdict could not be read: {err}")
-    })?;
+    let data = result
+        .data
+        .as_ref()
+        .map_err(|err| format!("{action} verdict could not be read: {err}"))?;
     Ok(parse_pos_call_result(data)?)
 }
 
@@ -539,14 +540,8 @@ pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
         }
     }
 
-    match result.data {
-        Ok(_) => Ok(()),
-        Err(err) => Err(format!(
-            "deploy {} finalized, but its deployId data could not be read: {err}",
-            result.deploy_id
-        )
-        .into()),
-    }
+    result.data?;
+    Ok(())
 }
 
 pub async fn get_deploy_command(args: &GetDeployArgs) -> CliResult {

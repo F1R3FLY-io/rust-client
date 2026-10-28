@@ -73,9 +73,9 @@ impl CryptoUtils {
         let public_key_hex = Self::serialize_public_key(public_key, compressed);
 
         let write = |path: &Path, contents: String| {
-            fs::write(path, contents).map_err(|source| Error::Io {
+            fs::write(path, contents).map_err(|cause| Error::Io {
                 path: path.to_path_buf(),
-                source,
+                cause,
             })
         };
         write(private_key_file, private_key_hex)?;
