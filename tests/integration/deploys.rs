@@ -44,6 +44,13 @@ pub fn trials() -> Vec<Trial> {
             a_signed_deploy_sent_twice_is_one_deploy();
             Ok(())
         }),
+        Trial::test(
+            "deploys::a_landed_deploy_resent_after_it_expired_is_the_same_deploy",
+            || {
+                a_landed_deploy_resent_after_it_expired_is_the_same_deploy();
+                Ok(())
+            },
+        ),
         Trial::test("deploys::a_deploy_for_another_shard_is_refused", || {
             a_deploy_for_another_shard_is_refused();
             Ok(())
@@ -187,6 +194,56 @@ fn a_signed_deploy_sent_twice_is_one_deploy() {
         !result.data.expect("deployId data").is_empty(),
         "the resent deploy returned no data"
     );
+}
+
+/// Once a deploy's validity window closes the node refuses it as expired,
+/// even when it already landed. Resending it must still resolve to the landed
+/// deploy rather than report it refused.
+fn a_landed_deploy_resent_after_it_expired_is_the_same_deploy() {
+    let key =
+        node_cli::utils::CryptoUtils::decode_private_key(keys::RESEND_EXPIRED.private).unwrap();
+    let api = F1r3flyApi::new_readonly("localhost", Node::Validator1.grpc_port());
+    let expiration = unix_millis() + 45_000;
+    let options = DeployOptions {
+        expiration: Some(expiration),
+        ..DeployOptions::default()
+    };
+    let signed = rt()
+        .block_on(api.prepare(contracts::STDOUT_TERM, &options))
+        .expect("prepare")
+        .sign(&key);
+    let manager = manager(&keys::RESEND_EXPIRED, 120);
+
+    let landed = rt()
+        .block_on(manager.submit_and_wait(&signed))
+        .expect("the first submit-and-wait");
+    assert_eq!(landed.deploy_id, signed.id());
+
+    let wait = expiration + 2_000 - unix_millis();
+    if wait > 0 {
+        std::thread::sleep(Duration::from_millis(wait as u64));
+    }
+    let refusal = rt()
+        .block_on(api.submit(&signed))
+        .expect_err("the node should refuse an expired deploy");
+    assert!(
+        matches!(refusal, node_cli::Error::NodeRejected { ref message, .. }
+            if message.contains("expired")),
+        "the refusal does not name the expiry: {refusal}"
+    );
+
+    let resent = rt()
+        .block_on(manager.submit_and_wait(&signed))
+        .expect("resending the landed deploy");
+    assert_eq!(resent.deploy_id, signed.id());
+    assert_eq!(resent.block_hash, landed.block_hash);
+}
+
+fn unix_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
 }
 
 /// A deploy signs its shard ID, so a node of another shard refuses it at

@@ -74,9 +74,14 @@ The shard a deploy is signed for is a connection setting, `shard_id` (env
 ### Sign now, send later
 
 A deploy's ID is its signature, so it is known before any node sees the deploy.
-Sign it, keep the bytes, and send them as often as needed: a node that already
-holds the deploy answers with the same ID, so a deploy whose fate is unknown
-after a timeout or a crash can be resent without deploying twice.
+Sign it, keep the bytes, and send them as often as needed with
+`submit_and_wait`, so a deploy whose fate is unknown after a timeout or a crash
+can be resent without deploying twice. While the deploy's validity window is
+open, a node that already holds it answers with the same ID. Once the window
+closes the node refuses it as expired, and `submit_and_wait` then looks the
+deploy up on the deploy node and the observer: a deploy in a block is waited on
+as usual, one in neither is reported refused. The low-level
+`F1r3flyApi::submit` makes only the first promise.
 
 ```rust
 let api = manager.get_api()?;
@@ -90,7 +95,10 @@ let result = manager.submit_and_wait(&stored).await?;
 
 `UnsignedDeploy::digest()` is what an external signer signs (DER secp256k1
 ECDSA); `with_signature(public_key, der)` verifies the signature before
-accepting it. Automatic timestamps never repeat within a process, so two
+accepting it, and replaces an upper-half S value, which signers such as cloud
+KMS can produce and nodes reject, with its lower-half equivalent.
+`SignedDeploy::from_bytes` rejects an upper-half S signature instead, since
+normalizing it would change the ID it was stored under. Automatic timestamps never repeat within a process, so two
 identical deploys sent at once get different IDs.
 
 ### Read-only query
@@ -183,7 +191,7 @@ variant rather than the message:
 
 | Variant | Meaning | Retry? |
 |---|---|---|
-| `Transport` | The request did not reach the node or the answer did not come back | For reads, yes. For a deploy, resend the same `SignedDeploy` with `submit`; a new deploy could execute twice |
+| `Transport` | The request did not reach the node or the answer did not come back | For reads, yes. For a deploy, resend the same `SignedDeploy` with `submit_and_wait`; a new deploy could execute twice |
 | `Http` | The node answered HTTP with an error status; `code` carries its error code, such as `readonly_node_required` | Depends on `code` |
 | `Grpc` | A gRPC call ended with a non-OK status | Depends on the status |
 | `NodeRejected` | The node handled the request and refused it, such as a deploy with a bad signature | No |

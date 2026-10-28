@@ -23,9 +23,11 @@ impl<'a> F1r3flyApi<'a> {
         UnsignedDeploy::new(term, options, valid_after, &self.shard_id)
     }
 
-    /// Send a signed deploy and return its ID. Sending a deploy the node
-    /// already holds also returns its ID, so a deploy whose fate is unknown,
-    /// after a timeout or a crash, can be sent again safely.
+    /// Send a signed deploy and return its ID. While the deploy's validity
+    /// window is open, sending a deploy the node already holds also returns
+    /// its ID. After the window closes the node refuses it as expired whether
+    /// or not it landed; `F1r3flyConnectionManager::submit_and_wait` tells
+    /// those cases apart.
     pub async fn submit(&self, deploy: &SignedDeploy) -> Result<String> {
         let id = deploy.id();
         let connect_start = Instant::now();

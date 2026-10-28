@@ -67,6 +67,13 @@ pub const RESUBMIT: Key = Key {
     address: "11112AdM2amz5cGJFKFdXs51p8YM69TG6Jge2qnVpn96VK9zFnMBwL",
 };
 
+/// Sends one signed deploy again after its validity window has closed.
+pub const RESEND_EXPIRED: Key = Key {
+    private: "0d1c93b1fae6f23f14cf3d56869b929e6c4bdd9a457964ae2ed009ec9a3875ca",
+    public: "0441667a8cc0f23b3bd1ece4ec3bfb09823f0e80bed15925fd469142c1948e01e58fd2136efc7446374b4127208b09b2149d808f1199be604e26d6fa6bd88cfb65",
+    address: "11112DVSnNbQrJRM8sGgGsZdGdgT8yLPmZLFoRmKebJ3ZLzKLfxWgK",
+};
+
 pub const LOAD_TEST: Key = Key {
     private: "6fbb857a48350ce2cfde38ddc134e8cb17cf45f8b8791e2ec2fb0cbc184700e4",
     public: "04cd6066f89dd7ff3d2fab67e9019523cb99c36ffe967bf7e91538ceb3cbf988a5ad9bbc8d8219b40f171e01fcf3a38aa57502d522f77cfef8852faf6707664fba",

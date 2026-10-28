@@ -225,6 +225,20 @@ fn poll_outcome(
     Ok(PollOutcome::Pending { included_by })
 }
 
+/// Either node holding the deploy settles it as landed, and either node's
+/// "not found" settles it as not landed. Only when neither node answered is it
+/// unknown, which is the deploy node's lookup error.
+fn landed(
+    node: Result<Option<DeployDetail>>,
+    observer: Result<Option<DeployDetail>>,
+) -> Result<bool> {
+    match (node, observer) {
+        (Ok(Some(_)), _) | (_, Ok(Some(_))) => Ok(true),
+        (Ok(None), _) | (_, Ok(None)) => Ok(false),
+        (Err(error), Err(_)) => Err(error),
+    }
+}
+
 /// Manages F1r3fly node connections with connection reuse
 #[derive(Clone)]
 pub struct F1r3flyConnectionManager {
@@ -454,13 +468,36 @@ impl F1r3flyConnectionManager {
     }
 
     /// Send a deploy signed earlier, wait for canonical finalization, and read
-    /// its result. Safe to repeat for a deploy whose fate is unknown: a node
-    /// that already holds it answers with the same ID.
+    /// its result. Safe to repeat for a deploy whose fate is unknown, also
+    /// after its validity window has closed: when the node refuses it, a deploy
+    /// that the deploy node or the observer holds in a block is waited on
+    /// rather than reported refused.
     pub async fn submit_and_wait(&self, deploy: &SignedDeploy) -> Result<DeployResult> {
         let api = self.api()?;
-        let deploy_id = api.submit(deploy).await?;
+        let deploy_id = match api.submit(deploy).await {
+            Ok(deploy_id) => deploy_id,
+            Err(refusal @ Error::NodeRejected { .. }) => {
+                let deploy_id = deploy.id();
+                if !self.landed(&deploy_id).await? {
+                    return Err(refusal);
+                }
+                tracing::info!(deploy_id = %deploy_id, %refusal,
+                    "The node refused a deploy that is already in a block");
+                deploy_id
+            }
+            Err(error) => return Err(error),
+        };
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
         self.await_result(&api, deploy_id).await
+    }
+
+    /// Whether the deploy node or the observer holds the deploy in a block.
+    async fn landed(&self, deploy_id: &str) -> Result<bool> {
+        let (node, observer) = tokio::join!(
+            self.deploy_detail(StatusSource::DeployNode, deploy_id),
+            self.deploy_detail(StatusSource::Observer, deploy_id),
+        );
+        landed(node, observer)
     }
 
     async fn await_result(&self, api: &F1r3flyApi<'_>, deploy_id: String) -> Result<DeployResult> {
@@ -769,6 +806,31 @@ mod tests {
         assert!(matches!(
             poll_outcome(Ok(None), status("Pending", None)),
             Ok(PollOutcome::Pending { included_by: None })
+        ));
+    }
+
+    #[test]
+    fn a_refused_deploy_has_landed_when_either_node_holds_it() {
+        let held = || Ok(Some(DeployDetail::finalized("sig", false)));
+        let lookup_failed = || unreachable().map(|_| None);
+        assert!(super::landed(held(), lookup_failed()).unwrap());
+        assert!(super::landed(lookup_failed(), held()).unwrap());
+        assert!(super::landed(Ok(None), held()).unwrap());
+    }
+
+    #[test]
+    fn a_refused_deploy_has_not_landed_when_a_node_does_not_know_it() {
+        let lookup_failed = || unreachable().map(|_| None);
+        assert!(!super::landed(Ok(None), lookup_failed()).unwrap());
+        assert!(!super::landed(lookup_failed(), Ok(None)).unwrap());
+    }
+
+    #[test]
+    fn whether_a_refused_deploy_landed_is_unknown_when_neither_node_answers() {
+        let lookup_failed = || unreachable().map(|_| None);
+        assert!(matches!(
+            super::landed(lookup_failed(), lookup_failed()),
+            Err(Error::Transport { .. })
         ));
     }
 

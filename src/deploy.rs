@@ -111,14 +111,17 @@ impl UnsignedDeploy {
 
     /// Attach a signature made elsewhere, such as by a hardware key. The
     /// signature is DER-encoded secp256k1 ECDSA over [`digest`](Self::digest)
-    /// and is verified before it is accepted.
+    /// and is verified before it is accepted. An upper-half S value is
+    /// replaced by its lower-half equivalent, the only form nodes accept, so
+    /// the deploy's ID is the normalized signature.
     pub fn with_signature(
         self,
         public_key: &PublicKey,
         der_signature: &[u8],
     ) -> Result<SignedDeploy> {
-        let signature = Signature::from_der(der_signature)
+        let mut signature = Signature::from_der(der_signature)
             .map_err(|e| Error::invalid("deploy signature", e))?;
+        signature.normalize_s();
         verify(&self.digest(), public_key, &signature)?;
         Ok(self.into_signed(public_key, &signature))
     }
@@ -151,7 +154,8 @@ impl SignedDeploy {
 
     /// A deploy stored with [`to_bytes`](Self::to_bytes). Its signature is
     /// verified, so corrupted or tampered bytes are rejected here rather than
-    /// by the node.
+    /// by the node. An upper-half S signature is rejected, not normalized:
+    /// normalizing would change the ID the deploy was stored under.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let data =
             DeployDataProto::decode(bytes).map_err(|e| Error::invalid("stored deploy", e))?;
@@ -165,6 +169,14 @@ impl SignedDeploy {
             .map_err(|e| Error::invalid("stored deploy", e))?;
         let signature =
             Signature::from_der(&data.sig).map_err(|e| Error::invalid("stored deploy", e))?;
+        let mut normalized = signature;
+        normalized.normalize_s();
+        if normalized != signature {
+            return Err(Error::invalid(
+                "stored deploy",
+                "signature has an upper-half S value, which nodes reject",
+            ));
+        }
         verify(&digest(&data), &public_key, &signature)?;
         Ok(SignedDeploy { data })
     }
@@ -281,6 +293,46 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    /// The same signature with `s` replaced by `n - s`: equally valid ECDSA,
+    /// but in the upper half that libsecp256k1 refuses to verify.
+    fn high_s(signature: &Signature) -> Signature {
+        let compact = signature.serialize_compact();
+        let s: [u8; 32] = compact[32..].try_into().unwrap();
+        let mut flipped = compact;
+        flipped[32..].copy_from_slice(
+            &SecretKey::from_byte_array(s)
+                .unwrap()
+                .negate()
+                .secret_bytes(),
+        );
+        Signature::from_compact(&flipped).unwrap()
+    }
+
+    #[test]
+    fn an_external_high_s_signature_is_accepted_in_low_s_form() {
+        let secp = Secp256k1::new();
+        let deploy = unsigned(Some(1_000));
+        let low = secp.sign_ecdsa(Message::from_digest(deploy.digest()), &key());
+        let high = high_s(&low);
+        assert_ne!(high, low);
+
+        let signed = deploy
+            .with_signature(&key().public_key(&secp), &high.serialize_der())
+            .unwrap();
+        assert_eq!(signed.proto().sig.to_vec(), low.serialize_der().to_vec());
+    }
+
+    #[test]
+    fn a_stored_high_s_deploy_is_rejected_rather_than_given_a_new_id() {
+        let signed = unsigned(Some(1_000)).sign(&key());
+        let low = Signature::from_der(&signed.proto().sig).unwrap();
+        let mut stored = signed.proto().clone();
+        stored.sig = ByteString::from(high_s(&low).serialize_der().to_vec());
+
+        let error = SignedDeploy::from_bytes(&stored.encode_to_vec()).unwrap_err();
+        assert!(error.to_string().contains("upper-half S"), "{error}");
     }
 
     #[test]
