@@ -56,7 +56,7 @@ Timeout:     0
 
 Monitor real-time node events via WebSocket. Connects to `/ws/events` and streams the node's events. On connect, the node replays any startup events that occurred before the client connected.
 
-The node defines ten event types (`F1r3flyEvent`); this client deserializes the nine below. `block-approval-received`, emitted during the genesis ceremony, is not currently surfaced.
+The client reads all ten of the node's event types (`F1r3flyEvent`). An event type it does not know is printed as `Unknown event type: <name>`, counted, and matches no `--filter`.
 
 ```bash
 node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-forever]
@@ -77,6 +77,7 @@ node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-fore
 | Transfers Available | `transfers` | Transfer extraction completed (readonly only, after block report) |
 | Sent Unapproved Block | `genesis` | Boot broadcasts genesis candidate to validators |
 | Sent Approved Block | `genesis` | Boot broadcasts the approved genesis block |
+| Block Approval Received | `genesis` | Boot receives a validator's approval of the genesis candidate (hash, sender) |
 | Approved Block Received | `genesis` | Validator receives the approved genesis block |
 | Entered Running State | `lifecycle` | Node engine transitions to Running |
 | Node Started | `lifecycle` | Node HTTP server is ready |
