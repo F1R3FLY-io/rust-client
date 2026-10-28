@@ -137,6 +137,30 @@ enum PollOutcome {
     Unserved,
 }
 
+/// Warn when a node starts failing or fails differently; repeats of the same
+/// failure on later polls go to debug, so an unreachable observer does not
+/// print a warning on every poll.
+fn report_unavailable(
+    source: &str,
+    answer: &StatusAnswer,
+    last_error: &mut Option<String>,
+    deploy_sig_hex: &str,
+    attempt: u32,
+) {
+    match answer {
+        Err(error) if last_error.as_ref() == Some(error) => {
+            tracing::debug!(deploy_sig = deploy_sig_hex, attempt, source, %error,
+                "deploy-finalization-status still unavailable");
+        }
+        Err(error) => {
+            tracing::warn!(deploy_sig = deploy_sig_hex, attempt, source, %error,
+                "deploy-finalization-status unavailable; will retry");
+            *last_error = Some(error.clone());
+        }
+        Ok(_) => *last_error = None,
+    }
+}
+
 /// Terminal states are write-once on a node, so whichever node reports one first
 /// has the verdict. Two nodes reporting different terminal states is an error,
 /// never a choice. A 404 (`Ok(None)`) from the deploy node is conclusive unless
@@ -293,6 +317,8 @@ impl F1r3flyConnectionManager {
         let observer_api = self.observer_api()?;
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
         let mut execution_failure: Option<String> = None;
+        let mut node_error = None;
+        let mut observer_error = None;
 
         for attempt in 1..=max_attempts {
             let (node, observer) = tokio::join!(
@@ -302,15 +328,20 @@ impl F1r3flyConnectionManager {
             );
             let node = node.map_err(|e| e.to_string());
             let observer = observer.map_err(|e| e.to_string());
-            if node.is_err() || observer.is_err() {
-                tracing::warn!(
-                    deploy_sig = deploy_sig_hex,
-                    attempt,
-                    node = ?node,
-                    observer = ?observer,
-                    "deploy-finalization-status unavailable from a node; will retry"
-                );
-            }
+            report_unavailable(
+                "deploy node",
+                &node,
+                &mut node_error,
+                deploy_sig_hex,
+                attempt,
+            );
+            report_unavailable(
+                "observer",
+                &observer,
+                &mut observer_error,
+                deploy_sig_hex,
+                attempt,
+            );
 
             let included =
                 match poll_outcome(node, observer).map_err(ConnectionError::OperationFailed)? {
@@ -654,6 +685,19 @@ mod tests {
             poll_outcome(Ok(None), status("Pending", None)),
             Ok(PollOutcome::Pending { included: false })
         ));
+    }
+
+    #[test]
+    fn a_failure_is_remembered_until_the_node_answers_again() {
+        let mut last = None;
+        report_unavailable("observer", &unreachable(), &mut last, "sig", 1);
+        assert_eq!(last.as_deref(), Some("connection refused"));
+        report_unavailable("observer", &unreachable(), &mut last, "sig", 2);
+        assert_eq!(last.as_deref(), Some("connection refused"));
+        report_unavailable("observer", &status("Pending", None), &mut last, "sig", 3);
+        assert_eq!(last, None);
+        report_unavailable("observer", &Err("timed out".into()), &mut last, "sig", 4);
+        assert_eq!(last.as_deref(), Some("timed out"));
     }
 
     #[test]
