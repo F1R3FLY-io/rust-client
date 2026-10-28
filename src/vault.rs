@@ -8,6 +8,7 @@
 //! - Precision comes from node metadata.
 //! - All amounts in this module are in dust unless otherwise specified
 
+use crate::error::{Contract, Error, Result};
 use num_bigint::BigUint;
 
 /// Phlo limit for vault transfer deploys.
@@ -35,7 +36,7 @@ pub struct TransferResult {
 }
 
 impl TransferResult {
-    pub fn amount_tokens(&self, decimals: u32) -> Result<String, String> {
+    pub fn amount_tokens(&self, decimals: u32) -> Result<String> {
         dust_to_tokens(&self.amount_dust, decimals)
     }
 }
@@ -51,7 +52,7 @@ pub fn build_transfer_rholang(
     from_address: &str,
     to_address: &str,
     amount_dust: &BigUint,
-) -> Result<String, String> {
+) -> Result<String> {
     let amount_literal = amount_literal(amount_dust)?;
     Ok(format!(
         r#"new
@@ -89,18 +90,17 @@ in {{
 /// Fail unless a finalized transfer deploy positively reports a completed transfer:
 /// the deploy must not have errored, its deployId data must be readable, and the
 /// vault must have accepted the transfer.
-pub fn check_transfer_result(result: &crate::f1r3fly_api::DeployResult) -> Result<(), String> {
+pub fn check_transfer_result(result: crate::f1r3fly_api::DeployResult) -> Result<()> {
     if let Some(failure) = result.execution_failure() {
-        return Err(format!(
-            "transfer deploy errored on-chain (cost: {:?}): {failure}",
-            result.cost
-        ));
+        return Err(Error::DeployFailed {
+            execution: Some(match result.cost {
+                Some(cost) => format!("{failure} (cost {cost})"),
+                None => failure,
+            }),
+            deploy_id: result.deploy_id,
+        });
     }
-    let data = result
-        .data
-        .as_ref()
-        .map_err(|e| format!("transfer deploy finalized, but its result could not be read: {e}"))?;
-    parse_transfer_result(data)
+    parse_transfer_result(&result.data?)
 }
 
 /// Interpret the deployId-channel data of a transfer deploy.
@@ -111,12 +111,14 @@ pub fn check_transfer_result(result: &crate::f1r3fly_api::DeployResult) -> Resul
 /// `("error", context, reason)` when a vault lookup fails. No result at all
 /// means the contract's joins never fired, which is also a failure — a
 /// transfer must never be reported successful without positive evidence.
-pub fn parse_transfer_result(data: &[f1r3fly_models::rhoapi::Par]) -> Result<(), String> {
+pub fn parse_transfer_result(data: &[f1r3fly_models::rhoapi::Par]) -> Result<()> {
     use f1r3fly_models::rhoapi::expr::ExprInstance;
 
     let par = data.first().ok_or_else(|| {
-        "no transfer result on the deployId channel — the transfer contract did not complete"
-            .to_string()
+        Error::decode(
+            "transfer result",
+            "nothing on the deployId channel; the transfer contract did not complete",
+        )
     })?;
 
     for expr in &par.exprs {
@@ -144,10 +146,13 @@ pub fn parse_transfer_result(data: &[f1r3fly_models::rhoapi::Par]) -> Result<(),
             } else {
                 reasons.join(": ")
             };
-            return Err(format!("vault rejected the transfer: {reason}"));
+            return Err(Error::ContractRejected {
+                contract: Contract::Vault,
+                reason,
+            });
         }
     }
-    Err(format!("unexpected transfer result shape: {par:?}"))
+    Err(Error::decode("transfer result", format!("{par:?}")))
 }
 
 /// Build Rholang code to query vault balance
@@ -178,26 +183,26 @@ pub fn build_balance_query(address: &str) -> String {
 /// Validate vault address format
 ///
 /// Vault addresses start with "1111" and are base58-encoded.
-pub fn validate_address(address: &str) -> Result<(), String> {
+pub fn validate_address(address: &str) -> Result<()> {
     if !address.starts_with("1111") {
-        return Err("Invalid vault address format: must start with '1111'".to_string());
+        return Err(Error::invalid("vault address", "must start with '1111'"));
     }
 
     if address.len() < 40 {
-        return Err("Invalid vault address format: too short".to_string());
+        return Err(Error::invalid("vault address", "too short"));
     }
 
     Ok(())
 }
 
-pub fn validate_amount(value: &BigUint) -> Result<(), String> {
+pub fn validate_amount(value: &BigUint) -> Result<()> {
     if value.bits() > 256 {
-        return Err("amount exceeds uint256".into());
+        return Err(Error::invalid("amount", "exceeds uint256"));
     }
     Ok(())
 }
 
-pub fn amount_literal(value: &BigUint) -> Result<String, String> {
+pub fn amount_literal(value: &BigUint) -> Result<String> {
     validate_amount(value)?;
     Ok(if value.bits() <= 63 {
         value.to_string()
@@ -206,11 +211,16 @@ pub fn amount_literal(value: &BigUint) -> Result<String, String> {
     })
 }
 
-pub fn parse_amount(value: &str) -> Result<BigUint, String> {
+pub fn parse_amount(value: &str) -> Result<BigUint> {
     if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
-        return Err("amount must be an unsigned decimal integer".into());
+        return Err(Error::invalid(
+            "amount",
+            format!("{value:?} is not an unsigned decimal integer"),
+        ));
     }
-    let amount = value.parse::<BigUint>().map_err(|e| e.to_string())?;
+    let amount = value
+        .parse::<BigUint>()
+        .map_err(|e| Error::invalid("amount", e))?;
     validate_amount(&amount)?;
     Ok(amount)
 }
@@ -260,9 +270,9 @@ pub(crate) fn deserialize_reported_amount<'de, D: serde::Deserializer<'de>>(
         .ok_or_else(|| serde::de::Error::custom("invalid reported integer amount"))
 }
 
-pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint, String> {
+pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint> {
     if decimals > 77 {
-        return Err("invalid decimals".into());
+        return Err(Error::invalid("token decimals", decimals));
     }
     let (whole, fraction) = tokens.split_once('.').unwrap_or((tokens, ""));
     if whole.is_empty()
@@ -271,7 +281,10 @@ pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint, String> {
         || !fraction.bytes().all(|b| b.is_ascii_digit())
         || fraction.len() > decimals as usize
     {
-        return Err("invalid token amount or excess precision".into());
+        return Err(Error::invalid(
+            "token amount",
+            format!("{tokens:?} is malformed or has more than {decimals} decimal places"),
+        ));
     }
     parse_amount(&format!(
         "{}{}{}",
@@ -281,10 +294,10 @@ pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint, String> {
     ))
 }
 
-pub fn dust_to_tokens(dust: &BigUint, decimals: u32) -> Result<String, String> {
+pub fn dust_to_tokens(dust: &BigUint, decimals: u32) -> Result<String> {
     validate_amount(dust)?;
     if decimals > 77 {
-        return Err("invalid decimals".into());
+        return Err(Error::invalid("token decimals", decimals));
     }
     let text = format!(
         "{:0>width$}",
@@ -454,7 +467,7 @@ mod tests {
         }))]
     }
 
-    fn finalized(data: Result<Vec<Par>, String>) -> DeployResult {
+    fn finalized(data: Result<Vec<Par>>) -> DeployResult {
         DeployResult {
             deploy_id: "3045".to_string(),
             block_hash: "abcd".to_string(),
@@ -469,7 +482,7 @@ mod tests {
     #[test]
     fn an_accepted_transfer_passes() {
         let data = vault_answer(vec![single(ExprInstance::GBool(true)), Par::default()]);
-        assert_eq!(check_transfer_result(&finalized(Ok(data))), Ok(()));
+        assert!(check_transfer_result(finalized(Ok(data))).is_ok());
     }
 
     #[test]
@@ -478,9 +491,10 @@ mod tests {
             single(ExprInstance::GBool(false)),
             single(ExprInstance::GString("Insufficient funds".into())),
         ]);
-        let err = check_transfer_result(&finalized(Ok(data))).unwrap_err();
+        let err = check_transfer_result(finalized(Ok(data))).unwrap_err();
         assert!(
-            err.contains("vault rejected the transfer: Insufficient funds"),
+            matches!(err, Error::ContractRejected { contract: Contract::Vault, ref reason }
+                if reason == "Insufficient funds"),
             "{err}"
         );
     }
@@ -489,14 +503,21 @@ mod tests {
     fn an_errored_deploy_fails() {
         let mut result = finalized(Ok(vec![]));
         result.errored = true;
-        let err = check_transfer_result(&result).unwrap_err();
-        assert!(err.contains("errored on-chain"), "{err}");
+        let err = check_transfer_result(result).unwrap_err();
+        assert!(
+            matches!(err, Error::DeployFailed { ref deploy_id, execution: Some(_) }
+                if deploy_id == "3045"),
+            "{err}"
+        );
     }
 
     #[test]
     fn an_unreadable_result_is_not_reported_as_a_rejection() {
-        let err = check_transfer_result(&finalized(Err("timed out".to_string()))).unwrap_err();
-        assert!(err.contains("could not be read: timed out"), "{err}");
-        assert!(!err.contains("rejected"), "{err}");
+        let unreadable = Error::transport(
+            "http://localhost:40412/",
+            crate::error::TransportError::TimedOut(std::time::Duration::from_secs(1)),
+        );
+        let err = check_transfer_result(finalized(Err(unreadable))).unwrap_err();
+        assert!(matches!(err, Error::Transport { .. }), "{err}");
     }
 }

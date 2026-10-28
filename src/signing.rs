@@ -22,11 +22,7 @@ use typenum::U32;
 /// # Returns
 ///
 /// The DER-encoded signature bytes
-pub fn sign_deploy_data(
-    data: &[u8],
-    timestamp: i64,
-    private_key: &SecretKey,
-) -> Result<Vec<u8>, SigningError> {
+pub fn sign_deploy_data(data: &[u8], timestamp: i64, private_key: &SecretKey) -> Vec<u8> {
     let mut hasher = Blake2b::<U32>::new();
     hasher.update(data);
     hasher.update(timestamp.to_le_bytes());
@@ -39,23 +35,8 @@ pub fn sign_deploy_data(
     let message = Secp256k1Message::from_digest(digest);
     let signature = secp.sign_ecdsa(message, private_key);
 
-    Ok(signature.serialize_der().to_vec())
+    signature.serialize_der().to_vec()
 }
-
-#[derive(Debug)]
-pub enum SigningError {
-    SigningFailed(String),
-}
-
-impl std::fmt::Display for SigningError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SigningError::SigningFailed(msg) => write!(f, "Signing failed: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for SigningError {}
 
 #[cfg(test)]
 mod tests {
@@ -71,7 +52,7 @@ mod tests {
         let data = b"new x in { x!(1) }";
         let timestamp = 1234567890i64;
 
-        let signature = sign_deploy_data(data, timestamp, &private_key).unwrap();
+        let signature = sign_deploy_data(data, timestamp, &private_key);
         assert!(signature.len() >= 70 && signature.len() <= 72);
     }
 
@@ -81,8 +62,8 @@ mod tests {
         let data = b"new x in { x!(1) }";
         let timestamp = 1234567890i64;
 
-        let sig1 = sign_deploy_data(data, timestamp, &private_key).unwrap();
-        let sig2 = sign_deploy_data(data, timestamp, &private_key).unwrap();
+        let sig1 = sign_deploy_data(data, timestamp, &private_key);
+        let sig2 = sign_deploy_data(data, timestamp, &private_key);
         assert_eq!(sig1, sig2);
     }
 }

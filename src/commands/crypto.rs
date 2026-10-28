@@ -1,10 +1,10 @@
 use crate::args::*;
-use crate::error::{NodeCliError, Result};
+use crate::commands::CliResult;
 use crate::utils::{print_key, print_success, CryptoUtils};
 use std::fs;
 use std::path::Path;
 
-pub fn generate_public_key_command(args: &GeneratePublicKeyArgs) -> Result<()> {
+pub fn generate_public_key_command(args: &GeneratePublicKeyArgs) -> CliResult {
     // Decode private key using crypto utils
     let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
 
@@ -25,38 +25,25 @@ pub fn generate_public_key_command(args: &GeneratePublicKeyArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> Result<()> {
-    // Generate a new random key pair
-    let (secret_key, public_key) = CryptoUtils::generate_key_pair()?;
-
-    // Serialize keys
-    let private_key_hex = CryptoUtils::serialize_private_key(&secret_key);
-    let public_key_hex = CryptoUtils::serialize_public_key(&public_key, args.compressed);
+pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> CliResult {
+    let (secret_key, public_key) = CryptoUtils::generate_key_pair();
 
     if args.save {
-        // Create output directory if it doesn't exist
         let output_dir = Path::new(&args.output_dir);
-        if !output_dir.exists() {
-            fs::create_dir_all(output_dir).map_err(|e| {
-                NodeCliError::file_write_failed(
-                    &output_dir.display().to_string(),
-                    &format!("Failed to create directory: {e}"),
-                )
-            })?;
-        }
+        fs::create_dir_all(output_dir).map_err(|source| crate::Error::Io {
+            path: output_dir.to_path_buf(),
+            source,
+        })?;
 
-        // Create filenames
         let private_key_file = output_dir.join("private_key.hex");
         let public_key_file = output_dir.join("public_key.hex");
-
-        // Write keys to files
-        fs::write(&private_key_file, &private_key_hex).map_err(|e| {
-            NodeCliError::file_write_failed(&private_key_file.display().to_string(), &e.to_string())
-        })?;
-
-        fs::write(&public_key_file, &public_key_hex).map_err(|e| {
-            NodeCliError::file_write_failed(&public_key_file.display().to_string(), &e.to_string())
-        })?;
+        CryptoUtils::write_key_pair_to_files(
+            &secret_key,
+            &public_key,
+            &private_key_file,
+            &public_key_file,
+            args.compressed,
+        )?;
 
         print_success(&format!(
             "Private key saved to: {}",
@@ -67,20 +54,25 @@ pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> Result<()> {
             public_key_file.display()
         ));
     } else {
-        // Print the keys using output utils
-        print_key("Private key", &private_key_hex);
+        print_key(
+            "Private key",
+            &CryptoUtils::serialize_private_key(&secret_key),
+        );
         let key_type = if args.compressed {
             "compressed"
         } else {
             "uncompressed"
         };
-        print_key(&format!("Public key ({key_type})"), &public_key_hex);
+        print_key(
+            &format!("Public key ({key_type})"),
+            &CryptoUtils::serialize_public_key(&public_key, args.compressed),
+        );
     }
 
     Ok(())
 }
 
-pub fn generate_vault_address_command(args: &GenerateVaultAddressArgs) -> Result<()> {
+pub fn generate_vault_address_command(args: &GenerateVaultAddressArgs) -> CliResult {
     // Determine the public key to use
     let public_key_hex = if let Some(public_key_hex) = &args.public_key {
         // Use provided public key
@@ -92,16 +84,11 @@ pub fn generate_vault_address_command(args: &GenerateVaultAddressArgs) -> Result
         // Use uncompressed format for vault address generation
         CryptoUtils::serialize_public_key(&public_key, false)
     } else {
-        return Err(NodeCliError::config_missing_required(
-            "Either --public-key or --private-key must be provided",
-        ));
+        return Err("either --public-key or --private-key must be provided".into());
     };
 
-    // Validate the public key
     if !CryptoUtils::is_valid_public_key(&public_key_hex) {
-        return Err(NodeCliError::crypto_invalid_public_key(
-            "Invalid public key format",
-        ));
+        return Err(crate::Error::invalid("public key", "not a 33- or 65-byte hex key").into());
     }
 
     // Generate vault address
@@ -114,7 +101,7 @@ pub fn generate_vault_address_command(args: &GenerateVaultAddressArgs) -> Result
     Ok(())
 }
 
-pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
+pub fn get_node_id_command(args: &GetNodeIdArgs) -> CliResult {
     use sha3::Digest;
     use std::process::Command;
 
@@ -124,49 +111,29 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
     } else if let Some(cert_file) = &args.cert_file {
         (cert_file.as_str(), "TLS certificate")
     } else {
-        return Err(NodeCliError::config_missing_required(
-            "Either --key-file or --cert-file must be provided",
-        ));
+        return Err("either --key-file or --cert-file must be provided".into());
     };
 
     println!(" Extracting node ID from {file_type} file: {file_path}");
 
     // Use appropriate OpenSSL command based on file type
-    let openssl_output = if args.key_file.is_some() {
-        // Extract public key from private key file
-        let output = Command::new("openssl")
-            .args(["ec", "-text", "-in", file_path, "-noout"])
-            .output()
-            .map_err(|e| {
-                NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {e}"))
-            })?;
-
-        if !output.status.success() {
-            let error_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(NodeCliError::crypto_invalid_private_key(&format!(
-                "OpenSSL error: {error_msg}"
-            )));
-        }
-
-        String::from_utf8_lossy(&output.stdout).to_string()
+    let openssl_args: &[&str] = if args.key_file.is_some() {
+        &["ec", "-text", "-in", file_path, "-noout"]
     } else {
-        // Extract public key from certificate file
-        let output = Command::new("openssl")
-            .args(["x509", "-in", file_path, "-noout", "-text"])
-            .output()
-            .map_err(|e| {
-                NodeCliError::crypto_invalid_private_key(&format!("Failed to execute openssl: {e}"))
-            })?;
-
-        if !output.status.success() {
-            let error_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(NodeCliError::crypto_invalid_private_key(&format!(
-                "OpenSSL error: {error_msg}"
-            )));
-        }
-
-        String::from_utf8_lossy(&output.stdout).to_string()
+        &["x509", "-in", file_path, "-noout", "-text"]
     };
+    let output = Command::new("openssl")
+        .args(openssl_args)
+        .output()
+        .map_err(|e| format!("could not run openssl: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "openssl could not read {file_path}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    let openssl_output = String::from_utf8_lossy(&output.stdout).to_string();
 
     // Debug: Uncomment to see OpenSSL output
     // println!(" Debug: OpenSSL output:");
@@ -180,7 +147,7 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
 
     // Convert hex to bytes
     let public_key_bytes = hex::decode(cleaned_hex)
-        .map_err(|e| NodeCliError::crypto_invalid_private_key(&format!("Invalid hex: {e}")))?;
+        .map_err(|e| format!("openssl printed a public key that is not hex: {e}"))?;
 
     // Calculate Keccac-256 hash
     let mut hasher = sha3::Keccak256::new();
@@ -205,17 +172,15 @@ pub fn get_node_id_command(args: &GetNodeIdArgs) -> Result<()> {
             print_key("Node ID", &node_id);
             print_key("RNode URL", &rnode_url);
         }
-        _ => {
-            return Err(NodeCliError::General(
-                "Invalid format. Use 'hex' or 'rnode-url'".to_string(),
-            ));
+        other => {
+            return Err(format!("invalid format {other:?}; use 'hex' or 'rnode-url'").into());
         }
     }
 
     Ok(())
 }
 
-fn extract_public_key_from_openssl_output(output: &str) -> Result<String> {
+fn extract_public_key_from_openssl_output(output: &str) -> CliResult<String> {
     let mut in_pub_section = false;
     let mut public_key_hex = String::new();
 
@@ -249,9 +214,7 @@ fn extract_public_key_from_openssl_output(output: &str) -> Result<String> {
     }
 
     if public_key_hex.is_empty() {
-        return Err(NodeCliError::crypto_invalid_private_key(
-            "Could not extract public key from OpenSSL output",
-        ));
+        return Err("openssl printed no public key".into());
     }
 
     // Debug: Uncomment to see extracted hex

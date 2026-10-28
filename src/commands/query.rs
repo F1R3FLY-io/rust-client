@@ -1,4 +1,5 @@
 use crate::args::*;
+use crate::commands::CliResult;
 use crate::f1r3fly_api::F1r3flyApi;
 use crate::pos::{parse_pos_snapshot, PosSnapshot, POS_SNAPSHOT_QUERY};
 use crate::utils::http::EXPLORATORY_RETRY_BACKOFF;
@@ -8,7 +9,7 @@ use serde_json;
 use std::collections::{HashSet, VecDeque};
 use std::time::Instant;
 
-pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn status_command(args: &HttpArgs) -> CliResult {
     println!(" Getting node status from {}:{}", args.host, args.port);
 
     let url = format!("http://{}:{}/api/status", args.host, args.port);
@@ -71,7 +72,7 @@ pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn blocks_command(args: &BlocksArgs) -> CliResult {
     let start_time = Instant::now();
     let client = reqwest::Client::new();
 
@@ -141,7 +142,7 @@ pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn bonds_command(args: &HttpArgs) -> CliResult {
     println!(" Getting validator bonds from {}:{}", args.host, args.port);
 
     let start_time = Instant::now();
@@ -174,7 +175,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn active_validators_command(args: &HttpArgs) -> CliResult {
     println!(
         " Getting active validators from {}:{}",
         args.host, args.port
@@ -208,9 +209,7 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
     Ok(())
 }
 
-pub async fn wallet_balance_command(
-    args: &WalletBalanceArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn wallet_balance_command(args: &WalletBalanceArgs) -> CliResult {
     println!(" Checking wallet balance for address: {}", args.address);
 
     // Use F1r3fly API with gRPC (like exploratory-deploy)
@@ -255,14 +254,14 @@ pub async fn wallet_balance_command(
         Err(e) => {
             println!(" Failed to get wallet balance!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn bond_status_command(args: &BondStatusArgs) -> CliResult {
     println!(" Checking bond status for public key: {}", args.public_key);
 
     let url = build_url(
@@ -290,7 +289,7 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
     Ok(())
 }
 
-pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn metrics_command(args: &HttpArgs) -> CliResult {
     println!(" Getting node metrics from {}:{}", args.host, args.port);
 
     let url = format!("http://{}:{}/metrics", args.host, args.port);
@@ -463,9 +462,7 @@ fn display_peer_info(peer: &DiscoveredPeer, indent: &str) {
     println!("{} Status: {}", indent, peer.connection_status);
 }
 
-pub async fn network_health_command(
-    args: &NetworkHealthArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn network_health_command(args: &NetworkHealthArgs) -> CliResult {
     // Validate host and ports combination early
     if let Err(e) = validate_host_and_ports(&args.host, &args.custom_ports) {
         println!(" {e}");
@@ -714,9 +711,7 @@ pub async fn network_health_command(
     Ok(())
 }
 
-pub async fn last_finalized_block_command(
-    args: &HttpArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn last_finalized_block_command(args: &HttpArgs) -> CliResult {
     println!(
         " Getting last finalized block from {}:{}",
         args.host, args.port
@@ -799,9 +794,7 @@ pub async fn last_finalized_block_command(
     Ok(())
 }
 
-pub async fn show_main_chain_command(
-    args: &ShowMainChainArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn show_main_chain_command(args: &ShowMainChainArgs) -> CliResult {
     println!(
         " Getting main chain blocks from {}:{}",
         args.host, args.port
@@ -848,16 +841,14 @@ pub async fn show_main_chain_command(
         Err(e) => {
             println!(" Failed to get main chain blocks!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn validator_status_command(
-    args: &ValidatorStatusArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn validator_status_command(args: &ValidatorStatusArgs) -> CliResult {
     println!(" Checking validator status for: {}", args.public_key);
 
     let start_time = Instant::now();
@@ -906,7 +897,7 @@ pub async fn validator_status_command(
     Ok(())
 }
 
-pub async fn epoch_info_command(args: &EpochInfoArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn epoch_info_command(args: &EpochInfoArgs) -> CliResult {
     println!(
         " Getting current epoch information from {}:{}",
         args.host, args.port
@@ -1029,9 +1020,7 @@ pub async fn epoch_info_command(args: &EpochInfoArgs) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-pub async fn epoch_rewards_command(
-    args: &EpochRewardsArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn epoch_rewards_command(args: &EpochRewardsArgs) -> CliResult {
     println!(
         " Getting current epoch rewards from {}:{}",
         args.host, args.http_port
@@ -1129,10 +1118,7 @@ pub async fn epoch_rewards_command(
 /// The node admits only `api-server.exploratory-deploy-max-concurrent` exploratory
 /// queries (default 1) and rejects the excess with 503 instead of queueing it, so an
 /// occupied slot is retried.
-async fn fetch_pos_snapshot(
-    host: &str,
-    http_port: u16,
-) -> Result<PosSnapshot, Box<dyn std::error::Error>> {
+async fn fetch_pos_snapshot(host: &str, http_port: u16) -> CliResult<PosSnapshot> {
     let client = reqwest::Client::new();
     let url = build_url(host, http_port, "/api/explore-deploy");
     let body = serde_json::json!({ "term": POS_SNAPSHOT_QUERY });
@@ -1167,9 +1153,7 @@ fn abbreviate_key(key: &str) -> String {
     }
 }
 
-pub async fn network_consensus_command(
-    args: &NetworkConsensusArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn network_consensus_command(args: &NetworkConsensusArgs) -> CliResult {
     println!(
         " Getting network-wide consensus overview from {}:{}",
         args.host, args.http_port
@@ -1218,9 +1202,7 @@ pub async fn network_consensus_command(
     Ok(())
 }
 
-pub async fn get_blocks_by_height_command(
-    args: &GetBlocksByHeightArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn get_blocks_by_height_command(args: &GetBlocksByHeightArgs) -> CliResult {
     println!(
         " Getting blocks by height range from {}:{}",
         args.host, args.port
@@ -1282,7 +1264,7 @@ pub async fn get_blocks_by_height_command(
         Err(e) => {
             println!(" Failed to get blocks by height!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
@@ -1311,9 +1293,7 @@ fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<
     }
 }
 
-pub async fn block_transfers_command(
-    args: &BlockTransfersArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn block_transfers_command(args: &BlockTransfersArgs) -> CliResult {
     println!("Getting transfers from block: {}", args.block_hash);
 
     let url = format!(

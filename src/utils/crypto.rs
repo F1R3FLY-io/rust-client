@@ -1,4 +1,4 @@
-use crate::error::{NodeCliError, Result};
+use crate::error::{Error, Result};
 use f1r3fly_crypto::rust::public_key::PublicKey;
 use f1r3fly_rholang::rust::interpreter::util::vault_address::VaultAddress;
 use hex;
@@ -12,21 +12,21 @@ pub struct CryptoUtils;
 impl CryptoUtils {
     /// Decode a hex-encoded private key
     pub fn decode_private_key(private_key_hex: &str) -> Result<SecretKey> {
-        let private_key_bytes = hex::decode(private_key_hex)?;
+        let private_key_bytes =
+            hex::decode(private_key_hex).map_err(|e| Error::invalid("private key", e))?;
         let key_array: [u8; 32] = private_key_bytes
             .try_into()
-            .map_err(|_| NodeCliError::crypto_invalid_private_key("key must be 32 bytes"))?;
+            .map_err(|_| Error::invalid("private key", "must be 32 bytes"))?;
 
-        SecretKey::from_byte_array(key_array)
-            .map_err(|e| NodeCliError::crypto_invalid_private_key(&e.to_string()))
+        SecretKey::from_byte_array(key_array).map_err(|e| Error::invalid("private key", e))
     }
 
     /// Generate a new random key pair
-    pub fn generate_key_pair() -> Result<(SecretKey, Secp256k1PublicKey)> {
+    pub fn generate_key_pair() -> (SecretKey, Secp256k1PublicKey) {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::new(&mut rand::rng());
         let public_key = secret_key.public_key(&secp);
-        Ok((secret_key, public_key))
+        (secret_key, public_key)
     }
 
     /// Derive public key from private key
@@ -51,16 +51,14 @@ impl CryptoUtils {
 
     /// Generate vault address from public key
     pub fn generate_vault_address(public_key_hex: &str) -> Result<String> {
-        let public_key_bytes = hex::decode(public_key_hex)?;
+        let public_key_bytes =
+            hex::decode(public_key_hex).map_err(|e| Error::invalid("public key", e))?;
 
         let public_key = PublicKey::from_bytes(&public_key_bytes);
 
-        match VaultAddress::from_public_key(&public_key) {
-            Some(vault_address) => Ok(vault_address.to_base58()),
-            None => Err(NodeCliError::crypto_invalid_public_key(
-                "Failed to generate vault address from public key",
-            )),
-        }
+        VaultAddress::from_public_key(&public_key)
+            .map(|vault_address| vault_address.to_base58())
+            .ok_or_else(|| Error::invalid("public key", "no vault address derives from it"))
     }
 
     /// Write key pair to files
@@ -74,15 +72,14 @@ impl CryptoUtils {
         let private_key_hex = Self::serialize_private_key(private_key);
         let public_key_hex = Self::serialize_public_key(public_key, compressed);
 
-        fs::write(private_key_file, private_key_hex).map_err(|e| {
-            NodeCliError::file_write_failed(&private_key_file.display().to_string(), &e.to_string())
-        })?;
-
-        fs::write(public_key_file, public_key_hex).map_err(|e| {
-            NodeCliError::file_write_failed(&public_key_file.display().to_string(), &e.to_string())
-        })?;
-
-        Ok(())
+        let write = |path: &Path, contents: String| {
+            fs::write(path, contents).map_err(|source| Error::Io {
+                path: path.to_path_buf(),
+                source,
+            })
+        };
+        write(private_key_file, private_key_hex)?;
+        write(public_key_file, public_key_hex)
     }
 
     /// Create secp256k1 context

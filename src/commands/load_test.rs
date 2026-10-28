@@ -1,5 +1,6 @@
 use crate::args::LoadTestArgs;
 use crate::commands::query::query_node_status;
+use crate::commands::CliResult;
 use crate::f1r3fly_api::F1r3flyApi;
 use chrono::Local;
 use std::time::{Duration, Instant};
@@ -15,7 +16,7 @@ pub struct TestResult {
     pub total_time: Duration,
 }
 
-pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     use crate::utils::CryptoUtils;
 
     let amount_dust = if args.whole_tokens {
@@ -113,7 +114,7 @@ async fn run_single_test(
     args: &LoadTestArgs,
     test_num: u32,
     amount_dust: &num_bigint::BigUint,
-) -> Result<TestResult, Box<dyn std::error::Error>> {
+) -> CliResult<TestResult> {
     let test_start = Instant::now();
 
     // Step 1: Deploy
@@ -219,16 +220,13 @@ async fn run_single_test(
 fn generate_transfer_contract(
     args: &LoadTestArgs,
     amount_dust: &num_bigint::BigUint,
-) -> Result<String, String> {
+) -> crate::Result<String> {
     use crate::utils::CryptoUtils;
 
-    // Derive sender address from private key
-    let secret_key =
-        CryptoUtils::decode_private_key(&args.private_key).expect("Invalid private key");
+    let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
     let public_key = CryptoUtils::derive_public_key(&secret_key);
     let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-    let from_address =
-        CryptoUtils::generate_vault_address(&public_key_hex).expect("Failed to generate address");
+    let from_address = CryptoUtils::generate_vault_address(&public_key_hex)?;
 
     let amount_literal = crate::vault::amount_literal(amount_dust)?;
     Ok(format!(
@@ -279,7 +277,7 @@ async fn wait_for_block_fast(
     http_port: u16,
     check_interval: u64,
     timeout_seconds: u64,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> CliResult<String> {
     let max_attempts = timeout_seconds / check_interval.max(1);
 
     for attempt in 1..=max_attempts {
@@ -303,17 +301,14 @@ async fn is_on_main_chain_fast(
     api: &F1r3flyApi<'_>,
     block_hash: &str,
     depth: u32,
-) -> Result<bool, Box<dyn std::error::Error>> {
+) -> CliResult<bool> {
     let blocks = api.show_main_chain(depth).await?;
 
     Ok(blocks.iter().any(|b| b.block_hash == block_hash))
 }
 
 // Get wallet balance for any address
-async fn get_balance_for_address(
-    address: &str,
-    args: &LoadTestArgs,
-) -> Result<String, Box<dyn std::error::Error>> {
+async fn get_balance_for_address(address: &str, args: &LoadTestArgs) -> CliResult<String> {
     // Build the Rholang query to get wallet balance
     let rholang_query = format!(
         r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
@@ -349,10 +344,7 @@ async fn get_balance_for_address(
 }
 
 // Get wallet balance for the sender address (convenience wrapper)
-async fn get_wallet_balance(
-    _api: &F1r3flyApi<'_>,
-    args: &LoadTestArgs,
-) -> Result<String, Box<dyn std::error::Error>> {
+async fn get_wallet_balance(_api: &F1r3flyApi<'_>, args: &LoadTestArgs) -> CliResult<String> {
     use crate::utils::CryptoUtils;
 
     // Derive sender address from private key

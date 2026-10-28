@@ -5,10 +5,14 @@ mod deploy;
 mod http;
 pub mod query;
 
+use crate::error::{Error, Result};
+use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
+use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
 use secp256k1::SecretKey;
 use std::sync::atomic::AtomicI64;
 use std::sync::Arc;
 use std::time::Duration;
+use tonic::transport::Channel;
 
 const TIP_FLOOR_UNSET: i64 = -1;
 
@@ -22,18 +26,9 @@ pub struct F1r3flyApi<'a> {
 }
 
 impl<'a> F1r3flyApi<'a> {
-    pub fn new(
-        signing_key: &str,
-        node_host: &'a str,
-        grpc_port: u16,
-    ) -> std::result::Result<Self, crate::error::NodeCliError> {
-        let key_bytes = hex::decode(signing_key)?;
-        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| {
-            crate::error::NodeCliError::crypto_invalid_private_key("key must be 32 bytes")
-        })?;
-        let secret_key = SecretKey::from_byte_array(key_array)?;
+    pub fn new(signing_key: &str, node_host: &'a str, grpc_port: u16) -> Result<Self> {
         Ok(F1r3flyApi {
-            signing_key: Some(secret_key),
+            signing_key: Some(crate::utils::CryptoUtils::decode_private_key(signing_key)?),
             node_host,
             grpc_port,
             tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
@@ -63,5 +58,34 @@ impl<'a> F1r3flyApi<'a> {
 
     pub(crate) fn grpc_url(&self) -> String {
         format!("http://{}:{}/", self.node_host, self.grpc_port)
+    }
+
+    pub(crate) async fn deploy_client(&self) -> Result<DeployServiceClient<Channel>> {
+        let url = self.grpc_url();
+        DeployServiceClient::connect(url.clone())
+            .await
+            .map_err(|e| Error::transport(url, e))
+    }
+
+    pub(crate) async fn propose_client(&self) -> Result<ProposeServiceClient<Channel>> {
+        let url = self.grpc_url();
+        ProposeServiceClient::connect(url.clone())
+            .await
+            .map_err(|e| Error::transport(url, e))
+    }
+
+    pub(crate) fn grpc_error(&self, status: tonic::Status) -> Error {
+        Error::grpc(self.grpc_url(), status)
+    }
+}
+
+/// The node's refusal, as the `messages` of its `ServiceError`.
+pub(crate) fn rejected(
+    operation: &'static str,
+    error: &f1r3fly_models::servicemodelapi::ServiceError,
+) -> Error {
+    Error::NodeRejected {
+        operation,
+        message: error.messages.join("; "),
     }
 }

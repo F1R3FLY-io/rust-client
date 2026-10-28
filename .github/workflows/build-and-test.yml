@@ -57,6 +57,15 @@ jobs:
           RUSTFLAGS: "-D warnings -C target-feature=+aes,+sse2"
         run: cargo clippy --all-targets --features cli
 
+      # A bare Box<dyn Error> held across an .await makes the future !Send.
+      # Library code returns crate::Error; CLI code boxes with Send + Sync.
+      - name: Reject bare Box<dyn Error>
+        run: |
+          if grep -rnE 'Box<dyn (std::error::)?Error>' src tests; then
+            echo "::error::use crate::Error, or Box<dyn Error + Send + Sync> in CLI code"
+            exit 1
+          fi
+
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
