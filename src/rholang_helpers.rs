@@ -28,6 +28,17 @@ pub fn convert_rholang_to_json(
         return Ok(expr_int.clone());
     }
 
+    if let Some(value) = value.get("ExprBigInt").and_then(|v| v.get("data")) {
+        let text = value
+            .as_str()
+            .ok_or("BigInt JSON must use a decimal string")?;
+        let amount = text.parse::<num_bigint::BigInt>()?;
+        if amount.to_string() != text {
+            return Err("noncanonical BigInt JSON".into());
+        }
+        return Ok(serde_json::Value::String(text.to_owned()));
+    }
+
     if let Some(expr_bool) = value.get("ExprBool").and_then(|v| v.get("data")) {
         return Ok(expr_bool.clone());
     }
@@ -56,10 +67,62 @@ pub fn convert_rholang_to_json(
     Ok(value.clone())
 }
 
+pub fn rholang_amount(value: &serde_json::Value) -> Result<num_bigint::BigUint, String> {
+    if let Some(value) = value.get("ExprInt").and_then(|v| v.get("data")) {
+        return value
+            .as_u64()
+            .map(num_bigint::BigUint::from)
+            .ok_or_else(|| "amount is not an unsigned integer".to_owned());
+    }
+    if let Some(value) = value.get("ExprBigInt").and_then(|v| v.get("data")) {
+        let text = value
+            .as_str()
+            .ok_or("BigInt amount must use a decimal string")?;
+        let amount = crate::vault::parse_amount(text)?;
+        if amount.to_string() != text {
+            return Err("noncanonical BigInt amount".into());
+        }
+        return Ok(amount);
+    }
+    Err("amount is not an integer expression".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn bigint_json_preserves_exact_signed_decimal_strings() {
+        for text in [
+            "0",
+            "1606938044258990275541962092341162602522202993782792835301377",
+            "-1606938044258990275541962092341162602522202993782792835301377",
+        ] {
+            let value = json!({"ExprList": {"data": [{"ExprBigInt": {"data": text}}]}});
+            assert_eq!(convert_rholang_to_json(&value).unwrap(), json!([text]));
+        }
+        for value in [
+            json!(42),
+            json!("01"),
+            json!("-0"),
+            json!("1.5"),
+            json!("1e20"),
+        ] {
+            assert!(convert_rholang_to_json(&json!({"ExprBigInt": {"data": value}})).is_err());
+        }
+    }
+
+    #[test]
+    fn monetary_expressions_reject_negative_and_wrong_types() {
+        for value in [
+            json!({"ExprInt": {"data": -1}}),
+            json!({"ExprBigInt": {"data": "-1"}}),
+            json!({"ExprString": {"data": "1000"}}),
+        ] {
+            assert!(rholang_amount(&value).is_err());
+        }
+    }
 
     #[test]
     fn test_convert_expr_string() {

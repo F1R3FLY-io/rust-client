@@ -473,25 +473,20 @@ impl F1r3flyConnectionManager {
     /// # Arguments
     ///
     /// * `to_address` - Recipient vault address (1111...)
-    /// * `amount_dust` - Amount in dust (1 token = 100,000,000 dust)
+    /// * `amount_dust` - Amount in raw base units
     pub async fn transfer(
         &self,
         to_address: &str,
-        amount_dust: u64,
+        amount_dust: num_bigint::BigUint,
     ) -> Result<TransferResult, ConnectionError> {
         crate::vault::validate_address(to_address).map_err(ConnectionError::OperationFailed)?;
 
         let from_address = self.get_address()?;
 
-        log::info!(
-            "Transferring {} dust ({:.8} tokens) from {} to {}",
-            amount_dust,
-            crate::vault::dust_to_tokens(amount_dust),
-            from_address,
-            to_address
-        );
+        log::info!("Transferring {amount_dust} raw units from {from_address} to {to_address}");
 
-        let rholang = build_transfer_rholang(&from_address, to_address, amount_dust);
+        let rholang = build_transfer_rholang(&from_address, to_address, &amount_dust)
+            .map_err(ConnectionError::OperationFailed)?;
 
         let result = self
             .deploy_and_wait_with_phlo_limit(&rholang, crate::vault::TRANSFER_PHLO_LIMIT, 0)
@@ -504,7 +499,7 @@ impl F1r3flyConnectionManager {
         tracing::info!(
         deploy_id = %result.deploy_id,
         to_address,
-        amount_dust,
+        amount_dust = %amount_dust,
         "Transfer complete"
         );
 

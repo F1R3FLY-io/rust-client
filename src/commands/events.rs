@@ -118,7 +118,9 @@ pub struct DeployTransfers {
 pub struct TransferEvent {
     pub from_addr: String,
     pub to_addr: String,
-    pub amount: i64,
+    /// Attempted amount; rejected transfers can be negative.
+    #[serde(deserialize_with = "crate::vault::deserialize_reported_amount")]
+    pub amount: num_bigint::BigInt,
     pub success: bool,
 }
 
@@ -451,4 +453,79 @@ fn display_block_payload(payload: &BlockEventPayload) {
         println!(" Deploys:  {}", payload.deploys.len());
     }
     println!();
+}
+
+#[cfg(test)]
+mod bigint_tests {
+    use super::*;
+
+    #[test]
+    fn failed_transfer_keeps_the_whole_notification_readable() {
+        let text = serde_json::json!({
+            "event": "transfers-available",
+            "schema-version": 1,
+            "payload": {
+                "block-hash": "test-block",
+                "block-number": 42,
+                "deploys": [{
+                    "deploy-id": "test-deploy",
+                    "transfers": [
+                        {"from-addr": "sender", "to-addr": "recipient", "amount": 1000, "success": true},
+                        {"from-addr": "sender", "to-addr": "recipient", "amount": -1, "success": false},
+                        {"from-addr": "sender", "to-addr": "recipient", "amount": "18446744073709551617", "success": true}
+                    ]
+                }]
+            }
+        })
+        .to_string();
+        let event: NodeEvent = serde_json::from_str(&text).unwrap();
+        let NodeEvent::TransfersAvailable { payload, .. } = event else {
+            panic!("expected a transfer notification");
+        };
+        let transfers = &payload.deploys[0].transfers;
+        let amounts: Vec<_> = transfers.iter().map(|t| t.amount.to_string()).collect();
+        assert_eq!(amounts, ["1000", "-1", "18446744073709551617"]);
+        assert_eq!(
+            transfers.iter().map(|t| t.success).collect::<Vec<_>>(),
+            [true, false, true]
+        );
+
+        let args = WatchEventsArgs {
+            host: "localhost".into(),
+            http_port: 40403,
+            filter: Some("transfers".into()),
+            retry_forever: false,
+        };
+        let mut stats = EventStats::new();
+        handle_event(&text, &args, &mut stats).unwrap();
+        assert_eq!(stats.total, 1);
+        assert_eq!(stats.transfers, 1);
+    }
+
+    #[test]
+    fn reads_legacy_and_bigint_transfer_events() {
+        for (amount, success) in [
+            (serde_json::json!(1000), true),
+            (serde_json::json!(-1), false),
+            (
+                serde_json::json!("1606938044258990275541962092341162602522202993782792835301377"),
+                true,
+            ),
+            (
+                serde_json::json!("-1606938044258990275541962092341162602522202993782792835301377"),
+                false,
+            ),
+        ] {
+            let event: TransferEvent = serde_json::from_value(serde_json::json!({
+                "from-addr": "sender", "to-addr": "recipient", "amount": amount, "success": success
+            }))
+            .unwrap();
+            let expected = amount
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| amount.to_string());
+            assert_eq!(event.amount.to_string(), expected);
+            assert_eq!(event.success, success);
+        }
+    }
 }

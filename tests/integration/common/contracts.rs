@@ -18,6 +18,10 @@ pub fn path(name: &str) -> &'static str {
             env!("CARGO_MANIFEST_DIR"),
             "/tests/integration/contracts/silent.rho"
         ),
+        "bigint.rho" => concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/integration/contracts/bigint.rho"
+        ),
         "broken.rho" => concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/integration/contracts/broken.rho"

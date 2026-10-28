@@ -151,7 +151,7 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
     println!(" Time taken: {:.2?}", start_time.elapsed());
     println!();
 
-    let total_stake: i64 = snapshot.bonds.values().sum();
+    let total_stake: num_bigint::BigUint = snapshot.bonds.values().sum();
     println!(
         " Bonded Validators ({} total, {total_stake} total stake):",
         snapshot.bonds.len()
@@ -187,7 +187,7 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
     println!(" Time taken: {:.2?}", start_time.elapsed());
     println!();
 
-    let total_stake: i64 = snapshot
+    let total_stake: num_bigint::BigUint = snapshot
         .active
         .iter()
         .filter_map(|key| snapshot.stake(key))
@@ -1091,18 +1091,13 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
             println!(" Current Epoch Rewards ({} validators):", expr_map.len());
             println!();
 
-            let mut entries: Vec<(&String, i64)> = expr_map
+            let mut entries: Vec<(&String, num_bigint::BigUint)> = expr_map
                 .iter()
                 .map(|(key, val)| {
-                    let reward = val
-                        .get("ExprInt")
-                        .and_then(|e| e.get("data"))
-                        .and_then(|d| d.as_i64())
-                        .unwrap_or(0);
-                    (key, reward)
+                    crate::rholang_helpers::rholang_amount(val).map(|reward| (key, reward))
                 })
-                .collect();
-            let total_rewards: i64 = entries.iter().map(|(_, r)| r).sum();
+                .collect::<Result<_, _>>()?;
+            let total_rewards: num_bigint::BigUint = entries.iter().map(|(_, r)| r).sum();
             entries.sort_by(|a, b| b.1.cmp(&a.1));
 
             for (key, reward) in &entries {
@@ -1409,7 +1404,10 @@ pub async fn block_transfers_command(
                     .get("toAddr")
                     .and_then(|v| v.as_str())
                     .unwrap_or("?");
-                let amount = transfer.get("amount").and_then(|v| v.as_i64()).unwrap_or(0);
+                let amount = transfer
+                    .get("amount")
+                    .and_then(crate::vault::json_reported_amount)
+                    .ok_or("invalid transfer amount")?;
                 let success = transfer
                     .get("success")
                     .and_then(|v| v.as_bool())

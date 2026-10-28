@@ -24,16 +24,11 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         let decimals = status_json
             .get("nativeTokenDecimals")
             .and_then(|v| v.as_u64())
-            .ok_or("node did not report token decimals; cannot convert whole tokens")?
-            as u32;
-        let factor = 10u64
-            .checked_pow(decimals)
-            .ok_or("token decimals too large for u64 multiplier")?;
-        args.amount
-            .checked_mul(factor)
-            .ok_or("amount overflows u64 after applying token decimals")?
+            .and_then(|v| u32::try_from(v).ok())
+            .ok_or("node did not report valid token decimals; cannot convert whole tokens")?;
+        crate::vault::tokens_to_dust(&args.amount, decimals)?
     } else {
-        args.amount
+        crate::vault::parse_amount(&args.amount)?
     };
 
     println!();
@@ -93,7 +88,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> Result<(), Box<dyn std::e
         println!();
 
         // Run single test with detailed logging
-        let result = run_single_test(&api, args, test_num, amount_dust).await?;
+        let result = run_single_test(&api, args, test_num, &amount_dust).await?;
 
         results.push(result);
 
@@ -117,7 +112,7 @@ async fn run_single_test(
     api: &F1r3flyApi<'_>,
     args: &LoadTestArgs,
     test_num: u32,
-    amount_dust: u64,
+    amount_dust: &num_bigint::BigUint,
 ) -> Result<TestResult, Box<dyn std::error::Error>> {
     let test_start = Instant::now();
 
@@ -125,7 +120,7 @@ async fn run_single_test(
     println!(" [{}] Deploying transfer...", now_timestamp());
     let deploy_start = Instant::now();
 
-    let rholang = generate_transfer_contract(args, amount_dust);
+    let rholang = generate_transfer_contract(args, amount_dust)?;
     // Load tests don't use expiration timestamp (0 means no expiration)
     let deploy_id = api.deploy(&rholang, true, "rholang", 0).await?.to_string();
 
@@ -221,7 +216,10 @@ async fn run_single_test(
     })
 }
 
-fn generate_transfer_contract(args: &LoadTestArgs, amount_dust: u64) -> String {
+fn generate_transfer_contract(
+    args: &LoadTestArgs,
+    amount_dust: &num_bigint::BigUint,
+) -> Result<String, String> {
     use crate::utils::CryptoUtils;
 
     // Derive sender address from private key
@@ -232,7 +230,8 @@ fn generate_transfer_contract(args: &LoadTestArgs, amount_dust: u64) -> String {
     let from_address =
         CryptoUtils::generate_vault_address(&public_key_hex).expect("Failed to generate address");
 
-    format!(
+    let amount_literal = crate::vault::amount_literal(amount_dust)?;
+    Ok(format!(
         r#"new 
  deployerId(`rho:system:deployerId`),
  stdout(`rho:io:stdout`),
@@ -269,8 +268,8 @@ fn generate_transfer_contract(args: &LoadTestArgs, amount_dust: u64) -> String {
  }}
  }}
 }}"#,
-        from_address, args.to_address, args.to_address, amount_dust, amount_dust
-    )
+        from_address, args.to_address, args.to_address, amount_literal, amount_literal
+    ))
 }
 
 // Fast block polling (configurable interval and timeout)

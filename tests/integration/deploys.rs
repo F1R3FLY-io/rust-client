@@ -84,8 +84,12 @@ fn a_deploy_writing_nothing_returns_no_data() {
 /// writes its `Failed` verdict only past the contestability bound, so the
 /// command must name the execution failure rather than time out silently.
 fn an_errored_deploy_reports_its_execution_failure() {
-    let term =
-        vault::build_transfer_rholang(keys::OVERDRAFT.address, keys::TRANSFER_RECIPIENT.address, 1);
+    let term = vault::build_transfer_rholang(
+        keys::OVERDRAFT.address,
+        keys::TRANSFER_RECIPIENT.address,
+        &1u32.into(),
+    )
+    .unwrap();
     let error = rt()
         .block_on(manager(&keys::OVERDRAFT, 90).deploy_and_wait(&term, false, 0))
         .expect_err("a 50k-phlo vault transfer should not succeed");
