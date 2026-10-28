@@ -28,15 +28,10 @@ pub fn convert_rholang_to_json(
         return Ok(expr_int.clone());
     }
 
-    if let Some(value) = value.get("ExprBigInt").and_then(|v| v.get("data")) {
-        let text = value
-            .as_str()
-            .ok_or("BigInt JSON must use a decimal string")?;
-        let amount = text.parse::<num_bigint::BigInt>()?;
-        if amount.to_string() != text {
-            return Err("noncanonical BigInt JSON".into());
-        }
-        return Ok(serde_json::Value::String(text.to_owned()));
+    if let Some(data) = value.get("ExprBigInt").and_then(|v| v.get("data")) {
+        return Ok(serde_json::Value::String(
+            canonical_bigint(data)?.to_string(),
+        ));
     }
 
     if let Some(expr_bool) = value.get("ExprBool").and_then(|v| v.get("data")) {
@@ -74,17 +69,26 @@ pub fn rholang_amount(value: &serde_json::Value) -> Result<num_bigint::BigUint, 
             .map(num_bigint::BigUint::from)
             .ok_or_else(|| "amount is not an unsigned integer".to_owned());
     }
-    if let Some(value) = value.get("ExprBigInt").and_then(|v| v.get("data")) {
-        let text = value
-            .as_str()
-            .ok_or("BigInt amount must use a decimal string")?;
-        let amount = crate::vault::parse_amount(text)?;
-        if amount.to_string() != text {
-            return Err("noncanonical BigInt amount".into());
-        }
+    if let Some(data) = value.get("ExprBigInt").and_then(|v| v.get("data")) {
+        let amount = canonical_bigint(data)?
+            .to_biguint()
+            .ok_or("amount is not an unsigned integer")?;
+        crate::vault::validate_amount(&amount)?;
         return Ok(amount);
     }
     Err("amount is not an integer expression".into())
+}
+
+/// The node writes a BigInt as its canonical decimal string; anything else is malformed.
+fn canonical_bigint(data: &serde_json::Value) -> Result<num_bigint::BigInt, String> {
+    let text = data.as_str().ok_or("BigInt must use a decimal string")?;
+    let value = text
+        .parse::<num_bigint::BigInt>()
+        .map_err(|e| e.to_string())?;
+    if value.to_string() != text {
+        return Err(format!("noncanonical BigInt: {text}"));
+    }
+    Ok(value)
 }
 
 #[cfg(test)]

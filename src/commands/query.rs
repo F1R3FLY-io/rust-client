@@ -906,7 +906,7 @@ pub async fn validator_status_command(
     Ok(())
 }
 
-pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn epoch_info_command(args: &EpochInfoArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         " Getting current epoch information from {}:{}",
         args.host, args.port
@@ -1029,7 +1029,9 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn epoch_rewards_command(
+    args: &EpochRewardsArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         " Getting current epoch rewards from {}:{}",
         args.host, args.http_port
@@ -1321,26 +1323,37 @@ pub async fn block_transfers_command(
     let client = reqwest::Client::new();
     let start_time = Instant::now();
 
-    let response = client.get(&url).send().await?;
+    let block_json = loop {
+        let response = client.get(&url).send().await?;
+        if !response.status().is_success() {
+            println!("Failed to get block: HTTP {}", response.status());
+            return Err(format!("HTTP {}", response.status()).into());
+        }
+        let block_json: serde_json::Value = response.json().await?;
+        if transfers_reported(block_deploys(&block_json)?) {
+            break block_json;
+        }
+        if start_time.elapsed() >= std::time::Duration::from_secs(args.max_wait) {
+            return Err(format!(
+                "the node has not produced the transfer report for block {} within {}s; \
+                 only a read-only node attaches transfers, a validator never does",
+                args.block_hash, args.max_wait
+            )
+            .into());
+        }
+        tokio::time::sleep(TRANSFER_REPORT_POLL_INTERVAL).await;
+    };
     let duration = start_time.elapsed();
-
-    if !response.status().is_success() {
-        println!("Failed to get block: HTTP {}", response.status());
-        return Err(format!("HTTP {}", response.status()).into());
-    }
-
-    let block_json: serde_json::Value = response.json().await?;
 
     println!("Block retrieved successfully!");
     println!("Time taken: {duration:.2?}");
     println!();
 
-    // Extract block info
     let block_number = block_json
         .get("blockInfo")
         .and_then(|b| b.get("blockNumber"))
         .and_then(|n| n.as_i64())
-        .unwrap_or(0);
+        .ok_or("block response carries no blockInfo.blockNumber")?;
 
     let block_hash_display = if args.block_hash.len() > 16 {
         format!("{}...", &args.block_hash[..16])
@@ -1351,12 +1364,7 @@ pub async fn block_transfers_command(
     println!("Block #{block_number} ({block_hash_display})");
     println!();
 
-    // Extract deploys and their transfers
-    let deploys = block_json
-        .get("deploys")
-        .and_then(|d| d.as_array())
-        .map(|a| a.to_vec())
-        .unwrap_or_default();
+    let deploys = block_deploys(&block_json)?;
 
     let mut total_transfers = 0;
     let mut deploys_with_transfers = 0;
@@ -1372,8 +1380,7 @@ pub async fn block_transfers_command(
         let transfers = deploy
             .get("transfers")
             .and_then(|t| t.as_array())
-            .map(|a| a.to_vec())
-            .unwrap_or_default();
+            .ok_or_else(|| format!("deploy {sig}: transfers is not a list"))?;
 
         if transfers.is_empty() && !args.all_deploys {
             continue;
@@ -1450,4 +1457,50 @@ pub async fn block_transfers_command(
     }
 
     Ok(())
+}
+
+const TRANSFER_REPORT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn block_deploys(block_json: &serde_json::Value) -> Result<&[serde_json::Value], String> {
+    block_json
+        .get("deploys")
+        .and_then(|d| d.as_array())
+        .map(Vec::as_slice)
+        .ok_or_else(|| "block response carries no deploys list".to_string())
+}
+
+/// The node attaches `transfers` to every deploy once it has the block's report.
+/// A read while its reporter is busy omits the field, which means "not known
+/// yet", never "no transfers".
+fn transfers_reported(deploys: &[serde_json::Value]) -> bool {
+    deploys
+        .iter()
+        .all(|deploy| deploy.get("transfers").is_some())
+}
+
+#[cfg(test)]
+mod block_transfers_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_deploy_without_transfers_means_the_report_is_pending() {
+        let block = json!({"deploys": [{"sig": "a", "transfers": []}, {"sig": "b"}]});
+        assert!(!transfers_reported(block_deploys(&block).unwrap()));
+    }
+
+    #[test]
+    fn every_deploy_carrying_transfers_means_the_report_is_ready() {
+        let block =
+            json!({"deploys": [{"sig": "a", "transfers": []}, {"sig": "b", "transfers": []}]});
+        assert!(transfers_reported(block_deploys(&block).unwrap()));
+        assert!(transfers_reported(
+            block_deploys(&json!({"deploys": []})).unwrap()
+        ));
+    }
+
+    #[test]
+    fn a_block_without_a_deploys_list_is_an_error() {
+        assert!(block_deploys(&json!({"blockInfo": {}})).is_err());
+    }
 }

@@ -90,10 +90,10 @@ in {{
 /// the deploy must not have errored, its deployId data must be readable, and the
 /// vault must have accepted the transfer.
 pub fn check_transfer_result(result: &crate::f1r3fly_api::DeployResult) -> Result<(), String> {
-    if result.errored || result.system_deploy_error.is_some() {
+    if let Some(failure) = result.execution_failure() {
         return Err(format!(
-            "transfer deploy errored on-chain (cost: {:?}, system error: {:?})",
-            result.cost, result.system_deploy_error
+            "transfer deploy errored on-chain (cost: {:?}): {failure}",
+            result.cost
         ));
     }
     let data = result
@@ -266,6 +266,7 @@ pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint, String> {
     }
     let (whole, fraction) = tokens.split_once('.').unwrap_or((tokens, ""));
     if whole.is_empty()
+        || tokens.ends_with('.')
         || !whole.bytes().all(|b| b.is_ascii_digit())
         || !fraction.bytes().all(|b| b.is_ascii_digit())
         || fraction.len() > decimals as usize
@@ -391,7 +392,7 @@ mod bigint_tests {
         for value in ["", "-1", "+1", "1.0", "1e18", " 1"] {
             assert!(parse_amount(value).is_err(), "{value}");
         }
-        for value in [".1", "1.2.3", "NaN", "0.0000000000000000001"] {
+        for value in [".1", "1.", "1.2.3", "NaN", "0.0000000000000000001"] {
             assert!(tokens_to_dust(value, 18).is_err(), "{value}");
         }
         assert!(tokens_to_dust("1", 78).is_err());

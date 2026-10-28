@@ -417,12 +417,8 @@ fn ensure_pos_call_succeeded(
     action: &str,
     result: &DeployResult,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if result.errored {
-        let err = result
-            .system_deploy_error
-            .as_deref()
-            .unwrap_or("unknown error");
-        return Err(format!("{action} deploy failed: {err}").into());
+    if let Some(failure) = result.execution_failure() {
+        return Err(format!("{action} deploy failed: {failure}").into());
     }
     let data = result.data.as_ref().map_err(|err| {
         format!("{action} deploy finalized, but its PoS verdict could not be read: {err}")
@@ -536,11 +532,9 @@ pub async fn deploy_and_wait_command(
     if let Some(cost) = result.cost {
         println!("Cost: {cost}");
     }
-    if result.errored {
+    if let Some(failure) = result.execution_failure() {
         println!("Errored: true");
-        if let Some(ref err) = result.system_deploy_error {
-            println!("Deploy error: {err}");
-        }
+        println!("Deploy error: {failure}");
     }
     match &result.data {
         Ok(data) if data.is_empty() => println!("Data: (none)"),

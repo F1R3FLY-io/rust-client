@@ -65,7 +65,7 @@ pub fn trials() -> Vec<Trial> {
         }),
         Trial::test("surface::epoch_info_reports_the_configured_epoch", || {
             Cli::new("epoch-info")
-                .at(Node::ReadOnly)
+                .grpc_at(Node::ReadOnly)
                 .run()
                 .expect_success("epoch-info")
                 .expect_contains("4");
@@ -73,7 +73,7 @@ pub fn trials() -> Vec<Trial> {
         }),
         Trial::test("surface::epoch_rewards_are_readable", || {
             Cli::new("epoch-rewards")
-                .at(Node::ReadOnly)
+                .http_port_at(Node::ReadOnly)
                 .run()
                 .expect_success("epoch-rewards");
             Ok(())

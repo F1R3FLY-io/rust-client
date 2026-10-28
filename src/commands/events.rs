@@ -10,10 +10,11 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 ///   Block lifecycle:  block-created, block-added, block-finalised
 ///   Transfer:         transfers-available (readonly only, after block report)
 ///   Genesis ceremony: sent-unapproved-block, sent-approved-block,
-///                     approved-block-received
+///                     block-approval-received, approved-block-received
 ///   Node lifecycle:   entered-running-state, node-started
 ///
 /// The "started" variant is a WebSocket handshake (not an F1r3flyEvent).
+/// `Unknown` absorbs event types added to the node after this client.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event")]
 #[serde(rename_all = "kebab-case")]
@@ -56,6 +57,11 @@ pub enum NodeEvent {
         schema_version: i32,
         payload: BlockHashPayload,
     },
+    BlockApprovalReceived {
+        #[serde(rename = "schema-version")]
+        schema_version: i32,
+        payload: BlockApprovalPayload,
+    },
     ApprovedBlockReceived {
         #[serde(rename = "schema-version")]
         schema_version: i32,
@@ -72,6 +78,8 @@ pub enum NodeEvent {
         schema_version: i32,
         payload: NodeStartedPayload,
     },
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +140,13 @@ pub struct BlockHashPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub struct BlockApprovalPayload {
+    pub block_hash: String,
+    pub sender: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct NodeStartedPayload {
     pub address: String,
 }
@@ -144,6 +159,7 @@ struct EventStats {
     transfers: u32,
     genesis: u32,
     lifecycle: u32,
+    unknown: u32,
     total: u32,
 }
 
@@ -156,6 +172,7 @@ impl EventStats {
             transfers: 0,
             genesis: 0,
             lifecycle: 0,
+            unknown: 0,
             total: 0,
         }
     }
@@ -169,10 +186,12 @@ impl EventStats {
             NodeEvent::TransfersAvailable { .. } => self.transfers += 1,
             NodeEvent::SentUnapprovedBlock { .. }
             | NodeEvent::SentApprovedBlock { .. }
+            | NodeEvent::BlockApprovalReceived { .. }
             | NodeEvent::ApprovedBlockReceived { .. } => self.genesis += 1,
             NodeEvent::EnteredRunningState { .. } | NodeEvent::NodeStarted { .. } => {
                 self.lifecycle += 1
             }
+            NodeEvent::Unknown => self.unknown += 1,
             NodeEvent::Started { .. } => {}
         }
     }
@@ -191,6 +210,9 @@ impl EventStats {
         }
         if self.lifecycle > 0 {
             println!(" - Lifecycle:  {}", self.lifecycle);
+        }
+        if self.unknown > 0 {
+            println!(" - Unknown:    {}", self.unknown);
         }
         println!(" Duration:     {:.1}s", duration.as_secs_f64());
         if duration.as_secs() > 0 {
@@ -322,8 +344,15 @@ async fn connect_and_watch(
 }
 
 fn handle_event(text: &str, args: &WatchEventsArgs, stats: &mut EventStats) -> Result<()> {
-    let event: NodeEvent = serde_json::from_str(text)
+    let frame: serde_json::Value = serde_json::from_str(text)
         .map_err(|e| NodeCliError::from(format!("Failed to parse event: {e}")))?;
+    let name = frame
+        .get("event")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| NodeCliError::from(format!("Event has no \"event\" tag: {text}")))?
+        .to_owned();
+    let event: NodeEvent = serde_json::from_value(frame)
+        .map_err(|e| NodeCliError::from(format!("Failed to parse {name} event: {e}")))?;
 
     if let Some(filter) = &args.filter {
         let matches = matches!(
@@ -334,6 +363,7 @@ fn handle_event(text: &str, args: &WatchEventsArgs, stats: &mut EventStats) -> R
                 | (NodeEvent::TransfersAvailable { .. }, "transfers")
                 | (NodeEvent::SentUnapprovedBlock { .. }, "genesis")
                 | (NodeEvent::SentApprovedBlock { .. }, "genesis")
+                | (NodeEvent::BlockApprovalReceived { .. }, "genesis")
                 | (NodeEvent::ApprovedBlockReceived { .. }, "genesis")
                 | (NodeEvent::EnteredRunningState { .. }, "lifecycle")
                 | (NodeEvent::NodeStarted { .. }, "lifecycle")
@@ -345,11 +375,11 @@ fn handle_event(text: &str, args: &WatchEventsArgs, stats: &mut EventStats) -> R
     }
 
     stats.increment(&event);
-    display_pretty(&event);
+    display_pretty(&event, &name);
     Ok(())
 }
 
-fn display_pretty(event: &NodeEvent) {
+fn display_pretty(event: &NodeEvent, name: &str) {
     match event {
         NodeEvent::Started { .. } => {
             println!(" WebSocket connection started\n");
@@ -401,6 +431,12 @@ fn display_pretty(event: &NodeEvent) {
             println!(" Hash: {}", payload.block_hash);
             println!();
         }
+        NodeEvent::BlockApprovalReceived { payload, .. } => {
+            println!(" Block Approval Received");
+            println!(" Hash:   {}", payload.block_hash);
+            println!(" Sender: {}", payload.sender);
+            println!();
+        }
         NodeEvent::ApprovedBlockReceived { payload, .. } => {
             println!(" Approved Block Received");
             println!(" Hash: {}", payload.block_hash);
@@ -414,6 +450,10 @@ fn display_pretty(event: &NodeEvent) {
         NodeEvent::NodeStarted { payload, .. } => {
             println!(" Node Started");
             println!(" Address: {}", payload.address);
+            println!();
+        }
+        NodeEvent::Unknown => {
+            println!(" Unknown event type: {name}");
             println!();
         }
     }
@@ -527,5 +567,66 @@ mod bigint_tests {
             assert_eq!(event.amount.to_string(), expected);
             assert_eq!(event.success, success);
         }
+    }
+}
+
+#[cfg(test)]
+mod event_type_tests {
+    use super::*;
+
+    fn watch(filter: Option<&str>) -> WatchEventsArgs {
+        WatchEventsArgs {
+            host: "localhost".into(),
+            http_port: 40403,
+            filter: filter.map(Into::into),
+            retry_forever: false,
+        }
+    }
+
+    #[test]
+    fn block_approval_received_counts_toward_the_genesis_filter() {
+        let text = serde_json::json!({
+            "event": "block-approval-received",
+            "schema-version": 1,
+            "payload": {"block-hash": "test-block", "sender": "test-sender"}
+        })
+        .to_string();
+        let mut stats = EventStats::new();
+        handle_event(&text, &watch(Some("genesis")), &mut stats).unwrap();
+        assert_eq!(stats.genesis, 1);
+        assert_eq!(stats.total, 1);
+    }
+
+    #[test]
+    fn an_unknown_event_type_is_counted_not_rejected() {
+        let text = serde_json::json!({
+            "event": "some-future-event",
+            "schema-version": 1,
+            "payload": {"anything": true}
+        })
+        .to_string();
+        let mut stats = EventStats::new();
+        handle_event(&text, &watch(None), &mut stats).unwrap();
+        assert_eq!(stats.unknown, 1);
+        assert_eq!(stats.total, 1);
+
+        let mut filtered = EventStats::new();
+        handle_event(&text, &watch(Some("genesis")), &mut filtered).unwrap();
+        assert_eq!(filtered.total, 0);
+    }
+
+    #[test]
+    fn a_malformed_known_event_is_still_an_error() {
+        let text = serde_json::json!({
+            "event": "block-approval-received",
+            "schema-version": 1,
+            "payload": {"block-hash": "test-block"}
+        })
+        .to_string();
+        let error = handle_event(&text, &watch(None), &mut EventStats::new()).unwrap_err();
+        assert!(
+            error.to_string().contains("block-approval-received"),
+            "{error}"
+        );
     }
 }

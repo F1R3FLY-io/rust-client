@@ -87,13 +87,13 @@ pub enum Commands {
     GetDeploy(GetDeployArgs),
 
     /// Get current epoch information and status
-    EpochInfo(PosQueryArgs),
+    EpochInfo(EpochInfoArgs),
 
     /// Check individual validator status (bonded, active, withdrawal progress)
     ValidatorStatus(ValidatorStatusArgs),
 
     /// Get current epoch rewards information
-    EpochRewards(PosQueryArgs),
+    EpochRewards(EpochRewardsArgs),
 
     /// Get network-wide consensus health overview
     NetworkConsensus(NetworkConsensusArgs),
@@ -707,9 +707,9 @@ pub struct NetworkConsensusArgs {
     pub http_port: u16,
 }
 
-/// Arguments for PoS contract query commands (epoch-info, epoch-rewards)
+/// Arguments for epoch-info
 #[derive(Parser)]
-pub struct PosQueryArgs {
+pub struct EpochInfoArgs {
     /// Host address
     #[arg(short = 'H', long, default_value = "localhost")]
     pub host: String,
@@ -717,8 +717,16 @@ pub struct PosQueryArgs {
     /// gRPC port number (use 40452 for observer/read-only node)
     #[arg(short, long, default_value_t = 40452)]
     pub port: u16,
+}
 
-    /// HTTP port number for explore-deploy queries
+/// Arguments for epoch-rewards
+#[derive(Parser)]
+pub struct EpochRewardsArgs {
+    /// Host address
+    #[arg(short = 'H', long, default_value = "localhost")]
+    pub host: String,
+
+    /// HTTP port of a read-only node, for explore-deploy queries
     #[arg(long = "http-port", default_value_t = 40453)]
     pub http_port: u16,
 }
@@ -815,6 +823,10 @@ pub struct BlockTransfersArgs {
     /// Show all deploys, not just those with transfers
     #[arg(long = "all-deploys", default_value_t = false)]
     pub all_deploys: bool,
+
+    /// Maximum seconds to wait for the node to produce the block's transfer report
+    #[arg(long = "max-wait", default_value_t = 60)]
+    pub max_wait: u64,
 }
 
 #[cfg(test)]
