@@ -1,5 +1,6 @@
 use crate::args::*;
 use crate::commands::query::query_node_status;
+use crate::commands::CliResult;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use crate::f1r3fly_api::{DeployResult, F1r3flyApi, ProposeResult};
 use crate::pos::{build_bond_rholang, parse_pos_call_result, WITHDRAW_RHOLANG};
@@ -43,9 +44,7 @@ fn calculate_expiration_timestamp(expiration: Option<i64>, expires_in: Option<u6
     }
 }
 
-pub async fn exploratory_deploy_command(
-    args: &ExploratoryDeployArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn exploratory_deploy_command(args: &ExploratoryDeployArgs) -> CliResult {
     // Read the Rholang code from file
     println!(" Reading Rholang from: {}", args.file.display());
     let rholang_code =
@@ -93,16 +92,14 @@ pub async fn exploratory_deploy_command(
         Err(e) => {
             println!("Execution failed!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn estimate_cost_command(
-    args: &EstimateCostArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn estimate_cost_command(args: &EstimateCostArgs) -> CliResult {
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
@@ -138,7 +135,7 @@ pub async fn estimate_cost_command(
 fn resolve_deployer(
     deployer: &Option<String>,
     private_key: &Option<String>,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
+) -> CliResult<Option<String>> {
     if let Some(pk) = deployer {
         return Ok(Some(pk.clone()));
     }
@@ -151,7 +148,7 @@ fn resolve_deployer(
     Ok(None)
 }
 
-pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn deploy_command(args: &DeployArgs) -> CliResult {
     // Read the Rholang code from file
     println!("Reading Rholang from: {}", args.file.display());
     let rholang_code =
@@ -197,14 +194,14 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
         Err(e) => {
             println!("Deployment failed!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn propose_command(args: &ProposeArgs) -> CliResult {
     // Initialize the F1r3fly API client
     println!(" Connecting to F1r3fly node at {}:{}", args.host, args.port);
     let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
@@ -228,14 +225,14 @@ pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::erro
         Err(e) => {
             println!(" Block proposal failed!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn full_deploy_command(args: &DeployArgs) -> CliResult {
     // Read the Rholang code from file
     println!("Reading Rholang from: {}", args.file.display());
     let rholang_code =
@@ -287,16 +284,14 @@ pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::e
         Err(e) => {
             println!("Operation failed!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn is_finalized_command(
-    args: &IsFinalizedArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn is_finalized_command(args: &IsFinalizedArgs) -> CliResult {
     // Initialize the F1r3fly API client
     println!(" Connecting to F1r3fly node at {}:{}", args.host, args.port);
     let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
@@ -328,16 +323,14 @@ pub async fn is_finalized_command(
         Err(e) => {
             println!(" Error checking block finalization!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn bond_validator_command(
-    args: &BondValidatorArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
     println!("Bonding validator with stake: {}", args.stake);
 
     let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
@@ -354,8 +347,7 @@ pub async fn bond_validator_command(
             true,
             expiration,
         )
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+        .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -376,9 +368,7 @@ pub async fn bond_validator_command(
     Ok(())
 }
 
-pub async fn unbond_validator_command(
-    args: &UnbondValidatorArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
     use crate::utils::CryptoUtils;
 
     let public_key = {
@@ -397,8 +387,7 @@ pub async fn unbond_validator_command(
 
     let result = manager
         .deploy_and_wait(WITHDRAW_RHOLANG, true, expiration)
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+        .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -413,21 +402,18 @@ pub async fn unbond_validator_command(
 
 /// Fail when a PoS method deploy errored, its verdict could not be read, or the
 /// contract rejected the call.
-fn ensure_pos_call_succeeded(
-    action: &str,
-    result: &DeployResult,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn ensure_pos_call_succeeded(action: &str, result: &DeployResult) -> CliResult {
     if let Some(failure) = result.execution_failure() {
         return Err(format!("{action} deploy failed: {failure}").into());
     }
-    let data = result.data.as_ref().map_err(|err| {
-        format!("{action} deploy finalized, but its PoS verdict could not be read: {err}")
-    })?;
-    parse_pos_call_result(data)
-        .map_err(|reason| format!("{action} rejected by PoS: {reason}").into())
+    let data = result
+        .data
+        .as_ref()
+        .map_err(|err| format!("{action} verdict could not be read: {err}"))?;
+    Ok(parse_pos_call_result(data)?)
 }
 
-pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn transfer_command(args: &TransferArgs) -> CliResult {
     use crate::utils::CryptoUtils;
 
     // Derive sender address
@@ -478,8 +464,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
 
     let result = manager
         .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+        .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -488,7 +473,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     }
     println!("Total time: {:.2?}", start.elapsed());
 
-    crate::vault::check_transfer_result(&result).map_err(|e| format!("Transfer failed: {e}"))?;
+    crate::vault::check_transfer_result(result)?;
 
     if args.propose {
         let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
@@ -503,9 +488,7 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-pub async fn deploy_and_wait_command(
-    args: &DeployAndWaitArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
@@ -521,8 +504,7 @@ pub async fn deploy_and_wait_command(
 
     let result = manager
         .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+        .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -558,17 +540,11 @@ pub async fn deploy_and_wait_command(
         }
     }
 
-    match result.data {
-        Ok(_) => Ok(()),
-        Err(err) => Err(format!(
-            "deploy {} finalized, but its deployId data could not be read: {err}",
-            result.deploy_id
-        )
-        .into()),
-    }
+    result.data?;
+    Ok(())
 }
 
-pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn get_deploy_command(args: &GetDeployArgs) -> CliResult {
     let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, 40412);
     let start_time = Instant::now();
 
@@ -670,14 +646,14 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
         }
         Err(e) => {
             println!("Error retrieving deploy information: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-fn validate_vault_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn validate_vault_address(address: &str) -> CliResult {
     if !address.starts_with("1111") {
         return Err("Invalid vault address format: must start with '1111'".into());
     }
@@ -690,13 +666,12 @@ fn validate_vault_address(address: &str) -> Result<(), Box<dyn std::error::Error
 }
 
 /// Read data at a deploy ID from a specific block
-pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
+pub async fn get_data_command(args: &GetDataArgs) -> CliResult {
     let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
 
     let pars = f1r3fly_api
         .get_data_at_deploy_id(&args.deploy_id, &args.block_hash)
-        .await
-        .map_err(|e| crate::error::NodeCliError::General(e.to_string()))?;
+        .await?;
 
     if pars.is_empty() {
         println!(
@@ -722,9 +697,7 @@ pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
 /// Hits the node's `/api/deploy-finalization-status/{sig}` endpoint and
 /// renders the result. State is one of `Finalized`, `Failed`, `Pending`,
 /// `Expired` — see `DeployFinalizationStatus` for terminality semantics.
-pub async fn deploy_status_command(
-    args: &DeployStatusArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn deploy_status_command(args: &DeployStatusArgs) -> CliResult {
     let sig_hex = args.sig.trim_start_matches("0x");
 
     // Reusing F1r3flyApi just for the HTTP method (port 0 is fine — never used here).
@@ -733,8 +706,7 @@ pub async fn deploy_status_command(
 
     let status = match api
         .deploy_finalization_status(sig_hex, args.http_port)
-        .await
-        .map_err(|e| e as Box<dyn std::error::Error>)?
+        .await?
     {
         Some(s) => s,
         None => {
@@ -775,7 +747,7 @@ mod tests {
     use f1r3fly_models::rhoapi::expr::ExprInstance;
     use f1r3fly_models::rhoapi::{ETuple, Expr, Par};
 
-    fn finalized(data: Result<Vec<Par>, String>) -> DeployResult {
+    fn finalized(data: crate::Result<Vec<Par>>) -> DeployResult {
         DeployResult {
             deploy_id: "3045".to_string(),
             block_hash: "abcd".to_string(),
@@ -809,15 +781,16 @@ mod tests {
     fn an_unreadable_verdict_is_not_reported_as_a_rejection() {
         let err = ensure_pos_call_succeeded(
             "Withdrawal",
-            &finalized(Err(
-                "reading deployId data at block abcd: timed out".to_string()
-            )),
+            &finalized(Err(crate::Error::transport(
+                "http://localhost:40412/",
+                crate::TransportError::TimedOut(std::time::Duration::from_secs(1)),
+            ))),
         )
         .unwrap_err()
         .to_string();
 
         assert!(err.contains("could not be read"), "{err}");
-        assert!(err.contains("timed out"), "{err}");
+        assert!(err.contains("no answer within 1s"), "{err}");
         assert!(!err.contains("rejected"), "{err}");
     }
 
@@ -857,9 +830,16 @@ mod tests {
     fn a_read_verdict_decides_the_outcome() {
         assert!(ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(true)))).is_ok());
 
-        let err = ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(false))))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("rejected by PoS"), "{err}");
+        let err = ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(false)))).unwrap_err();
+        assert!(
+            matches!(
+                err.downcast_ref::<crate::Error>(),
+                Some(crate::Error::ContractRejected {
+                    contract: crate::Contract::ProofOfStake,
+                    ..
+                })
+            ),
+            "{err}"
+        );
     }
 }

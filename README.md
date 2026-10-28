@@ -74,3 +74,5 @@ from here. Never reuse a key from a README against anything real.
 | `FIREFLY_OBSERVER_GRPC_PORT` | No | `40452` | Observer gRPC port |
 | `FIREFLY_OBSERVER_HTTP_PORT` | No | `40453` | Observer HTTP port for finalization status |
 | `FIREFLY_FINALIZATION_TIMEOUT` | No | `90` | Max seconds to wait for a deploy to finalize |
+
+An unset variable takes its default; a set but malformed one, such as a non-numeric port, is an error.

@@ -10,7 +10,12 @@ use f1r3fly_models::rhoapi::Par;
 use num_bigint::BigUint;
 use serde_json::Value;
 
+use crate::error::{Contract, Error, Result};
 use crate::rholang_helpers::convert_rholang_to_json;
+
+fn malformed(detail: impl std::fmt::Display) -> Error {
+    Error::decode("PoS snapshot", detail)
+}
 
 /// Exploratory term returning
 /// `(allBonds, activeValidators, pendingWithdrawers, withdrawers, quarantineLength)`.
@@ -96,76 +101,79 @@ impl PosSnapshot {
 }
 
 /// Parse an explore-deploy response to [`POS_SNAPSHOT_QUERY`].
-pub fn parse_pos_snapshot(response: &Value) -> Result<PosSnapshot, String> {
+pub fn parse_pos_snapshot(response: &Value) -> Result<PosSnapshot> {
     let expr = response
         .get("expr")
         .and_then(Value::as_array)
         .and_then(|exprs| exprs.first())
-        .ok_or_else(|| format!("response carries no PoS state: {response}"))?;
+        .ok_or_else(|| malformed(format!("response carries no PoS state: {response}")))?;
     let [bonds, active, pending, withdrawers, quarantine] = expr
         .get("ExprTuple")
         .and_then(|v| v.get("data"))
         .and_then(Value::as_array)
         .and_then(|parts| <&[Value; 5]>::try_from(parts.as_slice()).ok())
         .ok_or_else(|| {
-            format!(
+            malformed(format!(
                 "expected (bonds, active, pendingWithdrawers, withdrawers, quarantineLength), \
                  got {expr}"
-            )
+            ))
         })?;
     let block_number = response
         .get("block")
         .and_then(|block| block.get("blockNumber"))
         .and_then(Value::as_i64)
-        .ok_or_else(|| format!("response does not name the block it read: {response}"))?;
+        .ok_or_else(|| {
+            malformed(format!(
+                "response does not name the block it read: {response}"
+            ))
+        })?;
 
-    let to_json = |part: &Value| convert_rholang_to_json(part).map_err(|e| e.to_string());
-    let quarantine = to_json(quarantine)?;
+    let quarantine = convert_rholang_to_json(quarantine)?;
     Ok(PosSnapshot {
         block_number,
         bonds: amount_map(bonds)?,
-        active: key_set(&to_json(active)?)?,
-        pending_withdrawals: integer_map(&to_json(pending)?, "pendingWithdrawers")?,
+        active: key_set(&convert_rholang_to_json(active)?)?,
+        pending_withdrawals: integer_map(&convert_rholang_to_json(pending)?, "pendingWithdrawers")?,
         withdrawals: withdrawal_map(withdrawers)?,
-        quarantine_length: quarantine
-            .as_i64()
-            .ok_or_else(|| format!("quarantineLength is not an integer: {quarantine}"))?,
+        quarantine_length: quarantine.as_i64().ok_or_else(|| {
+            malformed(format!("quarantineLength is not an integer: {quarantine}"))
+        })?,
     })
 }
 
-fn integer_map(value: &Value, name: &str) -> Result<BTreeMap<String, i64>, String> {
+fn integer_map(value: &Value, name: &str) -> Result<BTreeMap<String, i64>> {
     value
         .as_object()
-        .ok_or_else(|| format!("{name} is not a map: {value}"))?
+        .ok_or_else(|| malformed(format!("{name} is not a map: {value}")))?
         .iter()
         .map(|(key, entry)| {
             entry
                 .as_i64()
                 .map(|n| (key.to_ascii_lowercase(), n))
-                .ok_or_else(|| format!("{name}[{key}] is not an integer: {entry}"))
+                .ok_or_else(|| malformed(format!("{name}[{key}] is not an integer: {entry}")))
         })
         .collect()
 }
 
-fn key_set(value: &Value) -> Result<BTreeSet<String>, String> {
+fn key_set(value: &Value) -> Result<BTreeSet<String>> {
     value
         .as_array()
-        .ok_or_else(|| format!("activeValidators is not a set: {value}"))?
+        .ok_or_else(|| malformed(format!("activeValidators is not a set: {value}")))?
         .iter()
         .map(|key| {
-            key.as_str()
-                .map(str::to_ascii_lowercase)
-                .ok_or_else(|| format!("activeValidators entry is not a public key: {key}"))
+            key.as_str().map(str::to_ascii_lowercase).ok_or_else(|| {
+                malformed(format!("activeValidators entry is not a public key: {key}"))
+            })
         })
         .collect()
 }
 
-fn amount_map(value: &Value) -> Result<BTreeMap<String, BigUint>, String> {
+fn amount_map(value: &Value) -> Result<BTreeMap<String, BigUint>> {
     value
         .get("ExprMap")
         .and_then(|v| v.get("data"))
         .and_then(Value::as_object)
-        .ok_or("bonds is not a map")?
+        .ok_or_else(|| malformed(format!("bonds is not a map: {value}")))?
         .iter()
         .map(|(key, value)| {
             crate::rholang_helpers::rholang_amount(value)
@@ -174,12 +182,12 @@ fn amount_map(value: &Value) -> Result<BTreeMap<String, BigUint>, String> {
         .collect()
 }
 
-fn withdrawal_map(value: &Value) -> Result<BTreeMap<String, Withdrawal>, String> {
+fn withdrawal_map(value: &Value) -> Result<BTreeMap<String, Withdrawal>> {
     value
         .get("ExprMap")
         .and_then(|v| v.get("data"))
         .and_then(Value::as_object)
-        .ok_or("withdrawers is not a map")?
+        .ok_or_else(|| malformed(format!("withdrawers is not a map: {value}")))?
         .iter()
         .map(|(key, entry)| {
             let pair = entry
@@ -188,14 +196,20 @@ fn withdrawal_map(value: &Value) -> Result<BTreeMap<String, Withdrawal>, String>
                 .and_then(Value::as_array)
                 .filter(|pair| pair.len() == 2)
                 .ok_or_else(|| {
-                    format!("withdrawers[{key}] is not a (stake, quarantineEnd) pair: {entry}")
+                    malformed(format!(
+                        "withdrawers[{key}] is not a (stake, quarantineEnd) pair: {entry}"
+                    ))
                 })?;
             let stake = crate::rholang_helpers::rholang_amount(&pair[0])?;
             let quarantine_end = pair[1]
                 .get("ExprInt")
                 .and_then(|v| v.get("data"))
                 .and_then(Value::as_i64)
-                .ok_or("quarantineEnd is not an integer")?;
+                .ok_or_else(|| {
+                    malformed(format!(
+                        "withdrawers[{key}] quarantineEnd is not an integer"
+                    ))
+                })?;
             Ok((
                 key.to_ascii_lowercase(),
                 Withdrawal {
@@ -211,7 +225,7 @@ fn withdrawal_map(value: &Value) -> Result<BTreeMap<String, Withdrawal>, String>
 ///
 /// The PoS verdict goes to the deploy's `deployId` channel; read it with
 /// [`parse_pos_call_result`].
-pub fn build_bond_rholang(stake: &BigUint) -> Result<String, String> {
+pub fn build_bond_rholang(stake: &BigUint) -> Result<String> {
     let stake = crate::vault::amount_literal(stake)?;
     Ok(format!(
         r#"new deployId(`rho:system:deployId`), deployerId(`rho:system:deployerId`), rl(`rho:registry:lookup`), poSCh, resultCh in {{
@@ -245,9 +259,10 @@ pub const WITHDRAW_RHOLANG: &str = r#"new deployId(`rho:system:deployId`), deplo
 /// PoS methods answer `(true, _)` on success and `(false, reason)` on rejection.
 /// No answer at all is also a failure: a call is never reported successful
 /// without positive evidence.
-pub fn parse_pos_call_result(data: &[Par]) -> Result<(), String> {
+pub fn parse_pos_call_result(data: &[Par]) -> Result<()> {
+    let unexpected = |detail: String| Error::decode("PoS result", detail);
     let par = data.first().ok_or_else(|| {
-        "no result on the deployId channel; the PoS contract did not answer".to_string()
+        unexpected("nothing on the deployId channel; the PoS contract did not answer".into())
     })?;
     let tuple = par
         .exprs
@@ -256,7 +271,7 @@ pub fn parse_pos_call_result(data: &[Par]) -> Result<(), String> {
             Some(ExprInstance::ETupleBody(tuple)) => Some(tuple),
             _ => None,
         })
-        .ok_or_else(|| format!("unexpected PoS result shape: {par:?}"))?;
+        .ok_or_else(|| unexpected(format!("{par:?}")))?;
     let verdict = tuple.ps.first().and_then(|first| {
         first
             .exprs
@@ -280,13 +295,16 @@ pub fn parse_pos_call_result(data: &[Par]) -> Result<(), String> {
                     _ => None,
                 })
                 .collect();
-            Err(if reason.is_empty() {
-                format!("PoS rejected the call: {tuple:?}")
-            } else {
-                reason.join(": ")
+            Err(Error::ContractRejected {
+                contract: Contract::ProofOfStake,
+                reason: if reason.is_empty() {
+                    format!("{tuple:?}")
+                } else {
+                    reason.join(": ")
+                },
             })
         }
-        None => Err(format!("unexpected PoS result shape: {par:?}")),
+        None => Err(unexpected(format!("{par:?}"))),
     }
 }
 
@@ -433,7 +451,7 @@ mod tests {
     #[test]
     fn rejects_a_response_without_pos_state() {
         let err = parse_pos_snapshot(&json!({"expr": [], "block": {}})).unwrap_err();
-        assert!(err.contains("no PoS state"), "{err}");
+        assert!(decode_detail(&err).contains("no PoS state"), "{err}");
     }
 
     #[test]
@@ -446,7 +464,10 @@ mod tests {
         );
         unnamed["block"] = json!({});
         let err = parse_pos_snapshot(&unnamed).unwrap_err();
-        assert!(err.contains("does not name the block"), "{err}");
+        assert!(
+            decode_detail(&err).contains("does not name the block"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -459,14 +480,17 @@ mod tests {
         );
         bad["expr"][0]["ExprTuple"]["data"][4] = json!({"ExprString": {"data": "20"}});
         let err = parse_pos_snapshot(&bad).unwrap_err();
-        assert!(err.contains("quarantineLength is not an integer"), "{err}");
+        assert!(
+            decode_detail(&err).contains("quarantineLength is not an integer"),
+            "{err}"
+        );
     }
 
     #[test]
     fn rejects_a_result_of_the_wrong_arity() {
         let bad = json!({"expr": [{"ExprTuple": {"data": [bonds(&[(V1, 1000)]), active(&[V1])]}}]});
         let err = parse_pos_snapshot(&bad).unwrap_err();
-        assert!(err.contains("expected (bonds"), "{err}");
+        assert!(decode_detail(&err).contains("expected (bonds"), "{err}");
     }
 
     #[test]
@@ -479,7 +503,14 @@ mod tests {
             empty_map(),
         ))
         .unwrap_err();
-        assert!(err.contains("is not an integer"), "{err}");
+        assert!(decode_detail(&err).contains("is not an integer"), "{err}");
+    }
+
+    fn decode_detail(err: &Error) -> &str {
+        match err {
+            Error::Decode { detail, .. } => detail,
+            other => panic!("expected a decode error, got {other:?}"),
+        }
     }
 
     fn single(expr_instance: ExprInstance) -> Par {
@@ -501,7 +532,7 @@ mod tests {
     #[test]
     fn accepts_a_successful_pos_call() {
         let data = tuple(vec![single(ExprInstance::GBool(true)), Par::default()]);
-        assert_eq!(parse_pos_call_result(&data), Ok(()));
+        assert!(parse_pos_call_result(&data).is_ok());
     }
 
     #[test]
@@ -512,22 +543,34 @@ mod tests {
                 "Public key is already bonded.".into(),
             )),
         ]);
-        assert_eq!(
+        assert!(matches!(
             parse_pos_call_result(&data),
-            Err("Public key is already bonded.".to_string())
-        );
+            Err(Error::ContractRejected {
+                contract: Contract::ProofOfStake,
+                ref reason,
+            }) if reason == "Public key is already bonded."
+        ));
     }
 
     #[test]
     fn treats_a_missing_answer_as_failure() {
         let err = parse_pos_call_result(&[]).unwrap_err();
-        assert!(err.contains("did not answer"), "{err}");
+        assert!(decode_detail(&err).contains("did not answer"), "{err}");
     }
 
     #[test]
     fn rejects_a_result_that_is_not_a_verdict_tuple() {
         let err = parse_pos_call_result(&[single(ExprInstance::GInt(1))]).unwrap_err();
-        assert!(err.contains("unexpected PoS result shape"), "{err}");
+        assert!(
+            matches!(
+                err,
+                Error::Decode {
+                    what: "PoS result",
+                    ..
+                }
+            ),
+            "{err}"
+        );
     }
 
     #[test]

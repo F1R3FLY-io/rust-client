@@ -4,11 +4,12 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 
 use crate::args::DagArgs;
+use crate::commands::CliResult;
 use crate::dag::{BlockStatus, DagApp, DagBlock, DagEvent};
-use crate::error::NodeCliError;
+use crate::error::Error;
 
 /// Run the DAG visualization command
-pub async fn run_dag(args: &DagArgs) -> Result<(), NodeCliError> {
+pub async fn run_dag(args: &DagArgs) -> CliResult {
     println!("Loading blocks from {}:{}...", args.host, args.http_port);
 
     // Create channel for WebSocket events
@@ -38,36 +39,16 @@ pub async fn run_dag(args: &DagArgs) -> Result<(), NodeCliError> {
     }
 
     // Run the TUI
-    app.run()
-        .await
-        .map_err(|e| NodeCliError::io_error(&e.to_string()))?;
+    app.run().await?;
 
     Ok(())
 }
 
 /// Fetch initial blocks from the API
-async fn fetch_initial_blocks(
-    host: &str,
-    port: u16,
-    depth: usize,
-) -> Result<Vec<DagBlock>, NodeCliError> {
+async fn fetch_initial_blocks(host: &str, port: u16, depth: usize) -> CliResult<Vec<DagBlock>> {
     let url = format!("http://{host}:{port}/api/blocks/{depth}");
 
-    let response = reqwest::get(&url)
-        .await
-        .map_err(|e| NodeCliError::http_error(&e.to_string()))?;
-
-    if !response.status().is_success() {
-        return Err(NodeCliError::http_error(&format!(
-            "Failed to fetch blocks: {}",
-            response.status()
-        )));
-    }
-
-    let body: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| NodeCliError::http_error(&e.to_string()))?;
+    let body = crate::utils::HttpClient::new().get_json(&url).await?;
 
     let mut blocks = Vec::new();
 
@@ -229,10 +210,10 @@ async fn run_websocket_listener(
     ws_url: String,
     api_base: String,
     tx: mpsc::Sender<DagEvent>,
-) -> Result<(), NodeCliError> {
+) -> CliResult {
     let (ws_stream, _) = connect_async(&ws_url)
         .await
-        .map_err(|e| NodeCliError::websocket_error(&e.to_string()))?;
+        .map_err(|e| Error::transport(&ws_url, e))?;
 
     let (_, mut read) = ws_stream.split();
 
@@ -300,9 +281,9 @@ async fn run_websocket_listener(
 /// Parse a WebSocket event into a DagEvent
 /// The node sends events in this format:
 /// {"event": "block-created", "schema-version": 1, "payload": {...}}
-fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
+fn parse_websocket_event(text: &str) -> CliResult<DagEvent> {
     let json: serde_json::Value =
-        serde_json::from_str(text).map_err(|e| NodeCliError::parse_error(&e.to_string()))?;
+        serde_json::from_str(text).map_err(|e| format!("failed to parse event: {e}"))?;
 
     // Get event type (kebab-case)
     let event_type = json.get("event").and_then(|e| e.as_str()).unwrap_or("");
@@ -339,27 +320,22 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
         | "approved-block-received"
         | "entered-running-state"
         | "node-started" => {
-            return Err(NodeCliError::parse_error("Non-block event, skipping"));
+            return Err("non-block event, skipping".into());
         }
         _ => {}
     }
 
-    Err(NodeCliError::parse_error(&format!(
-        "Unknown event type: {event_type}"
-    )))
+    Err(format!("unknown event type: {event_type}").into())
 }
 
 /// Parse a block from WebSocket event payload (kebab-case fields)
 /// Note: WebSocket events contain seq-num (validator sequence) not block number.
 /// We set block_number to -1 to indicate it needs to be fetched.
-fn parse_event_block(
-    payload: &serde_json::Value,
-    status: BlockStatus,
-) -> Result<DagBlock, NodeCliError> {
+fn parse_event_block(payload: &serde_json::Value, status: BlockStatus) -> CliResult<DagBlock> {
     let hash = payload
         .get("block-hash")
         .and_then(|h| h.as_str())
-        .ok_or_else(|| NodeCliError::parse_error("Missing block-hash"))?
+        .ok_or("block event without block-hash")?
         .to_string();
 
     let creator = payload

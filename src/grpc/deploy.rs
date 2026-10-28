@@ -1,11 +1,10 @@
 //! Deploy and propose operations
 
-use super::F1r3flyApi;
+use super::{rejected, F1r3flyApi};
+use crate::error::{Error, Result};
 use blake2::{Blake2b, Digest};
 use f1r3fly_models::casper::v1::deploy_response::Message as DeployResponseMessage;
-use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
-use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
 use f1r3fly_models::casper::{DeployDataProto, ProposeQuery};
 use f1r3fly_models::ByteString;
 use prost::Message;
@@ -24,7 +23,7 @@ impl<'a> F1r3flyApi<'a> {
         use_bigger_phlo_price: bool,
         language: &str,
         expiration_timestamp: i64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String> {
         let phlo_limit: i64 = if use_bigger_phlo_price {
             5_000_000_000
         } else {
@@ -50,7 +49,7 @@ impl<'a> F1r3flyApi<'a> {
         phlo_limit: i64,
         language: &str,
         expiration_timestamp: i64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String> {
         let tip_lookup_start = Instant::now();
         let current_block = match self.get_current_block_number_monotonic().await {
             Ok(block_num) => {
@@ -83,35 +82,41 @@ impl<'a> F1r3flyApi<'a> {
             None,
         );
 
+        self.submit(deployment).await
+    }
+
+    async fn submit(&self, deployment: DeployDataProto) -> Result<String> {
         let connect_start = Instant::now();
-        let mut deploy_service_client = DeployServiceClient::connect(self.grpc_url()).await?;
+        let mut client = self.deploy_client().await?;
         tracing::debug!(elapsed = ?connect_start.elapsed(), "gRPC connect");
 
         let do_deploy_start = Instant::now();
-        let deploy_response = deploy_service_client.do_deploy(deployment).await?;
+        let response = client
+            .do_deploy(deployment)
+            .await
+            .map_err(|status| self.grpc_error(status))?
+            .into_inner();
         tracing::debug!(elapsed = ?do_deploy_start.elapsed(), "do_deploy RPC");
 
-        let deploy_message = deploy_response
-            .get_ref()
-            .message
-            .as_ref()
-            .ok_or("Deploy result not found")?;
-
-        match deploy_message {
-            DeployResponseMessage::Error(service_error) => Err(service_error.clone().into()),
-            DeployResponseMessage::Result(result) => Self::extract_deploy_id(result),
+        match response.message {
+            Some(DeployResponseMessage::Error(error)) => Err(rejected("the deploy", &error)),
+            Some(DeployResponseMessage::Result(result)) => Self::extract_deploy_id(&result),
+            None => Err(Error::decode("deploy response", "empty message")),
         }
     }
 
-    pub async fn propose(&self) -> Result<ProposeResult, Box<dyn std::error::Error>> {
-        let mut propose_client = ProposeServiceClient::connect(self.grpc_url()).await?;
+    pub async fn propose(&self) -> Result<ProposeResult> {
+        let mut propose_client = self.propose_client().await?;
 
         let propose_response = propose_client
             .propose(ProposeQuery { is_async: false })
-            .await?
+            .await
+            .map_err(|status| self.grpc_error(status))?
             .into_inner();
 
-        let message = propose_response.message.ok_or("Missing propose response")?;
+        let message = propose_response
+            .message
+            .ok_or_else(|| Error::decode("propose response", "empty message"))?;
 
         match message {
             ProposeResponseMessage::Result(block_hash) => {
@@ -131,7 +136,10 @@ impl<'a> F1r3flyApi<'a> {
                 if Self::is_recoverable_propose_error(&error_message) {
                     Ok(ProposeResult::Skipped(error_message))
                 } else {
-                    Err(format!("Propose error: {error:?}").into())
+                    Err(Error::NodeRejected {
+                        operation: "the propose",
+                        message: error_message,
+                    })
                 }
             }
         }
@@ -143,7 +151,7 @@ impl<'a> F1r3flyApi<'a> {
         use_bigger_phlo_price: bool,
         language: &str,
         expiration_timestamp: i64,
-    ) -> Result<ProposeResult, Box<dyn std::error::Error>> {
+    ) -> Result<ProposeResult> {
         self.deploy(
             rho_code,
             use_bigger_phlo_price,
@@ -159,7 +167,7 @@ impl<'a> F1r3flyApi<'a> {
         rho_code: &str,
         phlo_limit: i64,
         language: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String> {
         self.deploy_internal(rho_code, phlo_limit, language, 0, None)
             .await
     }
@@ -170,7 +178,7 @@ impl<'a> F1r3flyApi<'a> {
         language: &str,
         timestamp_millis: Option<i64>,
         phlo_limit: i64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String> {
         self.deploy_internal(rho_code, phlo_limit, language, 0, timestamp_millis)
             .await
     }
@@ -182,7 +190,7 @@ impl<'a> F1r3flyApi<'a> {
         language: &str,
         expiration_timestamp: i64,
         timestamp_override: Option<i64>,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String> {
         // A failed tip lookup must not silently fall back to block 0: the
         // deploy's validity window would be anchored at genesis and the node
         // would reject or expire it far from the actual cause.
@@ -196,23 +204,10 @@ impl<'a> F1r3flyApi<'a> {
             expiration_timestamp,
             timestamp_override,
         );
-
-        let mut client = DeployServiceClient::connect(self.grpc_url()).await?;
-        let deploy_response = client.do_deploy(deployment).await?;
-
-        let deploy_message = deploy_response
-            .get_ref()
-            .message
-            .as_ref()
-            .ok_or("Deploy result not found")?;
-
-        match deploy_message {
-            DeployResponseMessage::Error(service_error) => Err(service_error.clone().into()),
-            DeployResponseMessage::Result(result) => Self::extract_deploy_id(result),
-        }
+        self.submit(deployment).await
     }
 
-    fn extract_deploy_id(result: &str) -> Result<String, Box<dyn std::error::Error>> {
+    fn extract_deploy_id(result: &str) -> Result<String> {
         let cleaned = result.trim();
         if let Some(id) = cleaned.strip_prefix("Success! DeployId is: ") {
             Ok(id.trim().to_string())
@@ -225,7 +220,10 @@ impl<'a> F1r3flyApi<'a> {
                     return Ok(trimmed.to_string());
                 }
             }
-            Err(format!("Could not extract deploy ID from response: {result}").into())
+            Err(Error::decode(
+                "deploy response",
+                format!("no deploy ID in {result:?}"),
+            ))
         } else {
             Ok(cleaned.to_string())
         }

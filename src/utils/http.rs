@@ -1,5 +1,6 @@
-use reqwest;
-use serde_json;
+use crate::error::{Error, Result};
+use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use std::time::{Duration, Instant};
 
 pub struct HttpClient {
@@ -19,44 +20,75 @@ impl HttpClient {
         }
     }
 
-    pub async fn get_json(
-        &self,
-        url: &str,
-    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let response = self.client.get(url).send().await?;
-
-        if response.status().is_success() {
-            let text = response.text().await?;
-            let json: serde_json::Value = serde_json::from_str(&text)?;
-            Ok(json)
-        } else {
-            Err(format!("HTTP {}: {}", response.status(), response.text().await?).into())
+    pub async fn get_json(&self, url: &str) -> Result<serde_json::Value> {
+        let response = send(self.client.get(url), url).await?;
+        if !response.status().is_success() {
+            return Err(http_error(response, url).await);
         }
+        json(response, url, "JSON response").await
     }
 
-    pub async fn get_text(&self, url: &str) -> Result<String, Box<dyn std::error::Error>> {
-        let response = self.client.get(url).send().await?;
-
-        if response.status().is_success() {
-            Ok(response.text().await?)
-        } else {
-            Err(format!("HTTP {}: {}", response.status(), response.text().await?).into())
-        }
-    }
-
-    pub async fn get_with_timing(
-        &self,
-        url: &str,
-    ) -> Result<(serde_json::Value, std::time::Duration), Box<dyn std::error::Error>> {
+    pub async fn get_with_timing(&self, url: &str) -> Result<(serde_json::Value, Duration)> {
         let start_time = Instant::now();
         let result = self.get_json(url).await?;
-        let duration = start_time.elapsed();
-        Ok((result, duration))
+        Ok((result, start_time.elapsed()))
     }
 }
 
 pub fn build_url(host: &str, port: u16, path: &str) -> String {
     format!("http://{host}:{port}{path}")
+}
+
+/// The node's error body: `{"error": <code>, "message": <text>}`.
+#[derive(Debug, Deserialize)]
+struct ApiErrorResponse {
+    error: String,
+    message: String,
+}
+
+pub(crate) async fn send(request: reqwest::RequestBuilder, url: &str) -> Result<reqwest::Response> {
+    request.send().await.map_err(|e| Error::transport(url, e))
+}
+
+/// An [`Error::Http`] for a non-success response, carrying the node's error
+/// code when the body is the node's error JSON.
+pub(crate) async fn http_error(response: reqwest::Response, url: &str) -> Error {
+    let status = response.status().as_u16();
+    let body = match response.text().await {
+        Ok(body) => body,
+        Err(e) => return Error::transport(url, e),
+    };
+    match serde_json::from_str::<ApiErrorResponse>(&body) {
+        Ok(api) => Error::Http {
+            url: url.to_string(),
+            status,
+            code: Some(api.error),
+            message: api.message,
+        },
+        Err(_) => Error::Http {
+            url: url.to_string(),
+            status,
+            code: None,
+            message: body,
+        },
+    }
+}
+
+pub(crate) async fn json<T: DeserializeOwned>(
+    response: reqwest::Response,
+    url: &str,
+    what: &'static str,
+) -> Result<T> {
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| Error::transport(url, e))?;
+    serde_json::from_slice(&body).map_err(|e| Error::decode(what, e))
+}
+
+/// Whether `error` is the node's answer that it has no such deploy.
+pub(crate) fn is_deploy_not_found(error: &Error) -> bool {
+    matches!(error, Error::Http { code: Some(code), .. } if code == "deploy_not_found")
 }
 
 /// Backoff schedule for an exploratory query that the node rejected because its

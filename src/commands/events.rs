@@ -1,5 +1,6 @@
 use crate::args::WatchEventsArgs;
-use crate::error::{NodeCliError, Result};
+use crate::commands::CliResult;
+use crate::error::Error;
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -223,7 +224,7 @@ impl EventStats {
 }
 
 /// Watch blocks command - connects to WebSocket and streams block events
-pub async fn watch_events_command(args: &WatchEventsArgs) -> Result<()> {
+pub async fn watch_events_command(args: &WatchEventsArgs) -> CliResult {
     const VALID_FILTERS: &[&str] = &[
         "created",
         "added",
@@ -235,11 +236,12 @@ pub async fn watch_events_command(args: &WatchEventsArgs) -> Result<()> {
     ];
     if let Some(filter) = &args.filter {
         if !VALID_FILTERS.contains(&filter.as_str()) {
-            return Err(NodeCliError::from(format!(
+            return Err(format!(
                 "Invalid --filter value '{}'. Valid values: {}",
                 filter,
                 VALID_FILTERS.join(", ")
-            )));
+            )
+            .into());
         }
     }
 
@@ -300,10 +302,10 @@ async fn connect_and_watch(
     ws_url: &str,
     args: &WatchEventsArgs,
     stats: &mut EventStats,
-) -> Result<()> {
-    let (ws_stream, _) = connect_async(ws_url).await.map_err(|e| {
-        NodeCliError::network_connection_failed(&format!("WebSocket connection failed: {e}"))
-    })?;
+) -> CliResult {
+    let (ws_stream, _) = connect_async(ws_url)
+        .await
+        .map_err(|e| Error::transport(ws_url, e))?;
 
     println!(" Connected to node WebSocket");
     println!(" Watching for block events... (Press Ctrl+C to stop)\n");
@@ -328,13 +330,13 @@ async fn connect_and_watch(
         }
         }
         Some(Ok(Message::Close(_))) => {
-        return Err(NodeCliError::network_connection_failed("WebSocket closed by server"));
+        return Err(format!("{ws_url} closed the event stream").into());
         }
         Some(Err(e)) => {
-        return Err(NodeCliError::network_connection_failed(&format!("WebSocket error: {e}")));
+        return Err(Error::transport(ws_url, e).into());
         }
         None => {
-        return Err(NodeCliError::network_connection_failed("WebSocket stream ended"));
+        return Err(format!("{ws_url} ended the event stream").into());
         }
         _ => continue,
         }
@@ -343,16 +345,16 @@ async fn connect_and_watch(
     }
 }
 
-fn handle_event(text: &str, args: &WatchEventsArgs, stats: &mut EventStats) -> Result<()> {
-    let frame: serde_json::Value = serde_json::from_str(text)
-        .map_err(|e| NodeCliError::from(format!("Failed to parse event: {e}")))?;
+fn handle_event(text: &str, args: &WatchEventsArgs, stats: &mut EventStats) -> CliResult {
+    let frame: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("failed to parse event: {e}"))?;
     let name = frame
         .get("event")
         .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| NodeCliError::from(format!("Event has no \"event\" tag: {text}")))?
+        .ok_or_else(|| format!("event has no \"event\" tag: {text}"))?
         .to_owned();
-    let event: NodeEvent = serde_json::from_value(frame)
-        .map_err(|e| NodeCliError::from(format!("Failed to parse {name} event: {e}")))?;
+    let event: NodeEvent =
+        serde_json::from_value(frame).map_err(|e| format!("failed to parse {name} event: {e}"))?;
 
     if let Some(filter) = &args.filter {
         let matches = matches!(

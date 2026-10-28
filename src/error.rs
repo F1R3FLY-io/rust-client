@@ -1,247 +1,306 @@
-use std::error::Error;
+//! The library's error type.
 
-/// Error types for the f1r3fly client library and CLI
+use std::fmt;
+use std::path::PathBuf;
+use std::time::Duration;
+
+/// Everything a library call can fail with.
+///
+/// Variants describe what went wrong for the caller, not which function
+/// noticed it, so code can branch on them: a failed read is worth retrying,
+/// an [`InvalidInput`](Error::InvalidInput) is not.
+///
+/// Each message includes its cause, so `source()` returns `None`: reporting
+/// the cause both ways would print it twice. Code that needs the cause reads
+/// the variant's field.
 #[derive(Debug, thiserror::Error)]
-pub enum NodeCliError {
-    #[error("Network error: {0}")]
-    Network(#[from] NetworkError),
+#[non_exhaustive]
+pub enum Error {
+    /// The request did not reach the node, or its answer did not come back.
+    /// A deploy that failed this way may still have been submitted.
+    #[error("cannot reach {endpoint}: {cause}")]
+    Transport {
+        endpoint: String,
+        cause: TransportError,
+    },
 
-    #[error("Crypto error: {0}")]
-    Crypto(#[from] CryptoError),
+    /// The node answered an HTTP request with a non-success status.
+    #[error("{url} answered HTTP {status}{}: {message}", with_code(.code))]
+    Http {
+        url: String,
+        status: u16,
+        /// The node's machine-readable error code, such as `readonly_node_required`.
+        code: Option<String>,
+        message: String,
+    },
 
-    #[error("File error: {0}")]
-    File(#[from] FileError),
+    /// A gRPC call ended with a non-OK status.
+    #[error("{endpoint} answered gRPC {}: {}", .status.code(), .status.message())]
+    Grpc {
+        endpoint: String,
+        status: Box<tonic::Status>,
+    },
 
-    #[error("API error: {0}")]
-    Api(#[from] ApiError),
+    /// The node handled the request and refused it.
+    #[error("the node refused {operation}: {message}")]
+    NodeRejected {
+        operation: &'static str,
+        message: String,
+    },
 
-    #[error("Configuration error: {0}")]
-    Config(#[from] ConfigError),
+    /// The node's answer did not have the expected shape.
+    #[error("unexpected {what} from the node: {detail}")]
+    Decode { what: &'static str, detail: String },
 
-    #[error("{0}")]
-    General(String),
+    /// An argument was malformed or out of range.
+    #[error("invalid {what}: {detail}")]
+    InvalidInput { what: &'static str, detail: String },
+
+    /// A required environment variable is not set.
+    #[error("{var} is not set")]
+    MissingConfig { var: &'static str },
+
+    /// A local file could not be read or written.
+    #[error("{}: {cause}", .path.display())]
+    Io {
+        path: PathBuf,
+        cause: std::io::Error,
+    },
+
+    /// The deploy executed and failed.
+    #[error("deploy {deploy_id} failed{}", describe(.execution))]
+    DeployFailed {
+        deploy_id: String,
+        /// The node's account of the failed execution, when it gave one.
+        execution: Option<String>,
+    },
+
+    /// The deploy finalized, but its result on the `deployId` channel could not
+    /// be read. Its effects are final: read the result again by deploy ID, and
+    /// never resubmit the deploy.
+    #[error(
+        "deploy {deploy_id} finalized in block {block_hash}, but its result could not be read: {cause}"
+    )]
+    DeployResultUnreadable {
+        deploy_id: String,
+        block_hash: String,
+        cause: Box<Error>,
+    },
+
+    /// The deploy's validity window closed without it landing canonically.
+    #[error("deploy {deploy_id} expired without canonical inclusion")]
+    DeployExpired { deploy_id: String },
+
+    /// No node reported a verdict for the deploy within the wait budget.
+    #[error("deploy {deploy_id} reached no verdict within {}s{}", .waited.as_secs(), describe(.execution))]
+    FinalizationTimeout {
+        deploy_id: String,
+        waited: Duration,
+        /// A failed execution the deploy node already reported, if any.
+        execution: Option<String>,
+    },
+
+    /// Two nodes reported different terminal verdicts for the same deploy.
+    #[error(
+        "deploy {deploy_id}: the deploy node reports {node} but the observer reports {observer}"
+    )]
+    ConflictingVerdicts {
+        deploy_id: String,
+        node: String,
+        observer: String,
+    },
+
+    /// The node does not serve an endpoint the call needs.
+    #[error("{endpoint} does not serve {feature} (requires {requirement})")]
+    NodeTooOld {
+        endpoint: String,
+        feature: &'static str,
+        requirement: &'static str,
+    },
+
+    /// A system contract executed the call and answered with a rejection.
+    #[error("{contract} rejected the call: {reason}")]
+    ContractRejected { contract: Contract, reason: String },
 }
 
+/// Why a request did not complete at the transport level.
 #[derive(Debug, thiserror::Error)]
-pub enum NetworkError {
-    #[error("Connection failed: {0}")]
-    ConnectionFailed(String),
-
-    #[error("HTTP {0} error: {1}")]
-    HttpError(u16, String),
-
-    #[error("Request timed out: {0}")]
-    Timeout(String),
-
-    #[error("Invalid URL: {0}")]
-    InvalidUrl(String),
-
-    #[error("Request failed: {0}")]
-    RequestFailed(String),
+#[non_exhaustive]
+pub enum TransportError {
+    #[error(transparent)]
+    Http(#[from] reqwest::Error),
+    #[error(transparent)]
+    Grpc(#[from] tonic::transport::Error),
+    #[error(transparent)]
+    WebSocket(Box<tokio_tungstenite::tungstenite::Error>),
+    #[error("no answer within {0:?}")]
+    TimedOut(Duration),
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum CryptoError {
-    #[error("Invalid private key: {0}")]
-    InvalidPrivateKey(String),
-
-    #[error("Invalid public key: {0}")]
-    InvalidPublicKey(String),
-
-    #[error("Key generation failed: {0}")]
-    KeyGenerationFailed(String),
-
-    #[error("Signing failed: {0}")]
-    SigningFailed(String),
-
-    #[error("Address generation failed: {0}")]
-    AddressGenerationFailed(String),
-
-    #[error("Hex decode failed: {0}")]
-    HexDecodeFailed(String),
+impl From<tokio_tungstenite::tungstenite::Error> for TransportError {
+    fn from(error: tokio_tungstenite::tungstenite::Error) -> Self {
+        TransportError::WebSocket(Box::new(error))
+    }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum FileError {
-    #[error("Failed to read file '{0}': {1}")]
-    ReadFailed(String, String),
-
-    #[error("Failed to write file '{0}': {1}")]
-    WriteFailed(String, String),
-
-    #[error("File not found: {0}")]
-    NotFound(String),
-
-    #[error("Permission denied: {0}")]
-    PermissionDenied(String),
-
-    #[error("Invalid path: {0}")]
-    InvalidPath(String),
+/// A system contract that can reject a call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Contract {
+    Vault,
+    ProofOfStake,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ApiError {
-    #[error("gRPC error: {0}")]
-    GrpcError(String),
-
-    #[error("Parse error: {0}")]
-    ParseError(String),
-
-    #[error("Response error: {0}")]
-    ResponseError(String),
-
-    #[error("Invalid response: {0}")]
-    InvalidResponse(String),
-
-    #[error("Service unavailable: {0}")]
-    ServiceUnavailable(String),
+impl fmt::Display for Contract {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Contract::Vault => "the vault",
+            Contract::ProofOfStake => "PoS",
+        })
+    }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    #[error("Missing required field: {0}")]
-    MissingRequired(String),
-
-    #[error("Invalid value for '{0}': {1}")]
-    InvalidValue(String, String),
-
-    #[error("Conflicting options: {0}")]
-    ConflictingOptions(String),
-
-    #[error("Invalid format: {0}")]
-    InvalidFormat(String),
+fn with_code(code: &Option<String>) -> String {
+    code.as_ref()
+        .map(|code| format!(" ({code})"))
+        .unwrap_or_default()
 }
 
-// --- From conversions for external error types ---
+fn describe(execution: &Option<String>) -> String {
+    execution
+        .as_ref()
+        .map(|execution| format!(": {execution}"))
+        .unwrap_or_default()
+}
 
-impl From<std::io::Error> for NodeCliError {
-    fn from(err: std::io::Error) -> Self {
-        match err.kind() {
-            std::io::ErrorKind::NotFound => {
-                NodeCliError::File(FileError::NotFound(err.to_string()))
-            }
-            std::io::ErrorKind::PermissionDenied => {
-                NodeCliError::File(FileError::PermissionDenied(err.to_string()))
-            }
-            _ => NodeCliError::File(FileError::ReadFailed(
-                "unknown".to_string(),
-                err.to_string(),
+impl Error {
+    pub(crate) fn transport(
+        endpoint: impl Into<String>,
+        source: impl Into<TransportError>,
+    ) -> Self {
+        Error::Transport {
+            endpoint: endpoint.into(),
+            cause: source.into(),
+        }
+    }
+
+    pub(crate) fn grpc(endpoint: impl Into<String>, status: tonic::Status) -> Self {
+        Error::Grpc {
+            endpoint: endpoint.into(),
+            status: Box::new(status),
+        }
+    }
+
+    pub(crate) fn decode(what: &'static str, detail: impl fmt::Display) -> Self {
+        Error::Decode {
+            what,
+            detail: detail.to_string(),
+        }
+    }
+
+    pub(crate) fn invalid(what: &'static str, detail: impl fmt::Display) -> Self {
+        Error::InvalidInput {
+            what,
+            detail: detail.to_string(),
+        }
+    }
+}
+
+/// Result type of the library.
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_thread_safe<T: std::error::Error + Send + Sync + 'static>() {}
+
+    #[test]
+    fn errors_cross_threads_and_await_points() {
+        assert_thread_safe::<Error>();
+        assert_thread_safe::<TransportError>();
+    }
+
+    #[test]
+    fn errors_stay_small_enough_to_return_by_value() {
+        assert!(
+            std::mem::size_of::<Error>() <= 128,
+            "{} bytes",
+            std::mem::size_of::<Error>()
+        );
+    }
+
+    #[test]
+    fn deploy_outcomes_name_the_execution_failure_only_when_known() {
+        let failed = Error::DeployFailed {
+            deploy_id: "abc".into(),
+            execution: Some("block 7 (cost 0): Insufficient funds".into()),
+        };
+        assert_eq!(
+            failed.to_string(),
+            "deploy abc failed: block 7 (cost 0): Insufficient funds"
+        );
+        let timeout = Error::FinalizationTimeout {
+            deploy_id: "abc".into(),
+            waited: Duration::from_secs(300),
+            execution: None,
+        };
+        assert_eq!(
+            timeout.to_string(),
+            "deploy abc reached no verdict within 300s"
+        );
+    }
+
+    #[test]
+    fn causes_are_reported_once_in_the_message_not_again_as_source() {
+        use std::error::Error as _;
+        let transport = Error::transport(
+            "http://n:40412/",
+            TransportError::TimedOut(Duration::from_secs(2)),
+        );
+        let grpc = Error::grpc("http://n:40412/", tonic::Status::unavailable("busy"));
+        let io = Error::Io {
+            path: "/tmp/key".into(),
+            cause: std::io::Error::other("disk full"),
+        };
+        for (error, cause) in [
+            (transport, "no answer within 2s"),
+            (grpc, "busy"),
+            (io, "disk full"),
+        ] {
+            assert!(error.to_string().contains(cause), "{error}");
+            assert!(error.source().is_none(), "{error}");
+        }
+    }
+
+    #[test]
+    fn an_unreadable_result_names_the_finalized_deploy_and_its_cause() {
+        let error = Error::DeployResultUnreadable {
+            deploy_id: "abc".into(),
+            block_hash: "b1".into(),
+            cause: Box::new(Error::transport(
+                "http://n:40412/",
+                TransportError::TimedOut(Duration::from_secs(2)),
             )),
-        }
-    }
-}
-
-impl From<reqwest::Error> for NodeCliError {
-    fn from(err: reqwest::Error) -> Self {
-        if err.is_timeout() {
-            NodeCliError::Network(NetworkError::Timeout(err.to_string()))
-        } else if err.is_connect() {
-            NodeCliError::Network(NetworkError::ConnectionFailed(err.to_string()))
-        } else {
-            NodeCliError::Network(NetworkError::RequestFailed(err.to_string()))
-        }
-    }
-}
-
-impl From<serde_json::Error> for NodeCliError {
-    fn from(err: serde_json::Error) -> Self {
-        NodeCliError::Api(ApiError::ParseError(err.to_string()))
-    }
-}
-
-impl From<secp256k1::Error> for NodeCliError {
-    fn from(err: secp256k1::Error) -> Self {
-        NodeCliError::Crypto(CryptoError::InvalidPrivateKey(err.to_string()))
-    }
-}
-
-impl From<hex::FromHexError> for NodeCliError {
-    fn from(err: hex::FromHexError) -> Self {
-        NodeCliError::Crypto(CryptoError::HexDecodeFailed(err.to_string()))
-    }
-}
-
-impl From<String> for NodeCliError {
-    fn from(err: String) -> Self {
-        NodeCliError::General(err)
-    }
-}
-
-impl From<&str> for NodeCliError {
-    fn from(err: &str) -> Self {
-        NodeCliError::General(err.to_string())
-    }
-}
-
-impl From<Box<dyn Error>> for NodeCliError {
-    fn from(err: Box<dyn Error>) -> Self {
-        NodeCliError::General(err.to_string())
-    }
-}
-
-impl From<tonic::Status> for NodeCliError {
-    fn from(err: tonic::Status) -> Self {
-        NodeCliError::Api(ApiError::GrpcError(format!(
-            "{}: {}",
-            err.code(),
-            err.message()
-        )))
-    }
-}
-
-/// Result type alias for convenience
-pub type Result<T> = std::result::Result<T, NodeCliError>;
-
-/// Helper functions for creating specific error types
-impl NodeCliError {
-    pub fn network_connection_failed(msg: &str) -> Self {
-        NodeCliError::Network(NetworkError::ConnectionFailed(msg.to_string()))
+        };
+        assert_eq!(
+            error.to_string(),
+            "deploy abc finalized in block b1, but its result could not be read: \
+             cannot reach http://n:40412/: no answer within 2s"
+        );
     }
 
-    pub fn network_http_error(code: u16, msg: &str) -> Self {
-        NodeCliError::Network(NetworkError::HttpError(code, msg.to_string()))
-    }
-
-    pub fn crypto_invalid_private_key(msg: &str) -> Self {
-        NodeCliError::Crypto(CryptoError::InvalidPrivateKey(msg.to_string()))
-    }
-
-    pub fn crypto_invalid_public_key(msg: &str) -> Self {
-        NodeCliError::Crypto(CryptoError::InvalidPublicKey(msg.to_string()))
-    }
-
-    pub fn file_read_failed(path: &str, msg: &str) -> Self {
-        NodeCliError::File(FileError::ReadFailed(path.to_string(), msg.to_string()))
-    }
-
-    pub fn file_write_failed(path: &str, msg: &str) -> Self {
-        NodeCliError::File(FileError::WriteFailed(path.to_string(), msg.to_string()))
-    }
-
-    pub fn config_missing_required(field: &str) -> Self {
-        NodeCliError::Config(ConfigError::MissingRequired(field.to_string()))
-    }
-
-    pub fn config_invalid_value(field: &str, msg: &str) -> Self {
-        NodeCliError::Config(ConfigError::InvalidValue(
-            field.to_string(),
-            msg.to_string(),
-        ))
-    }
-
-    pub fn http_error(msg: &str) -> Self {
-        NodeCliError::Network(NetworkError::RequestFailed(msg.to_string()))
-    }
-
-    pub fn websocket_error(msg: &str) -> Self {
-        NodeCliError::Network(NetworkError::ConnectionFailed(msg.to_string()))
-    }
-
-    pub fn parse_error(msg: &str) -> Self {
-        NodeCliError::Api(ApiError::ParseError(msg.to_string()))
-    }
-
-    pub fn io_error(msg: &str) -> Self {
-        NodeCliError::File(FileError::ReadFailed("io".to_string(), msg.to_string()))
+    #[test]
+    fn http_errors_name_the_node_error_code() {
+        let error = Error::Http {
+            url: "http://n:40403/api/estimate-cost".into(),
+            status: 400,
+            code: Some("rholang_bad_term".into()),
+            message: "syntax error".into(),
+        };
+        assert_eq!(
+            error.to_string(),
+            "http://n:40403/api/estimate-cost answered HTTP 400 (rholang_bad_term): syntax error"
+        );
     }
 }

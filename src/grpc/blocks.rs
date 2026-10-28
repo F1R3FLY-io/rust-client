@@ -1,7 +1,7 @@
 //! Block queries, finalization checks, and tip sampling
 
-use super::F1r3flyApi;
-use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
+use super::{rejected, F1r3flyApi};
+use crate::error::{Error, Result, TransportError};
 use f1r3fly_models::casper::v1::is_finalized_response::Message as IsFinalizedResponseMessage;
 use f1r3fly_models::casper::{BlocksQuery, BlocksQueryByHeight, IsFinalizedQuery, LightBlockInfo};
 use std::sync::atomic::Ordering;
@@ -17,36 +17,30 @@ impl<'a> F1r3flyApi<'a> {
         block_hash: &str,
         max_attempts: u32,
         retry_delay_sec: u64,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    ) -> Result<bool> {
         let mut attempts = 0;
 
         loop {
             attempts += 1;
 
-            let mut client = DeployServiceClient::connect(self.grpc_url()).await?;
+            let mut client = self.deploy_client().await?;
 
             let query = IsFinalizedQuery {
                 hash: block_hash.to_string(),
             };
 
             match client.is_finalized(query).await {
-                Ok(response) => {
-                    if let Some(message) = &response.get_ref().message {
-                        match message {
-                            IsFinalizedResponseMessage::Error(_) => {
-                                return Err("Error checking finalization status".into());
-                            }
-                            IsFinalizedResponseMessage::IsFinalized(is_finalized) => {
-                                if *is_finalized {
-                                    return Ok(true);
-                                }
-                            }
-                        }
+                Ok(response) => match &response.get_ref().message {
+                    Some(IsFinalizedResponseMessage::Error(error)) => {
+                        return Err(rejected("isFinalized", error));
                     }
-                }
-                Err(_) => {
+                    Some(IsFinalizedResponseMessage::IsFinalized(true)) => return Ok(true),
+                    Some(IsFinalizedResponseMessage::IsFinalized(false)) => {}
+                    None => return Err(Error::decode("isFinalized response", "empty message")),
+                },
+                Err(status) => {
                     if attempts >= max_attempts {
-                        return Err("Failed to connect to node after maximum attempts".into());
+                        return Err(self.grpc_error(status));
                     }
                 }
             }
@@ -59,82 +53,68 @@ impl<'a> F1r3flyApi<'a> {
         }
     }
 
-    pub async fn show_main_chain(
-        &self,
-        depth: u32,
-    ) -> Result<Vec<LightBlockInfo>, Box<dyn std::error::Error>> {
-        use f1r3fly_models::casper::v1::block_info_response::Message;
-
-        let mut client = DeployServiceClient::connect(self.grpc_url()).await?;
-
+    pub async fn show_main_chain(&self, depth: u32) -> Result<Vec<LightBlockInfo>> {
+        let mut client = self.deploy_client().await?;
         let query = BlocksQuery {
             depth: depth as i32,
         };
-
-        let mut stream = client.show_main_chain(query).await?.into_inner();
-
-        let mut blocks = Vec::new();
-        while let Some(response) = stream.message().await? {
-            if let Some(message) = response.message {
-                match message {
-                    Message::Error(service_error) => {
-                        return Err(
-                            format!("gRPC Error: {}", service_error.messages.join("; ")).into()
-                        );
-                    }
-                    Message::BlockInfo(block_info) => {
-                        blocks.push(block_info);
-                    }
-                }
-            }
-        }
-
-        Ok(blocks)
+        let stream = client
+            .show_main_chain(query)
+            .await
+            .map_err(|status| self.grpc_error(status))?
+            .into_inner();
+        self.collect_blocks("showMainChain", stream).await
     }
 
     pub async fn get_blocks_by_height(
         &self,
         start_block_number: i64,
         end_block_number: i64,
-    ) -> Result<Vec<LightBlockInfo>, Box<dyn std::error::Error>> {
-        use f1r3fly_models::casper::v1::block_info_response::Message;
-
-        let mut client = DeployServiceClient::connect(self.grpc_url()).await?;
-
+    ) -> Result<Vec<LightBlockInfo>> {
+        let mut client = self.deploy_client().await?;
         let query = BlocksQueryByHeight {
             start_block_number,
             end_block_number,
         };
+        let stream = client
+            .get_blocks_by_heights(query)
+            .await
+            .map_err(|status| self.grpc_error(status))?
+            .into_inner();
+        self.collect_blocks("getBlocksByHeights", stream).await
+    }
 
-        let mut stream = client.get_blocks_by_heights(query).await?.into_inner();
+    async fn collect_blocks(
+        &self,
+        operation: &'static str,
+        mut stream: tonic::Streaming<f1r3fly_models::casper::v1::BlockInfoResponse>,
+    ) -> Result<Vec<LightBlockInfo>> {
+        use f1r3fly_models::casper::v1::block_info_response::Message;
 
         let mut blocks = Vec::new();
-        while let Some(response) = stream.message().await? {
-            if let Some(message) = response.message {
-                match message {
-                    Message::Error(service_error) => {
-                        return Err(
-                            format!("gRPC Error: {}", service_error.messages.join("; ")).into()
-                        );
-                    }
-                    Message::BlockInfo(block_info) => {
-                        blocks.push(block_info);
-                    }
-                }
+        while let Some(response) = stream
+            .message()
+            .await
+            .map_err(|status| self.grpc_error(status))?
+        {
+            match response.message {
+                Some(Message::Error(error)) => return Err(rejected(operation, &error)),
+                Some(Message::BlockInfo(block_info)) => blocks.push(block_info),
+                None => return Err(Error::decode("block stream", "empty message")),
             }
         }
-
         Ok(blocks)
     }
 
-    pub async fn get_current_block_number(&self) -> Result<i64, Box<dyn std::error::Error>> {
-        let blocks = self.show_main_chain(1).await?;
-        Ok(blocks.first().map(|b| b.block_number).unwrap_or(0))
+    pub async fn get_current_block_number(&self) -> Result<i64> {
+        self.show_main_chain(1)
+            .await?
+            .first()
+            .map(|block| block.block_number)
+            .ok_or_else(|| Error::decode("main chain", "no blocks"))
     }
 
-    pub(crate) async fn get_current_block_number_monotonic(
-        &self,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
+    pub(crate) async fn get_current_block_number_monotonic(&self) -> Result<i64> {
         let sampled_tip = self.get_current_block_number_sampled().await?;
         let cached_tip = self.tip_floor.load(Ordering::Relaxed);
         let selected_tip = if cached_tip != super::TIP_FLOOR_UNSET && sampled_tip < cached_tip {
@@ -151,15 +131,17 @@ impl<'a> F1r3flyApi<'a> {
         Ok(selected_tip)
     }
 
-    async fn get_current_block_number_sampled(&self) -> Result<i64, Box<dyn std::error::Error>> {
+    async fn get_current_block_number_sampled(&self) -> Result<i64> {
         let mut best_tip: Option<i64> = None;
         let mut min_tip: Option<i64> = None;
         let mut max_tip: Option<i64> = None;
         let mut successful_samples: usize = 0;
+        let mut last_error: Option<Error> = None;
 
         for attempt in 1..=TIP_SAMPLE_ATTEMPTS {
+            let timeout = tokio::time::Duration::from_secs(TIP_SAMPLE_TIMEOUT_SECS);
             let sampled_tip = match tokio::time::timeout(
-                tokio::time::Duration::from_secs(TIP_SAMPLE_TIMEOUT_SECS),
+                timeout,
                 self.show_main_chain(BLOCK_SAMPLE_DEPTH),
             )
             .await
@@ -167,6 +149,7 @@ impl<'a> F1r3flyApi<'a> {
                 Ok(Ok(blocks)) => blocks.iter().map(|b| b.block_number).max(),
                 Ok(Err(err)) => {
                     tracing::warn!(attempt, total = TIP_SAMPLE_ATTEMPTS, %err, "Tip sample failed");
+                    last_error = Some(err);
                     None
                 }
                 Err(_) => {
@@ -176,6 +159,10 @@ impl<'a> F1r3flyApi<'a> {
                         timeout_secs = TIP_SAMPLE_TIMEOUT_SECS,
                         "Tip sample timed out"
                     );
+                    last_error = Some(Error::transport(
+                        self.grpc_url(),
+                        TransportError::TimedOut(timeout),
+                    ));
                     None
                 }
             };
@@ -206,7 +193,8 @@ impl<'a> F1r3flyApi<'a> {
             }
             Ok(best_tip)
         } else {
-            Err("Failed to sample current block number from main chain".into())
+            Err(last_error
+                .unwrap_or_else(|| Error::decode("main chain", "no blocks in any tip sample")))
         }
     }
 }

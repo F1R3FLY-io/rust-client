@@ -57,7 +57,6 @@ Data is read AFTER finalization, not before. Reading before finalization can ret
 | `propose` | propose | Creates block |
 | `exploratoryDeploy` | exploratory_deploy | Read-only execution |
 | `getDataAtName` | get_data_at_deploy_id | Reads deploy result data (non-deprecated) |
-| `findDeploy` | find_deploy_grpc | Finds block containing deploy |
 | `isFinalized` | is_finalized | Checks block finalization |
 | `showMainChain` | show_main_chain, tip sampling | Block queries |
 | `getBlocksByHeights` | get_blocks_by_height | Range queries |

@@ -48,7 +48,7 @@ impl Shard {
         let mut waiting = nodes.to_vec();
 
         while !waiting.is_empty() {
-            if let Some(exited) = self.exited_container()? {
+            if let Some(exited) = self.exited_service()? {
                 return Err(format!(
                     "{exited} exited during startup:\n{}",
                     self.logs(&exited)
@@ -67,12 +67,13 @@ impl Shard {
         Ok(())
     }
 
-    /// The name of a shard container that is no longer running, if any. A node
-    /// that refuses its configuration exits during boot, and one that dies
+    /// The compose service of a shard node that is no longer running, if any. A
+    /// node that refuses its configuration exits during boot, and one that dies
     /// mid-run fails every test that talks to it - both show up as something
     /// other than their own cause unless this is reported.
-    pub fn exited_container(&self) -> Result<Option<String>, String> {
-        let listing = self.compose_output(&["ps", "--all", "--format", "{{.Name}} {{.State}}"])?;
+    pub fn exited_service(&self) -> Result<Option<String>, String> {
+        let listing =
+            self.compose_output(&["ps", "--all", "--format", "{{.Service}} {{.State}}"])?;
         Ok(listing
             .lines()
             .filter_map(|line| line.split_once(' '))
@@ -80,19 +81,21 @@ impl Shard {
             .map(|(name, _)| name.to_string()))
     }
 
-    pub fn logs(&self, container: &str) -> String {
-        self.compose_output(&["logs", "--no-color", container])
+    /// Logs of a compose service. `docker compose logs` takes service names,
+    /// such as `boot`, not container names, such as `it-boot`.
+    pub fn logs(&self, service: &str) -> String {
+        self.compose_output(&["logs", "--no-color", service])
             .unwrap_or_else(|e| format!("could not read logs: {e}"))
     }
 
-    /// Write every container's logs into `dir`, for a failed run's artifacts.
+    /// Write every node's logs into `dir`, for a failed run's artifacts.
     pub fn dump_logs(&self, dir: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        for name in self
-            .compose_output(&["ps", "--all", "--format", "{{.Name}}"])?
+        for service in self
+            .compose_output(&["ps", "--all", "--format", "{{.Service}}"])?
             .lines()
         {
-            std::fs::write(dir.join(format!("{name}.log")), self.logs(name))
+            std::fs::write(dir.join(format!("{service}.log")), self.logs(service))
                 .map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -123,6 +126,13 @@ impl Shard {
             .compose_command(args)
             .output()
             .map_err(|e| format!("docker compose: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "docker compose {}: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 

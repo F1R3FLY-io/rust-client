@@ -2,7 +2,7 @@
 //!
 //! The implementation is split across `grpc/` submodules:
 //! - `grpc::deploy` deploy, propose, full_deploy, build_deploy_msg
-//! - `grpc::query` exploratory_deploy, get_data_at_deploy_id, find_deploy_grpc
+//! - `grpc::query` exploratory_deploy, get_data_at_deploy_id
 //! - `grpc::blocks` show_main_chain, get_blocks_by_height, is_finalized, tip sampling
 //! - `grpc::http` get_deploy_block_hash, get_deploy_detail
 
@@ -121,7 +121,7 @@ impl DeployFinalizationStatus {
 }
 
 /// Result of a full deploy-and-wait operation
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DeployResult {
     pub deploy_id: String,
     pub block_hash: String,
@@ -131,7 +131,7 @@ pub struct DeployResult {
     pub system_deploy_error: Option<String>,
     /// Data on the deploy's `deployId` channel. `Ok` with no elements when the
     /// deploy wrote nothing; `Err` when the data could not be read.
-    pub data: Result<Vec<f1r3fly_models::rhoapi::Par>, String>,
+    pub data: crate::error::Result<Vec<f1r3fly_models::rhoapi::Par>>,
 }
 
 impl DeployResult {

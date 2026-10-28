@@ -3,13 +3,13 @@
 //! Rholang expressions are returned in a structured format (ExprMap, ExprString, etc.)
 //! These helpers convert them to plain JSON for easier consumption.
 
+use crate::error::{Error, Result};
+
 /// Convert a Rholang expression (from explore-deploy) to plain JSON
 ///
 /// Recursively unwraps ExprMap, ExprString, ExprInt, ExprBool, etc.
 /// into standard JSON types.
-pub fn convert_rholang_to_json(
-    value: &serde_json::Value,
-) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+pub fn convert_rholang_to_json(value: &serde_json::Value) -> Result<serde_json::Value> {
     if let Some(expr_map) = value.get("ExprMap").and_then(|v| v.get("data")) {
         let mut result = serde_json::Map::new();
         if let Some(map_obj) = expr_map.as_object() {
@@ -62,31 +62,38 @@ pub fn convert_rholang_to_json(
     Ok(value.clone())
 }
 
-pub fn rholang_amount(value: &serde_json::Value) -> Result<num_bigint::BigUint, String> {
-    if let Some(value) = value.get("ExprInt").and_then(|v| v.get("data")) {
-        return value
-            .as_u64()
+/// An unsigned uint256 amount the node reported as `ExprInt` or `ExprBigInt`.
+pub fn rholang_amount(value: &serde_json::Value) -> Result<num_bigint::BigUint> {
+    let amount = if let Some(data) = value.get("ExprInt").and_then(|v| v.get("data")) {
+        data.as_u64()
             .map(num_bigint::BigUint::from)
-            .ok_or_else(|| "amount is not an unsigned integer".to_owned());
-    }
-    if let Some(data) = value.get("ExprBigInt").and_then(|v| v.get("data")) {
-        let amount = canonical_bigint(data)?
+            .ok_or_else(|| Error::decode("amount", format!("{data} is not unsigned")))?
+    } else if let Some(data) = value.get("ExprBigInt").and_then(|v| v.get("data")) {
+        canonical_bigint(data)?
             .to_biguint()
-            .ok_or("amount is not an unsigned integer")?;
-        crate::vault::validate_amount(&amount)?;
-        return Ok(amount);
+            .ok_or_else(|| Error::decode("amount", format!("{data} is not unsigned")))?
+    } else {
+        return Err(Error::decode(
+            "amount",
+            format!("{value} is not an integer expression"),
+        ));
+    };
+    if amount.bits() > 256 {
+        return Err(Error::decode("amount", format!("{amount} exceeds uint256")));
     }
-    Err("amount is not an integer expression".into())
+    Ok(amount)
 }
 
 /// The node writes a BigInt as its canonical decimal string; anything else is malformed.
-fn canonical_bigint(data: &serde_json::Value) -> Result<num_bigint::BigInt, String> {
-    let text = data.as_str().ok_or("BigInt must use a decimal string")?;
+fn canonical_bigint(data: &serde_json::Value) -> Result<num_bigint::BigInt> {
+    let text = data
+        .as_str()
+        .ok_or_else(|| Error::decode("BigInt", format!("{data} is not a decimal string")))?;
     let value = text
         .parse::<num_bigint::BigInt>()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| Error::decode("BigInt", format!("{text}: {e}")))?;
     if value.to_string() != text {
-        return Err(format!("noncanonical BigInt: {text}"));
+        return Err(Error::decode("BigInt", format!("{text} is not canonical")));
     }
     Ok(value)
 }

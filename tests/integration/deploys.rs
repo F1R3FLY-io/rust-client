@@ -94,10 +94,18 @@ fn an_errored_deploy_reports_its_execution_failure() {
         .block_on(manager(&keys::OVERDRAFT, 90).deploy_and_wait(&term, false, 0))
         .expect_err("a 50k-phlo vault transfer should not succeed");
 
-    let message = error.to_string();
     assert!(
-        message.contains("executed with an error in block"),
-        "the failure does not name the errored execution: {message}"
+        matches!(
+            error,
+            node_cli::Error::DeployFailed {
+                execution: Some(_),
+                ..
+            } | node_cli::Error::FinalizationTimeout {
+                execution: Some(_),
+                ..
+            }
+        ),
+        "the failure does not name the errored execution: {error}"
     );
 }
 
