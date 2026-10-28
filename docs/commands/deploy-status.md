@@ -15,8 +15,8 @@ node_cli deploy-status --sig <HEX> [OPTIONS]
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--sig` | `-s` | required | Deploy signature in hex (with or without `0x` prefix) |
-| `--host` | `-H` | `localhost` | Node hostname |
-| `--http-port` | | `40413` | HTTP port (use the readonly observer port for shards) |
+| `--http` | | `http://localhost:40403` | Node HTTP endpoint, `http://` or `https://` |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
 | `--format` | `-f` | `pretty` | Output format: `pretty`, `json` |
 
 ## Example

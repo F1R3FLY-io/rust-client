@@ -35,7 +35,7 @@ f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1
 prost = "0.14"
 
 # gRPC
-tonic = "0.14"
+tonic = { version = "0.14", features = ["tls-ring", "tls-webpki-roots"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -53,7 +53,9 @@ bs58 = "0.5.0"
 
 # Networking
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-tokio-tungstenite = "0.26"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
 futures-util = "0.3"
 
 # Hashing
@@ -77,3 +79,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 
 [dev-dependencies]
 libtest-mimic = "0.8.2"
+rcgen = "0.13"

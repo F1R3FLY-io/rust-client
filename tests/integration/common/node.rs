@@ -59,8 +59,16 @@ impl Node {
         self.base_port() + 3
     }
 
+    pub fn grpc_endpoint(self) -> String {
+        format!("http://localhost:{}", self.grpc_port())
+    }
+
+    pub fn http_endpoint(self) -> String {
+        format!("http://localhost:{}", self.http_port())
+    }
+
     pub fn http_url(self, path: &str) -> String {
-        format!("http://localhost:{}{path}", self.http_port())
+        format!("{}{path}", self.http_endpoint())
     }
 
     /// The node's last finalized block number, or `None` while it is not

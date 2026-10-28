@@ -12,9 +12,14 @@ node_cli propose [OPTIONS]
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--private-key` | `-k` | dev key | Signing key |
-| `--host` | `-H` | `localhost` | Node hostname |
-| `--port` | `-p` | `40412` | gRPC port |
+| `--grpc` | | `http://localhost:40401` | The node's **internal** gRPC endpoint, `http://` or `https://` |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+
+Propose is served on a node's internal gRPC API (port 40402 on a node; 40412 for validator1 on the system-integration Docker shard), not the external API on 40401 that deploys use, so `--grpc` must name the internal port:
+
+```bash
+node_cli propose --grpc http://localhost:40402
+```
 
 ## When to use
 

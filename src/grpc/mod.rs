@@ -2,9 +2,9 @@
 
 mod blocks;
 mod deploy;
-mod http;
 pub mod query;
 
+use crate::endpoint::Endpoint;
 use crate::error::{Error, Result};
 use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
 use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
@@ -12,39 +12,40 @@ use secp256k1::SecretKey;
 use std::sync::atomic::AtomicI64;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::OnceCell;
 use tonic::transport::Channel;
 
 const TIP_FLOOR_UNSET: i64 = -1;
 
-/// Client for interacting with the F1r3fly node via gRPC and HTTP
-pub struct F1r3flyApi<'a> {
+/// Client for a node's gRPC API. Cloning shares its connection.
+#[derive(Clone)]
+pub struct F1r3flyApi {
+    pub(crate) endpoint: Endpoint,
+    channel: Arc<OnceCell<Channel>>,
     pub(crate) signing_key: Option<SecretKey>,
-    pub(crate) node_host: &'a str,
-    pub(crate) grpc_port: u16,
     pub(crate) tip_floor: Arc<AtomicI64>,
     pub(crate) exploratory_retry_budget: Option<Duration>,
     pub(crate) shard_id: String,
 }
 
-impl<'a> F1r3flyApi<'a> {
-    pub fn new(signing_key: &str, node_host: &'a str, grpc_port: u16) -> Result<Self> {
-        Ok(F1r3flyApi {
-            signing_key: Some(crate::utils::CryptoUtils::decode_private_key(signing_key)?),
-            ..Self::new_readonly(node_host, grpc_port)
-        })
-    }
-
-    /// Construct a client for read-only operations (exploratory deploys and
-    /// HTTP reads). These paths never sign, so no key is required.
-    pub fn new_readonly(node_host: &'a str, grpc_port: u16) -> Self {
+impl F1r3flyApi {
+    /// A client for `endpoint` that reads and sends signed deploys. It signs
+    /// nothing until [`with_signing_key`](Self::with_signing_key) gives it a key.
+    pub fn new(endpoint: Endpoint) -> Self {
         F1r3flyApi {
+            endpoint,
+            channel: Arc::default(),
             signing_key: None,
-            node_host,
-            grpc_port,
             tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
             exploratory_retry_budget: None,
             shard_id: crate::deploy::DEFAULT_SHARD_ID.to_string(),
         }
+    }
+
+    /// Sign deploys with `signing_key`, a hex secp256k1 private key.
+    pub fn with_signing_key(mut self, signing_key: &str) -> Result<Self> {
+        self.signing_key = Some(crate::utils::CryptoUtils::decode_private_key(signing_key)?);
+        Ok(self)
     }
 
     /// Sign deploys for this shard: the node's `casper.shard-name`. Without
@@ -62,26 +63,42 @@ impl<'a> F1r3flyApi<'a> {
         self
     }
 
-    pub(crate) fn grpc_url(&self) -> String {
-        format!("http://{}:{}/", self.node_host, self.grpc_port)
+    pub fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
+    }
+
+    /// The channel to the node, connected on first use. A failed connection
+    /// is not kept, so the next call tries again.
+    async fn channel(&self) -> Result<Channel> {
+        self.channel
+            .get_or_try_init(|| async {
+                let url = self.endpoint.to_string();
+                let mut endpoint = tonic::transport::Endpoint::from_shared(url.clone())
+                    .map_err(|e| Error::transport(&url, e))?;
+                if let Some(tls) = self.endpoint.grpc_tls() {
+                    endpoint = endpoint
+                        .tls_config(tls)
+                        .map_err(|e| Error::transport(&url, e))?;
+                }
+                endpoint
+                    .connect()
+                    .await
+                    .map_err(|e| Error::transport(url, e))
+            })
+            .await
+            .cloned()
     }
 
     pub(crate) async fn deploy_client(&self) -> Result<DeployServiceClient<Channel>> {
-        let url = self.grpc_url();
-        DeployServiceClient::connect(url.clone())
-            .await
-            .map_err(|e| Error::transport(url, e))
+        Ok(DeployServiceClient::new(self.channel().await?))
     }
 
     pub(crate) async fn propose_client(&self) -> Result<ProposeServiceClient<Channel>> {
-        let url = self.grpc_url();
-        ProposeServiceClient::connect(url.clone())
-            .await
-            .map_err(|e| Error::transport(url, e))
+        Ok(ProposeServiceClient::new(self.channel().await?))
     }
 
     pub(crate) fn grpc_error(&self, status: tonic::Status) -> Error {
-        Error::grpc(self.grpc_url(), status)
+        Error::grpc(self.endpoint.to_string(), status)
     }
 }
 

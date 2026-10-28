@@ -28,17 +28,17 @@ Three rules hold throughout:
   and `epoch-info` are built on.
 - **Queries are split across two transports.** `bonds`, `active-validators`,
   `validator-status` and `network-consensus` read over HTTP, so they take the
-  observer's **HTTP** port; `epoch-info` and `wallet-balance` use gRPC and take
-  its **gRPC** port. Passing the wrong one fails with a connection error
-  naming `/api/explore-deploy`. See
-  [the port and transport table](../commands/advanced.md#port-and-transport).
+  observer's **HTTP** endpoint (`--http`); `epoch-info` and `wallet-balance`
+  use gRPC and take its **gRPC** endpoint (`--grpc`). Passing the wrong one
+  fails with a connection error naming `/api/explore-deploy`. See
+  [the endpoint and transport table](../commands/advanced.md#endpoint-and-transport).
 
 ## 1. Check the shard before you start
 
 ```bash
-node_cli bonds -p 40453
-node_cli active-validators -p 40453
-node_cli epoch-info -p 40452
+node_cli bonds --http http://localhost:40453
+node_cli active-validators --http http://localhost:40453
+node_cli epoch-info --grpc http://localhost:40452
 ```
 
 `epoch-info` reports the two numbers that decide how long each step below
@@ -87,15 +87,15 @@ node_cli transfer \
   --to-address <joiner vault address> \
   --amount 100000000000 \
   --private-key <funded key> \
-  -H localhost -p 40412 --http-port 40413 \
-  --observer-host localhost --observer-port 40452 --observer-http-port 40453
+  --grpc http://localhost:40412 --http http://localhost:40413 \
+  --observer http://localhost:40453
 ```
 
 Confirm it landed before bonding — `wallet-balance` takes the observer's gRPC
-port:
+endpoint:
 
 ```bash
-node_cli wallet-balance --address <joiner vault address> -p 40452
+node_cli wallet-balance --address <joiner vault address> --grpc http://localhost:40452
 ```
 
 ## 4. Bond
@@ -104,8 +104,8 @@ node_cli wallet-balance --address <joiner vault address> -p 40452
 node_cli bond-validator \
   --stake 100 \
   --private-key <joiner private key> \
-  -H localhost -p 40412 --http-port 40413 \
-  --observer-host localhost --observer-port 40452 --observer-http-port 40453 \
+  --grpc http://localhost:40412 --http http://localhost:40413 \
+  --observer http://localhost:40453 \
   --max-wait 180
 ```
 
@@ -116,8 +116,8 @@ Immediately afterwards the joiner is in the bond set but **not** in the active
 set:
 
 ```bash
-node_cli bonds -p 40453              # now lists four validators
-node_cli active-validators -p 40453  # still lists three
+node_cli bonds --http http://localhost:40453              # now lists four validators
+node_cli active-validators --http http://localhost:40453  # still lists three
 ```
 
 `bonds` marks it `(not active)`. That is not a queue position: the active set
@@ -129,7 +129,7 @@ indefinitely if the cap is already full.
 At the next boundary the active set is recomputed and the joiner enters it:
 
 ```bash
-node_cli validator-status --public-key <joiner public key> --http-port 40453
+node_cli validator-status --public-key <joiner public key> --http http://localhost:40453
 ```
 
 ```
@@ -141,7 +141,7 @@ From here it is a block producer; its public key appears as the `validator`
 of blocks it authors:
 
 ```bash
-node_cli blocks -p 40413
+node_cli blocks --http http://localhost:40413
 ```
 
 ## 6. Unbond
@@ -149,8 +149,8 @@ node_cli blocks -p 40413
 ```bash
 node_cli unbond-validator \
   --private-key <joiner private key> \
-  -H localhost -p 40412 --http-port 40413 \
-  --observer-host localhost --observer-port 40452 --observer-http-port 40453 \
+  --grpc http://localhost:40412 --http http://localhost:40413 \
+  --observer http://localhost:40453 \
   --max-wait 180
 ```
 
@@ -176,7 +176,7 @@ Stake plus accumulated rewards is returned at the first epoch boundary at or
 after the quarantine end. Check the vault:
 
 ```bash
-node_cli wallet-balance --address <joiner vault address> -p 40452
+node_cli wallet-balance --address <joiner vault address> --grpc http://localhost:40452
 ```
 
 The balance rises by more than the stake, because committed rewards are paid
@@ -201,7 +201,7 @@ curl -s localhost:40453/api/deploy/<deploy id>
   `deploy-lifespan` blocks past inclusion at minimum, so a correct deploy can
   outlast a short `--max-wait`. Re-run `deploy-status` rather than re-bonding.
 - No block at all — the deploy went somewhere that cannot include it. Check
-  that `-p` pointed at a **bonded** validator's gRPC port.
+  that `--grpc` pointed at a **bonded** validator's gRPC endpoint.
 
 The client does not currently surface the first case; it reports the bare
 timeout even when the node has already recorded the failure (rust-client#37).
@@ -211,13 +211,14 @@ against the active set, and check the shard's number of active validators. If
 the cap is already met, the bond will not activate until a slot frees.
 
 **A query fails with `Exploratory deploy can only be executed on read-only
-node`.** The query ran against a validator. Point `-p` at the read-only node —
-the HTTP port (40453) for `bonds`, `active-validators`, `validator-status` and
-`network-consensus`, the gRPC port (40452) for `epoch-info` and
-`wallet-balance`.
+node`.** The query ran against a validator. Point it at the read-only node —
+`--http http://localhost:40453` for `bonds`, `active-validators`,
+`validator-status` and `network-consensus`, `--grpc http://localhost:40452`
+for `epoch-info` and `wallet-balance`.
 
 **A query fails with `error sending request for url (…/api/explore-deploy)`.**
-The command reads over HTTP but was given a gRPC port. Use 40453.
+The command reads over HTTP but was given a gRPC endpoint. Use
+`--http http://localhost:40453`.
 
 **The joiner runs but never proposes.** Being bonded is not enough — it has to
 be in the *active* set, which only changes at an epoch boundary. Note that

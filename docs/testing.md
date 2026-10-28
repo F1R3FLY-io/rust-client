@@ -42,8 +42,8 @@ Run one test by name:
 cargo test --release --features integration --test integration -- pos::
 ```
 
-Host ports 40400-40453 must be free — they are the client's own defaults, so
-a shard from another project has to be down first.
+Host ports 40400-40461 must be free, so a shard from another project on 404xx
+has to be down first.
 
 ### The shard
 
@@ -55,6 +55,12 @@ Defined in `tests/integration/topology/`, which the repository owns outright:
 | `it-validator1..3` | genesis validators, stake 100 each | 4041x / 4042x / 4043x |
 | `it-readonly` | observer; the only node serving exploratory deploys | 40452 / 40453 |
 | `it-validator4` | joiner, unbonded at genesis, started by the bonding tests | 40442 / 40443 |
+| `it-tls-proxy` | Caddy (`caddy:2.10-alpine`) terminating TLS in front of validator1 | 40460 / 40461 |
+
+The harness issues a CA and the proxy's server certificate per run into
+`target/integration-tls/`. The `routing` group uses them for a deploy-and-wait
+over TLS with no observer, and to check that an untrusted certificate is
+refused.
 
 Every deploying test owns a key funded at genesis in
 `topology/genesis/wallets.txt`, because concurrent deploys from one deployer
@@ -65,7 +71,7 @@ accepts them and strands them (f1r3node-rust#427).
 
 | Group | What it holds to account |
 |---|---|
-| `routing` | Which node a command talks to, and on which port |
+| `routing` | Which node a command talks to, on which endpoint, and over TLS |
 | `deploys` | What a deploy reports on its way to a terminal verdict |
 | `transfers` | Amounts moved, rejections, and what the block report says |
 | `pos` | The bond set through a real joiner's whole lifecycle |

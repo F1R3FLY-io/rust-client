@@ -11,7 +11,7 @@ const TIP_SAMPLE_ATTEMPTS: usize = 2;
 const TIP_SAMPLE_TIMEOUT_SECS: u64 = 2;
 const TIP_SAMPLE_DELAY_MS: u64 = 50;
 
-impl<'a> F1r3flyApi<'a> {
+impl F1r3flyApi {
     pub async fn is_finalized(
         &self,
         block_hash: &str,
@@ -152,7 +152,7 @@ impl<'a> F1r3flyApi<'a> {
                         "Tip sample timed out"
                     );
                     last_error = Some(Error::transport(
-                        self.grpc_url(),
+                        self.endpoint.to_string(),
                         TransportError::TimedOut(timeout),
                     ));
                     None

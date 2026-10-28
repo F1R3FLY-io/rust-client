@@ -4,21 +4,25 @@ Rust crate for interacting with F1r3fly blockchain nodes. Usable as a **library*
 
 ## Quick Start
 
+Node endpoints are URLs: `http://` is plaintext, `https://` is TLS (add `--ca-cert <PEM>` to trust a private CA). Every command defaults to a node's own ports, gRPC `http://localhost:40401` and HTTP `http://localhost:40403`; the examples below target the system-integration single-host Docker shard.
+
 ```bash
 # Build
 cargo build --release
 
 # Check node status and native token info
-cargo run --release -- status -H localhost -p 40413
+cargo run --release -- status --http http://localhost:40413
 
-# Deploy and wait for result
-cargo run --release -- deploy-and-wait -f contract.rho
+# Deploy to validator1 and wait for the result, also polling the read-only observer
+cargo run --release -- deploy-and-wait -f contract.rho \
+  --grpc http://localhost:40412 --http http://localhost:40413 \
+  --observer http://localhost:40453
 
 # Read-only query
-cargo run --release -- exploratory-deploy -f query.rho -H localhost -p 40452
+cargo run --release -- exploratory-deploy -f query.rho --grpc http://localhost:40452
 
 # Query native token metadata from on-chain contract
-cargo run --release -- exploratory-deploy -f rho_examples/query_token_metadata.rho -H localhost -p 40452
+cargo run --release -- exploratory-deploy -f rho_examples/query_token_metadata.rho --grpc http://localhost:40452
 ```
 
 ## Local development
@@ -67,13 +71,13 @@ from here. Never reuse a key from a README against anything real.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `FIREFLY_PRIVATE_KEY` | Yes | -- | Signing key (64 hex chars) |
-| `FIREFLY_HOST` | No | `localhost` | Node hostname |
-| `FIREFLY_GRPC_PORT` | No | `40401` | gRPC port |
-| `FIREFLY_HTTP_PORT` | No | `40403` | HTTP port |
-| `FIREFLY_OBSERVER_HOST` | No | same as host | Observer for finalization |
-| `FIREFLY_OBSERVER_GRPC_PORT` | No | `40452` | Observer gRPC port |
-| `FIREFLY_OBSERVER_HTTP_PORT` | No | `40453` | Observer HTTP port for finalization status |
+| `FIREFLY_GRPC_URL` | No | `http://localhost:40401` | Deploy node's gRPC endpoint |
+| `FIREFLY_HTTP_URL` | No | `http://localhost:40403` | Deploy node's HTTP endpoint |
+| `FIREFLY_OBSERVER_URL` | No | none | HTTP endpoint of a second node polled for the deploy's verdict; without it, only the deploy node is polled |
+| `FIREFLY_CA_CERT` | No | none | PEM file of the certificate authorities trusted for every `https://` endpoint, in place of the bundled public roots |
 | `FIREFLY_FINALIZATION_TIMEOUT` | No | `90` | Max seconds to wait for a deploy to finalize |
 | `FIREFLY_SHARD_ID` | No | `root` | Shard deploys are signed for: the node's `casper.shard-name` |
 
-An unset variable takes its default; a set but malformed one, such as a non-numeric port, is an error.
+These are read by the library's `ConnectionConfig::from_env`. The CLI reads only `FIREFLY_PRIVATE_KEY` and `FIREFLY_SHARD_ID`; its endpoints come from `--grpc`, `--http`, `--observer` and `--ca-cert`.
+
+An unset variable takes its default; a set but malformed one, such as a URL without an `http` or `https` scheme, is an error.

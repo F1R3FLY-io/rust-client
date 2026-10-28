@@ -83,53 +83,22 @@ impl Cli {
         self
     }
 
-    /// For commands taking both ports: `-p` is gRPC, `--http-port` is HTTP.
+    /// For commands that reach the node over both gRPC and HTTP.
     pub fn at(self, node: Node) -> Self {
-        self.grpc_at(node)
-            .args(["--http-port".to_string(), node.http_port().to_string()])
+        self.grpc_at(node).http_at(node)
     }
 
-    /// For commands whose only `-p` is the gRPC port.
     pub fn grpc_at(self, node: Node) -> Self {
-        self.args([
-            "-H".to_string(),
-            "localhost".to_string(),
-            "-p".to_string(),
-            node.grpc_port().to_string(),
-        ])
+        self.args(["--grpc".to_string(), node.grpc_endpoint()])
     }
 
-    /// For the query commands, whose only `-p` is the HTTP port.
     pub fn http_at(self, node: Node) -> Self {
-        self.args([
-            "-H".to_string(),
-            "localhost".to_string(),
-            "-p".to_string(),
-            node.http_port().to_string(),
-        ])
+        self.args(["--http".to_string(), node.http_endpoint()])
     }
 
-    /// For commands that name the HTTP port `--http-port` and have no `-p`.
-    pub fn http_port_at(self, node: Node) -> Self {
-        self.args([
-            "-H".to_string(),
-            "localhost".to_string(),
-            "--http-port".to_string(),
-            node.http_port().to_string(),
-        ])
-    }
-
-    /// Add the observer flags, which every deploying command needs: only the
-    /// read-only node serves the endpoints finalization waits on.
+    /// Poll `node` for the verdict alongside the deploy node.
     pub fn observing(self, node: Node) -> Self {
-        self.args([
-            "--observer-host".to_string(),
-            "localhost".to_string(),
-            "--observer-port".to_string(),
-            node.grpc_port().to_string(),
-            "--observer-http-port".to_string(),
-            node.http_port().to_string(),
-        ])
+        self.args(["--observer".to_string(), node.http_endpoint()])
     }
 
     pub fn key(self, key: &super::keys::Key) -> Self {

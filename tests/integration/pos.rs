@@ -114,7 +114,7 @@ fn bonds() -> Output {
 fn validator_status(public_key: &str) -> Output {
     Cli::new("validator-status")
         .args(["--public-key", public_key])
-        .http_port_at(Node::ReadOnly)
+        .http_at(Node::ReadOnly)
         .run()
 }
 

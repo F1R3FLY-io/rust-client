@@ -15,16 +15,15 @@ node_cli exploratory-deploy -f <FILE> [OPTIONS]
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--file` | `-f` | required | Rholang file to execute |
-| `--private-key` | `-k` | dev key | Signing key |
-| `--host` | `-H` | `localhost` | Node hostname |
-| `--port` | `-p` | `40412` | gRPC port |
+| `--grpc` | | `http://localhost:40401` | gRPC endpoint of a read-only node, `http://` or `https://` |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
 | `--block-hash` | | latest | Execute against a specific block's state |
 | `--use-pre-state` | | false | Use pre-state hash instead of post-state |
 
 ## Example
 
 ```
-$ node_cli exploratory-deploy -f ./rho_examples/stdout.rho -H localhost -p 40452
+$ node_cli exploratory-deploy -f ./rho_examples/stdout.rho --grpc http://localhost:40452
 
 Execution successful!
 Cost:    317 phlogiston
@@ -41,7 +40,7 @@ The response now includes the phlogiston cost of execution. For cost-only output
 The node's `TokenMetadata` contract (registered at `rho:system:tokenMetadata`) can be queried via exploratory deploy. An example Rholang file is included at `rho_examples/query_token_metadata.rho`:
 
 ```
-$ node_cli exploratory-deploy -H localhost -p 40452 -f rho_examples/query_token_metadata.rho
+$ node_cli exploratory-deploy --grpc http://localhost:40452 -f rho_examples/query_token_metadata.rho
 
 Execution successful!
 Cost:    34218 phlogiston
@@ -61,7 +60,7 @@ These values are baked into genesis and are immutable for the lifetime of the ne
 
 ## Notes
 
-- Must run against a read-only or observer node (validators may reject exploratory deploys)
-- On a standard Docker shard, the observer gRPC port is 40452
+- Must run against a read-only node; only a read-only node serves exploratory deploys
+- On the system-integration single-host Docker shard, the read-only node's gRPC endpoint is `http://localhost:40452`
 - `--block-hash` lets you query historical state at any finalized block
 - `--use-pre-state` queries the state BEFORE the block's deploys executed (useful for debugging)

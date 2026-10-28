@@ -16,8 +16,8 @@ node_cli deploy -f <FILE> [OPTIONS]
 |------|-------|---------|-------------|
 | `--file` | `-f` | required | Rholang file to deploy |
 | `--private-key` | `-k` | dev key | Signing key (64 hex chars) |
-| `--host` | `-H` | `localhost` | Node hostname |
-| `--port` | `-p` | `40412` | gRPC port |
+| `--grpc` | | `http://localhost:40401` | Node gRPC endpoint, `http://` or `https://` |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
 | `--phlo-limit` | | `50000` | Most phlo the deploy may spend |
 | `--phlo-price` | | `1` | Price per phlo, in the native token's base units |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
@@ -31,7 +31,7 @@ $ node_cli deploy -f ./rho_examples/stdout.rho
 
 Reading Rholang from: ./rho_examples/stdout.rho
 Code size: 62 bytes
-Connecting to F1r3fly node at localhost:40412
+Connecting to F1r3fly node at http://localhost:40401
 Using phlo limit: 50000
 Deploying Rholang code...
 Deployment successful!

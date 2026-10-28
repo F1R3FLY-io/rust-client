@@ -285,7 +285,8 @@ jobs:
           retention-days: 7
 
   # The node-backed suite. It owns its shard: bootstrap, three validators, a
-  # read-only observer and a joiner, all defined in tests/integration/topology.
+  # read-only observer, a TLS proxy and a joiner, all defined in
+  # tests/integration/topology.
   integration_tests:
     name: Integration Tests (${{ matrix.arch.name }})
     needs:
@@ -349,6 +350,8 @@ jobs:
       - name: Tear the shard down
         if: always()
         shell: bash {0}
+        env:
+          IT_TLS_DIR: ${{ github.workspace }}/target/integration-tls
         run: |
           docker compose -p rust-client-it \
             -f tests/integration/topology/compose.yml \

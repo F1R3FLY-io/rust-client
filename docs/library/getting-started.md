@@ -12,7 +12,7 @@ node_cli = { git = "https://github.com/F1R3FLY-io/rust-client.git", default-feat
 The primary library API. Handles deploy orchestration, finalization, and data reads.
 
 ```rust
-use node_cli::{ConnectionConfig, F1r3flyConnectionManager};
+use node_cli::{ConnectionConfig, Endpoint, F1r3flyConnectionManager};
 
 #[tokio::main]
 async fn main() -> node_cli::Result<()> {
@@ -21,24 +21,48 @@ async fn main() -> node_cli::Result<()> {
 
     // Or explicit config
     let config = ConnectionConfig::new(
-        "localhost".into(), 40401, 40403, "your_private_key_hex".into(),
+        Endpoint::parse("http://localhost:40401")?,
+        Endpoint::parse("http://localhost:40403")?,
+        "your_private_key_hex".into(),
     );
-    let manager = F1r3flyConnectionManager::new(config);
+    let manager = F1r3flyConnectionManager::new(config)?;
 
     Ok(())
 }
 ```
 
+The manager builds its gRPC and HTTP clients once and reuses their connections
+across calls.
+
 ### With observer node
 
 ```rust
-let config = ConnectionConfig::new("localhost".into(), 40412, 40413, key.into())
-    .with_observer("localhost".into(), 40452, 40453);
+let config = ConnectionConfig::new(
+    Endpoint::parse("http://localhost:40412")?,
+    Endpoint::parse("http://localhost:40413")?,
+    key.into(),
+)
+.with_observer(Endpoint::parse("http://localhost:40453")?);
 ```
 
-`with_observer` takes the observer's gRPC port and its HTTP port. The HTTP port
-is the one polled for finalization status, so it must be set explicitly rather
-than derived.
+`with_observer` takes the HTTP endpoint of a second node, such as the shard's
+read-only node, which is polled alongside the deploy node for the deploy's
+verdict. Without an observer, only the deploy node is polled.
+
+### Connecting over TLS
+
+An `https://` endpoint connects over TLS; `http://` is plaintext. An `https`
+endpoint trusts the bundled public root certificates unless it is given its own
+certificate authorities, in which case it trusts only those:
+
+```rust
+let grpc = Endpoint::parse("https://node.example:40401")?
+    .with_ca_certificates(std::fs::read("ca.pem")?)?;
+```
+
+gRPC, HTTP and WebSocket connections all honor the scheme and the endpoint's
+certificate authorities. `from_env` applies `FIREFLY_CA_CERT` to every endpoint
+it reads.
 
 ### Deploy and wait
 
@@ -84,7 +108,7 @@ as usual, one in neither is reported refused. The low-level
 `F1r3flyApi::submit` makes only the first promise.
 
 ```rust
-let api = manager.get_api()?;
+let api = manager.api();
 let unsigned = api.prepare("new x in { x!(1) }", &DeployOptions::default()).await?;
 let signed = unsigned.sign(&secret_key);            // or with_signature(..) from a hardware key
 store(signed.id(), signed.to_bytes());              // the ID is final from here on
@@ -132,12 +156,14 @@ deploy limit. Bonds and withdrawals use `pos::POS_CALL_PHLO_LIMIT` (5B).
 
 ## F1r3flyApi (Low-Level)
 
-For single gRPC/HTTP operations without orchestration:
+For single gRPC operations without orchestration. Without a signing key the
+client reads and sends pre-signed deploys:
 
 ```rust
-use node_cli::F1r3flyApi;
+use node_cli::{Endpoint, F1r3flyApi};
 
-let api = F1r3flyApi::new("private_key_hex", "localhost", 40412)?;
+let api = F1r3flyApi::new(Endpoint::parse("http://localhost:40401")?)
+    .with_signing_key("private_key_hex")?;
 
 // Deploy only (no waiting)
 let deploy_id = api.deploy("new x in { x!(1) }", &DeployOptions::default()).await?;
@@ -151,6 +177,22 @@ let pars = api.get_data_at_deploy_id(&deploy_id, &block_hash).await?;
 // Check finalization
 let finalized = api.is_finalized(&block_hash, 12, 5).await?;
 ```
+
+`F1r3flyApi` is gRPC only. A node's HTTP API is `NodeHttp`:
+
+```rust
+use node_cli::NodeHttp;
+
+let http = NodeHttp::new(Endpoint::parse("http://localhost:40403")?)?;
+
+let detail = http.get_deploy_detail(&deploy_id).await?;        // Option<DeployDetail>
+let status = http.deploy_finalization_status(&deploy_id).await?;
+let cost = http.estimate_cost(term, Some(&deployer_pubkey_hex), None).await?;
+let result = http.explore_deploy(term).await?;                 // retries 503 capacity rejections
+let status_json = http.get_json("/api/status").await?;
+```
+
+It also has `get_deploy`, `get_deploy_block_hash` and `get_text`.
 
 ## Types
 
@@ -218,16 +260,17 @@ match manager.transfer("1111recipient...", amount).await {
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `node_host` | `localhost` | Node hostname |
-| `grpc_port` | `40401` | gRPC port |
-| `http_port` | `40403` | HTTP port |
+| `grpc` | `http://localhost:40401` | Deploy node's gRPC endpoint |
+| `http` | `http://localhost:40403` | Deploy node's HTTP endpoint: finalization status and deploy details |
+| `observer` | none | HTTP endpoint of a second node polled for the deploy's verdict |
 | `signing_key` | required | Private key (hex) |
-| `observer_host` | same as node | Observer for finalization |
-| `observer_grpc_port` | `40452` | Observer gRPC port |
-| `observer_http_port` | `40453` | Observer HTTP port polled for finalization status |
 | `finalization_timeout_secs` | `90` | Max seconds to wait for a deploy to finalize |
 | `poll_interval_secs` | `2` | Seconds between finalization status polls |
 | `shard_id` | `root` | Shard deploys are signed for: the node's `casper.shard-name` |
+
+The defaults are `connection_manager::DEFAULT_GRPC_URL` and `DEFAULT_HTTP_URL`.
+Certificate authorities for `https` endpoints are set on each `Endpoint` with
+`with_ca_certificates`, or by `FIREFLY_CA_CERT` for `from_env`.
 
 ### Exact token amounts
 

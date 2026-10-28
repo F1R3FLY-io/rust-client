@@ -1,21 +1,22 @@
 # Node Inspection Commands
 
-HTTP-based commands for querying node state.
+Commands for querying node state. HTTP commands take `--http <URL>` (default `http://localhost:40403`); gRPC commands take `--grpc <URL>` (default `http://localhost:40401`). Every one also takes `--ca-cert <PEM file>`, the certificate authorities trusted for an `https://` endpoint in place of the bundled public roots.
+
+On the system-integration single-host Docker shard, validator1's HTTP endpoint is `http://localhost:40413` and the read-only node's is `http://localhost:40453` (gRPC `http://localhost:40452`).
 
 ## status
 
 ```bash
-node_cli status [-H HOST] [-p HTTP_PORT]
+node_cli status [--http URL]
 ```
 
 Queries the node's `/api/status` endpoint and displays node identity, network membership, and native token metadata.
 
-`-p` defaults to `40453`, the read-only observer's HTTP port, so a bare
-`node_cli status` reports on the observer rather than a validator. `blocks`
-below defaults to `40413` instead.
+`status`, `blocks`, `metrics` and `last-finalized-block` exit non-zero when the
+node answers with an HTTP error.
 
 ```
-$ node_cli status -H localhost -p 40413
+$ node_cli status --http http://localhost:40413
 
   Address:       rnode://24f31580...@rnode.validator1?protocol=40400&discovery=40404
   Network:       testnet
@@ -44,7 +45,7 @@ $ node_cli status -H localhost -p 40413
 ## blocks
 
 ```bash
-node_cli blocks [-n COUNT] [--block-hash HASH] [-H HOST] [-p HTTP_PORT]
+node_cli blocks [-n COUNT] [--block-hash HASH] [--http URL]
 ```
 
 | Flag | Default | Description |
@@ -76,7 +77,7 @@ Block list responses use the `blockInfo` wrapper (summary view by default, deplo
 ## last-finalized-block
 
 ```bash
-node_cli last-finalized-block [-H HOST] [-p HTTP_PORT]
+node_cli last-finalized-block [--http URL]
 ```
 
 ```
@@ -93,14 +94,14 @@ Last Finalized Block Summary:
 
 ## bonds
 
-Validators bonded in the PoS contract. A bond is listed as soon as its deploy executes. Bonds outside the active set are marked `(not active)`: the active set is recomputed at each epoch boundary, up to the shard's `number-of-active-validators`, so such a bond may never activate. Must run against observer/read-only node.
+Validators bonded in the PoS contract. A bond is listed as soon as its deploy executes. Bonds outside the active set are marked `(not active)`: the active set is recomputed at each epoch boundary, up to the shard's `number-of-active-validators`, so such a bond may never activate. Must run against a read-only node.
 
 ```bash
-node_cli bonds [-H HOST] [-p HTTP_PORT]
+node_cli bonds [--http URL]
 ```
 
 ```
-$ node_cli bonds -H localhost -p 40453
+$ node_cli bonds --http http://localhost:40453
 
 Bonded Validators (4 total, 4000 total stake):
 
@@ -112,14 +113,14 @@ Bonded Validators (4 total, 4000 total stake):
 
 ## active-validators
 
-Validators participating in consensus. The set is recomputed only at epoch boundaries, up to the shard's `number-of-active-validators`, so a new bond appears here no earlier than one boundary after it appears in `bonds`. Must run against observer/read-only node.
+Validators participating in consensus. The set is recomputed only at epoch boundaries, up to the shard's `number-of-active-validators`, so a new bond appears here no earlier than one boundary after it appears in `bonds`. Must run against a read-only node.
 
 ```bash
-node_cli active-validators [-H HOST] [-p HTTP_PORT]
+node_cli active-validators [--http URL]
 ```
 
 ```
-$ node_cli active-validators -H localhost -p 40453
+$ node_cli active-validators --http http://localhost:40453
 
 Active Validators (3 total, 3000 total stake):
 
@@ -130,14 +131,14 @@ Active Validators (3 total, 3000 total stake):
 
 ## wallet-balance
 
-Must run against observer/read-only node.
+Must run against a read-only node.
 
 ```bash
-node_cli wallet-balance --address <ADDRESS> [-H HOST] [-p GRPC_PORT]
+node_cli wallet-balance --address <ADDRESS> [--grpc URL]
 ```
 
 ```
-$ node_cli wallet-balance -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g -p 40452
+$ node_cli wallet-balance -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g --grpc http://localhost:40452
 
 Balance for 1111AtahZe...Bk5r3g: 49999999598463260
 Block hash: 79574d57..., Block number: 400
@@ -148,7 +149,7 @@ Block hash: 79574d57..., Block number: 400
 Returns Prometheus-format metrics from the node.
 
 ```bash
-node_cli metrics [-H HOST] [-p HTTP_PORT]
+node_cli metrics [--http URL]
 ```
 
 ```
@@ -168,7 +169,7 @@ comm_produce{source="f1r3fly.rspace.replay"} 47088
 Get blocks in the main chain via gRPC.
 
 ```bash
-node_cli show-main-chain [-d DEPTH] [-H HOST] [-p GRPC_PORT]
+node_cli show-main-chain [-d DEPTH] [--grpc URL]
 ```
 
 ```
@@ -193,7 +194,7 @@ Main Chain Blocks:
 Returns blocks in the specified height range via gRPC streaming.
 
 ```bash
-node_cli get-blocks-by-height -s <START> -e <END> [-H HOST] [-p GRPC_PORT]
+node_cli get-blocks-by-height -s <START> -e <END> [--grpc URL]
 ```
 
 ```
@@ -224,7 +225,7 @@ Multiple blocks at the same height indicate parallel proposals from different va
 Extracts native token transfers from a block's deploys.
 
 ```bash
-node_cli block-transfers <BLOCK_HASH> [-H HOST] [-p HTTP_PORT] [--all-deploys] [--max-wait SECONDS]
+node_cli block-transfers <BLOCK_HASH> [--http URL] [--all-deploys] [--max-wait SECONDS]
 ```
 
 Point it at a read-only node: a validator never attaches transfers, so against one the command waits out `--max-wait` and fails. The read-only node attaches transfers to a block's deploys once it has replayed the block. Until then the command re-reads the block every 2 seconds, up to `--max-wait` (default 60), and exits with an error if the report never arrives; it never reports a pending block as having no transfers.
@@ -247,12 +248,12 @@ When a block contains transfer deploys, this shows from/to addresses, amounts, a
 Checks whether a public key is bonded as of the last finalized block. Works against any node. A bond counts as soon as its deploy finalizes, before activation; use `validator-status` for activation and withdrawal progress.
 
 ```bash
-node_cli bond-status -k <PUBLIC_KEY> [-H HOST] [-p HTTP_PORT]
+node_cli bond-status -k <PUBLIC_KEY> [--http URL]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-p, --port` | `40413` | HTTP port of any node |
+| `--http` | `http://localhost:40403` | HTTP endpoint of any node |
 
 ```
 $ node_cli bond-status -k 0457febafcc25dd3...b4ae661c

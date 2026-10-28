@@ -13,8 +13,8 @@ node_cli get-deploy --deploy-id <ID> [OPTIONS]
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--deploy-id` | `-d` | required | Deploy ID (hex) |
-| `--host` | `-H` | `localhost` | Node hostname |
-| `--http-port` | | `40413` | HTTP port |
+| `--http` | | `http://localhost:40403` | Node HTTP endpoint, `http://` or `https://` |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
 | `--format` | | `pretty` | Output format: `pretty`, `json`, `summary` |
 | `--verbose` | `-v` | false | Show VABN in pretty mode |
 

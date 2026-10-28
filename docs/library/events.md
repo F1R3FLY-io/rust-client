@@ -5,11 +5,11 @@ Real-time deploy finalization notifications via the node's `/ws/events` WebSocke
 ## Usage
 
 ```rust
-use node_cli::NodeEvents;
+use node_cli::{Endpoint, NodeEvents};
 use std::time::Duration;
 
-// Connect to node's WebSocket
-let events = NodeEvents::connect("ws://localhost:40403");
+// Follow the event stream of the node whose HTTP API is this endpoint
+let events = NodeEvents::connect(&Endpoint::parse("http://localhost:40403")?);
 
 // Wait for a specific deploy to be finalized
 let deploy_id = "3044022075e51b8f...";
@@ -41,7 +41,7 @@ pub struct DeployEvent {
 
 ## How it works
 
-1. Connects to `ws://{host}/ws/events`
+1. Connects to `/ws/events` on the node's HTTP endpoint: `ws://` for an `http` endpoint, `wss://` (trusting the endpoint's CA bundle) for `https`
 2. Receives JSON events from the node in envelope format
 3. Unwraps envelope and deserializes using `f1r3fly_shared::F1r3flyEvent` (type-safe)
 4. Tracks `block-finalised` events and their deploy lists

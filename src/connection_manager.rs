@@ -3,8 +3,10 @@
 /// Manages connections to F1r3fly nodes with connection reuse and pooling.
 /// Provides a high-level async API for deploying Rholang code and querying state.
 use crate::deploy::{DeployOptions, SignedDeploy, DEFAULT_SHARD_ID};
+use crate::endpoint::Endpoint;
 use crate::error::{Error, Result};
 use crate::f1r3fly_api::{DeployDetail, DeployFinalizationStatus, DeployResult, F1r3flyApi};
+use crate::node_http::NodeHttp;
 use crate::utils::CryptoUtils;
 use crate::vault::{build_transfer_rholang, TransferResult};
 use log;
@@ -12,6 +14,11 @@ use secp256k1::PublicKey;
 use std::env;
 use std::str::FromStr;
 use std::time::Duration;
+
+/// A node's own gRPC port, on this host.
+pub const DEFAULT_GRPC_URL: &str = "http://localhost:40401";
+/// A node's own HTTP port, on this host.
+pub const DEFAULT_HTTP_URL: &str = "http://localhost:40403";
 
 fn env_opt(var: &'static str) -> Result<Option<String>> {
     match env::var(var) {
@@ -40,17 +47,14 @@ where
 /// Configuration for F1r3fly node connection
 #[derive(Debug, Clone)]
 pub struct ConnectionConfig {
-    pub node_host: String,
-    pub grpc_port: u16,
-    pub http_port: u16,
+    /// The deploy node's gRPC API: deploys go here
+    pub grpc: Endpoint,
+    /// The deploy node's HTTP API: finalization status and deploy details
+    pub http: Endpoint,
+    /// A second node's HTTP API, polled alongside the deploy node for a
+    /// deploy's verdict. Without one, only the deploy node is polled.
+    pub observer: Option<Endpoint>,
     pub signing_key: String,
-    /// Observer node hostname for finalization checks (defaults to node_host)
-    pub observer_host: Option<String>,
-    /// Observer node gRPC port for finalization checks (defaults to 40452)
-    pub observer_grpc_port: u16,
-    /// Observer node HTTP port, for endpoints the validators refuse — a shard
-    /// serves exploratory deploys only from its read-only node (defaults to 40453)
-    pub observer_http_port: u16,
     /// Maximum seconds to wait for a deploy to finalize (default: 90)
     pub finalization_timeout_secs: u32,
     /// Seconds between finalization status polls (default: 2)
@@ -64,55 +68,69 @@ impl ConnectionConfig {
     ///
     /// # Environment Variables
     ///
-    /// - `FIREFLY_HOST`: Node hostname (default: "localhost")
-    /// - `FIREFLY_GRPC_PORT`: gRPC port (default: 40401)
-    /// - `FIREFLY_HTTP_PORT`: HTTP port (default: 40403)
     /// - `FIREFLY_PRIVATE_KEY`: Private key for signing (REQUIRED)
+    /// - `FIREFLY_GRPC_URL`: Deploy node's gRPC endpoint (default: [`DEFAULT_GRPC_URL`])
+    /// - `FIREFLY_HTTP_URL`: Deploy node's HTTP endpoint (default: [`DEFAULT_HTTP_URL`])
+    /// - `FIREFLY_OBSERVER_URL`: Observer's HTTP endpoint (default: none)
+    /// - `FIREFLY_CA_CERT`: PEM file of the certificate authorities every
+    ///   `https` endpoint trusts, in place of the bundled public roots
     /// - `FIREFLY_FINALIZATION_TIMEOUT`: Max seconds to wait for a deploy to finalize (default: 90)
     /// - `FIREFLY_SHARD_ID`: Shard deploys are signed for (default: "root")
     pub fn from_env() -> Result<Self> {
         let signing_key = env_opt("FIREFLY_PRIVATE_KEY")?.ok_or(Error::MissingConfig {
             var: "FIREFLY_PRIVATE_KEY",
         })?;
+        let ca_pem = env_opt("FIREFLY_CA_CERT")?
+            .map(|path| {
+                std::fs::read(&path).map_err(|cause| Error::Io {
+                    path: path.into(),
+                    cause,
+                })
+            })
+            .transpose()?;
+        let endpoint = |var: &'static str, url: &str| -> Result<Endpoint> {
+            let endpoint = Endpoint::parse(url).map_err(|e| Error::invalid(var, e))?;
+            match &ca_pem {
+                Some(pem) => endpoint.with_ca_certificates(pem.clone()),
+                None => Ok(endpoint),
+            }
+        };
 
         Ok(Self {
-            node_host: env_or("FIREFLY_HOST", "localhost".to_string())?,
-            grpc_port: env_or("FIREFLY_GRPC_PORT", 40401)?,
-            http_port: env_or("FIREFLY_HTTP_PORT", 40403)?,
+            grpc: endpoint(
+                "FIREFLY_GRPC_URL",
+                &env_or("FIREFLY_GRPC_URL", DEFAULT_GRPC_URL.to_string())?,
+            )?,
+            http: endpoint(
+                "FIREFLY_HTTP_URL",
+                &env_or("FIREFLY_HTTP_URL", DEFAULT_HTTP_URL.to_string())?,
+            )?,
+            observer: env_opt("FIREFLY_OBSERVER_URL")?
+                .map(|url| endpoint("FIREFLY_OBSERVER_URL", &url))
+                .transpose()?,
             signing_key,
-            observer_host: env_opt("FIREFLY_OBSERVER_HOST")?,
-            observer_grpc_port: env_or("FIREFLY_OBSERVER_GRPC_PORT", 40452)?,
-            observer_http_port: env_or("FIREFLY_OBSERVER_HTTP_PORT", 40453)?,
             finalization_timeout_secs: env_or("FIREFLY_FINALIZATION_TIMEOUT", 90)?,
             poll_interval_secs: 2,
             shard_id: env_or("FIREFLY_SHARD_ID", DEFAULT_SHARD_ID.to_string())?,
         })
     }
 
-    /// Create a new configuration with explicit values
-    pub fn new(node_host: String, grpc_port: u16, http_port: u16, signing_key: String) -> Self {
+    /// A configuration for the deploy node at `grpc` and `http`, with no observer.
+    pub fn new(grpc: Endpoint, http: Endpoint, signing_key: String) -> Self {
         Self {
-            node_host,
-            grpc_port,
-            http_port,
+            grpc,
+            http,
+            observer: None,
             signing_key,
-            observer_host: None,
-            observer_grpc_port: 40452,
-            observer_http_port: 40453,
             finalization_timeout_secs: 90,
             poll_interval_secs: 2,
             shard_id: DEFAULT_SHARD_ID.to_string(),
         }
     }
 
-    /// Set observer node for finalization checks and read-only endpoints.
-    ///
-    /// Both ports are explicit: a shard maps them independently, and deriving
-    /// one from the other silently sends requests to the wrong port.
-    pub fn with_observer(mut self, host: String, grpc_port: u16, http_port: u16) -> Self {
-        self.observer_host = Some(host);
-        self.observer_grpc_port = grpc_port;
-        self.observer_http_port = http_port;
+    /// Also poll the node whose HTTP API is `http` for a deploy's verdict.
+    pub fn with_observer(mut self, http: Endpoint) -> Self {
+        self.observer = Some(http);
         self
     }
 }
@@ -168,15 +186,15 @@ fn report_unavailable(
 /// Terminal states are write-once on a node, so whichever node reports one first
 /// has the verdict. Two nodes reporting different terminal states is an error,
 /// never a choice. A 404 (`Ok(None)`) from the deploy node is conclusive unless
-/// the observer answered.
+/// the observer answered. `observer` is `None` when no observer is configured.
 fn poll_outcome(
     deploy_id: &str,
     node: StatusAnswer,
-    observer: StatusAnswer,
+    observer: Option<StatusAnswer>,
 ) -> Result<PollOutcome> {
     let node_unserved = matches!(node, Ok(None));
     let node = node.ok().flatten();
-    let observer = observer.ok().flatten();
+    let observer = observer.and_then(|answer| answer.ok().flatten());
 
     let terminal = |status: &Option<DeployFinalizationStatus>| {
         status
@@ -226,16 +244,17 @@ fn poll_outcome(
 }
 
 /// Either node holding the deploy settles it as landed, and either node's
-/// "not found" settles it as not landed. Only when neither node answered is it
-/// unknown, which is the deploy node's lookup error.
+/// "not found" settles it as not landed. Only when no node answered is it
+/// unknown, which is the deploy node's lookup error. `observer` is `None` when
+/// no observer is configured.
 fn landed(
     node: Result<Option<DeployDetail>>,
-    observer: Result<Option<DeployDetail>>,
+    observer: Option<Result<Option<DeployDetail>>>,
 ) -> Result<bool> {
     match (node, observer) {
-        (Ok(Some(_)), _) | (_, Ok(Some(_))) => Ok(true),
-        (Ok(None), _) | (_, Ok(None)) => Ok(false),
-        (Err(error), Err(_)) => Err(error),
+        (Ok(Some(_)), _) | (_, Some(Ok(Some(_)))) => Ok(true),
+        (Ok(None), _) | (_, Some(Ok(None))) => Ok(false),
+        (Err(error), _) => Err(error),
     }
 }
 
@@ -243,18 +262,30 @@ fn landed(
 #[derive(Clone)]
 pub struct F1r3flyConnectionManager {
     config: ConnectionConfig,
+    api: F1r3flyApi,
+    node: NodeHttp,
+    observer: Option<NodeHttp>,
 }
 
 impl F1r3flyConnectionManager {
     /// Create a new connection manager from environment variables
     pub fn from_env() -> Result<Self> {
-        let config = ConnectionConfig::from_env()?;
-        Ok(Self { config })
+        Self::new(ConnectionConfig::from_env()?)
     }
 
     /// Create a new connection manager with explicit configuration
-    pub fn new(config: ConnectionConfig) -> Self {
-        Self { config }
+    pub fn new(config: ConnectionConfig) -> Result<Self> {
+        let api = F1r3flyApi::new(config.grpc.clone())
+            .with_signing_key(&config.signing_key)?
+            .with_shard_id(&config.shard_id);
+        let node = NodeHttp::new(config.http.clone())?;
+        let observer = config.observer.clone().map(NodeHttp::new).transpose()?;
+        Ok(Self {
+            config,
+            api,
+            node,
+            observer,
+        })
     }
 
     /// Get the connection configuration
@@ -262,24 +293,15 @@ impl F1r3flyConnectionManager {
         &self.config
     }
 
-    fn api(&self) -> Result<F1r3flyApi<'_>> {
-        Ok(F1r3flyApi::new(
-            &self.config.signing_key,
-            &self.config.node_host,
-            self.config.grpc_port,
-        )?
-        .with_shard_id(&self.config.shard_id))
-    }
-
-    fn observer_host(&self) -> &str {
-        self.config
-            .observer_host
-            .as_deref()
-            .unwrap_or(&self.config.node_host)
-    }
-
-    fn observer_api(&self) -> F1r3flyApi<'_> {
-        F1r3flyApi::new_readonly(self.observer_host(), self.config.observer_grpc_port)
+    /// The HTTP API of the node that gave an answer.
+    fn http_of(&self, source: StatusSource) -> &NodeHttp {
+        match source {
+            StatusSource::DeployNode => &self.node,
+            StatusSource::Observer => self
+                .observer
+                .as_ref()
+                .expect("only a configured observer is polled, so only it can be a source"),
+        }
     }
 
     /// The deploy's detail as `source` serves it over HTTP.
@@ -288,24 +310,13 @@ impl F1r3flyConnectionManager {
         source: StatusSource,
         deploy_id: &str,
     ) -> Result<Option<DeployDetail>> {
-        match source {
-            StatusSource::DeployNode => {
-                F1r3flyApi::new_readonly(&self.config.node_host, self.config.grpc_port)
-                    .get_deploy_detail(deploy_id, self.config.http_port)
-                    .await
-            }
-            StatusSource::Observer => {
-                self.observer_api()
-                    .get_deploy_detail(deploy_id, self.config.observer_http_port)
-                    .await
-            }
-        }
+        self.http_of(source).get_deploy_detail(deploy_id).await
     }
 
     /// Execute an exploratory deploy (read-only query)
     pub async fn query(&self, rholang_code: &str) -> Result<String> {
         let (result, _block_info, _cost) = self
-            .api()?
+            .api
             .exploratory_deploy(rholang_code, None, false)
             .await?;
         Ok(result)
@@ -317,28 +328,23 @@ impl F1r3flyConnectionManager {
         rholang_code: &str,
         deployer_pubkey_hex: Option<&str>,
     ) -> Result<u64> {
-        self.api()?
-            .estimate_cost(
-                rholang_code,
-                deployer_pubkey_hex,
-                None,
-                self.config.http_port,
-            )
+        self.node
+            .estimate_cost(rholang_code, deployer_pubkey_hex, None)
             .await
     }
 
     /// Deploy Rholang code without waiting for it to finalize. Returns its ID.
     pub async fn deploy(&self, rholang_code: &str, options: &DeployOptions) -> Result<String> {
-        self.api()?.deploy(rholang_code, options).await
+        self.api.deploy(rholang_code, options).await
     }
 
     /// Wait for a deploy to reach a terminal finalization state (`Finalized` /
     /// `Failed` / `Expired`) via `/api/deploy-finalization-status/{sig}`.
     ///
-    /// Each poll asks the deploy node and the observer; the first terminal
-    /// state either reports is the verdict. Fails immediately when the deploy
-    /// node does not serve the endpoint and the observer gave no answer, and
-    /// when the budget elapses without a terminal state.
+    /// Each poll asks the deploy node and, when one is configured, the
+    /// observer; the first terminal state either reports is the verdict. Fails
+    /// immediately when the deploy node does not serve the endpoint and no
+    /// observer answered, and when the budget elapses without a terminal state.
     pub async fn wait_for_deploy_finalization(
         &self,
         deploy_sig_hex: &str,
@@ -358,8 +364,6 @@ impl F1r3flyConnectionManager {
         total_timeout_secs: u64,
         poll_interval_secs: u64,
     ) -> Result<(DeployFinalizationStatus, StatusSource)> {
-        let node_api = F1r3flyApi::new_readonly(&self.config.node_host, self.config.grpc_port);
-        let observer_api = self.observer_api();
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
         let mut execution_failure: Option<String> = None;
         let mut node_error = None;
@@ -367,9 +371,8 @@ impl F1r3flyConnectionManager {
 
         for attempt in 1..=max_attempts {
             let (node, observer) = tokio::join!(
-                node_api.deploy_finalization_status(deploy_sig_hex, self.config.http_port),
-                observer_api
-                    .deploy_finalization_status(deploy_sig_hex, self.config.observer_http_port),
+                self.node.deploy_finalization_status(deploy_sig_hex),
+                self.observer_finalization_status(deploy_sig_hex),
             );
             report_unavailable(
                 "deploy node",
@@ -378,13 +381,15 @@ impl F1r3flyConnectionManager {
                 deploy_sig_hex,
                 attempt,
             );
-            report_unavailable(
-                "observer",
-                &observer,
-                &mut observer_error,
-                deploy_sig_hex,
-                attempt,
-            );
+            if let Some(observer) = &observer {
+                report_unavailable(
+                    "observer",
+                    observer,
+                    &mut observer_error,
+                    deploy_sig_hex,
+                    attempt,
+                );
+            }
 
             let included_by = match poll_outcome(deploy_sig_hex, node, observer)? {
                 PollOutcome::Terminal { status, source } => {
@@ -399,10 +404,7 @@ impl F1r3flyConnectionManager {
                 }
                 PollOutcome::Unserved => {
                     return Err(Error::NodeTooOld {
-                        endpoint: format!(
-                            "http://{}:{}",
-                            self.config.node_host, self.config.http_port
-                        ),
+                        endpoint: self.node.endpoint().to_string(),
                         feature: "/api/deploy-finalization-status",
                         requirement: "f1r3node-rust v0.4.15 or later",
                     });
@@ -433,6 +435,14 @@ impl F1r3flyConnectionManager {
         })
     }
 
+    /// The observer's answer, or `None` when no observer is configured.
+    async fn observer_finalization_status(&self, deploy_sig_hex: &str) -> Option<StatusAnswer> {
+        match &self.observer {
+            Some(observer) => Some(observer.deploy_finalization_status(deploy_sig_hex).await),
+            None => None,
+        }
+    }
+
     /// `source`'s description of a failed execution, as `block N (cost C): reason`.
     async fn failed_execution(&self, source: StatusSource, deploy_sig_hex: &str) -> Option<String> {
         match self.deploy_detail(source, deploy_sig_hex).await {
@@ -461,10 +471,9 @@ impl F1r3flyConnectionManager {
         rholang_code: &str,
         options: &DeployOptions,
     ) -> Result<DeployResult> {
-        let api = self.api()?;
-        let deploy_id = api.deploy(rholang_code, options).await?;
+        let deploy_id = self.api.deploy(rholang_code, options).await?;
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
-        self.await_result(&api, deploy_id).await
+        self.await_result(deploy_id).await
     }
 
     /// Send a deploy signed earlier, wait for canonical finalization, and read
@@ -473,8 +482,7 @@ impl F1r3flyConnectionManager {
     /// that the deploy node or the observer holds in a block is waited on
     /// rather than reported refused.
     pub async fn submit_and_wait(&self, deploy: &SignedDeploy) -> Result<DeployResult> {
-        let api = self.api()?;
-        let deploy_id = match api.submit(deploy).await {
+        let deploy_id = match self.api.submit(deploy).await {
             Ok(deploy_id) => deploy_id,
             Err(refusal @ Error::NodeRejected { .. }) => {
                 let deploy_id = deploy.id();
@@ -488,19 +496,22 @@ impl F1r3flyConnectionManager {
             Err(error) => return Err(error),
         };
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
-        self.await_result(&api, deploy_id).await
+        self.await_result(deploy_id).await
     }
 
     /// Whether the deploy node or the observer holds the deploy in a block.
     async fn landed(&self, deploy_id: &str) -> Result<bool> {
-        let (node, observer) = tokio::join!(
-            self.deploy_detail(StatusSource::DeployNode, deploy_id),
-            self.deploy_detail(StatusSource::Observer, deploy_id),
-        );
+        let observer = async {
+            match &self.observer {
+                Some(observer) => Some(observer.get_deploy_detail(deploy_id).await),
+                None => None,
+            }
+        };
+        let (node, observer) = tokio::join!(self.node.get_deploy_detail(deploy_id), observer);
         landed(node, observer)
     }
 
-    async fn await_result(&self, api: &F1r3flyApi<'_>, deploy_id: String) -> Result<DeployResult> {
+    async fn await_result(&self, deploy_id: String) -> Result<DeployResult> {
         let (status, source) = self
             .await_verdict(
                 &deploy_id,
@@ -546,7 +557,8 @@ impl F1r3flyConnectionManager {
                 cause: Box::new(cause),
             }
         };
-        let data = api
+        let data = self
+            .api
             .get_data_at_deploy_id(&deploy_id, &block_hash)
             .await
             .map_err(unreadable);
@@ -567,9 +579,14 @@ impl F1r3flyConnectionManager {
         })
     }
 
-    /// Get direct access to the underlying F1r3flyApi
-    pub fn get_api(&self) -> Result<F1r3flyApi<'_>> {
-        self.api()
+    /// The deploy node's gRPC client, signing with this connection's key.
+    pub fn api(&self) -> &F1r3flyApi {
+        &self.api
+    }
+
+    /// The deploy node's HTTP client.
+    pub fn http(&self) -> &NodeHttp {
+        &self.node
     }
 
     // =========================================================================
@@ -667,32 +684,49 @@ mod tests {
 
     fn assert_send<T: Send>(_: &T) {}
 
+    fn endpoint(url: &str) -> Endpoint {
+        Endpoint::parse(url).unwrap()
+    }
+
     #[test]
     fn public_futures_are_send() {
         let manager = F1r3flyConnectionManager::new(ConnectionConfig::new(
-            "localhost".into(),
-            40412,
-            40413,
+            endpoint(DEFAULT_GRPC_URL),
+            endpoint(DEFAULT_HTTP_URL),
             "01".repeat(32),
-        ));
+        ))
+        .unwrap();
         assert_send(&manager.transfer("1111", 1u8.into()));
         assert_send(&manager.deploy_and_wait("Nil", &DeployOptions::default()));
         assert_send(&manager.wait_for_deploy_finalization("sig", 1, 1));
         assert_send(&manager.query("Nil"));
-        let api = F1r3flyApi::new_readonly("localhost", 40452);
+        let api = manager.api();
         assert_send(&api.exploratory_deploy("Nil", None, false));
         assert_send(&api.propose());
         assert_send(&api.show_main_chain(1));
+        assert_send(&manager.http().explore_deploy("Nil"));
     }
 
     #[test]
-    fn test_config_new() {
-        let config =
-            ConnectionConfig::new("example.com".to_string(), 9000, 9001, "my_key".to_string());
-        assert_eq!(config.node_host, "example.com");
-        assert_eq!(config.grpc_port, 9000);
-        assert_eq!(config.http_port, 9001);
-        assert_eq!(config.signing_key, "my_key");
+    fn a_new_config_has_no_observer() {
+        let config = ConnectionConfig::new(
+            endpoint("https://node.example:40401"),
+            endpoint("https://node.example:40403"),
+            "my_key".to_string(),
+        );
+        assert_eq!(config.observer, None);
+        let observed = config.with_observer(endpoint("http://observer:40453"));
+        assert_eq!(observed.observer, Some(endpoint("http://observer:40453")));
+    }
+
+    #[test]
+    fn a_manager_refuses_a_malformed_signing_key() {
+        let config = ConnectionConfig::new(
+            endpoint(DEFAULT_GRPC_URL),
+            endpoint(DEFAULT_HTTP_URL),
+            "not hex".to_string(),
+        );
+        assert!(F1r3flyConnectionManager::new(config).is_err());
     }
 
     fn status(state: &str, block: Option<&str>) -> StatusAnswer {
@@ -715,7 +749,33 @@ mod tests {
     }
 
     fn poll_outcome(node: StatusAnswer, observer: StatusAnswer) -> Result<PollOutcome> {
-        super::poll_outcome("sig", node, observer)
+        super::poll_outcome("sig", node, Some(observer))
+    }
+
+    #[test]
+    fn without_an_observer_the_deploy_node_alone_decides() {
+        assert!(matches!(
+            super::poll_outcome("sig", status("Finalized", Some("b1")), None),
+            Ok(PollOutcome::Terminal {
+                source: StatusSource::DeployNode,
+                ..
+            })
+        ));
+        assert!(matches!(
+            super::poll_outcome("sig", Ok(None), None),
+            Ok(PollOutcome::Unserved)
+        ));
+        assert!(matches!(
+            super::poll_outcome("sig", unreachable(), None),
+            Ok(PollOutcome::Pending { included_by: None })
+        ));
+        let lookup_failed = || unreachable().map(|_| None);
+        assert!(!super::landed(Ok(None), None).unwrap());
+        assert!(super::landed(Ok(Some(DeployDetail::finalized("sig", false))), None).unwrap());
+        assert!(matches!(
+            super::landed(lookup_failed(), None),
+            Err(Error::Transport { .. })
+        ));
     }
 
     #[test]
@@ -813,23 +873,23 @@ mod tests {
     fn a_refused_deploy_has_landed_when_either_node_holds_it() {
         let held = || Ok(Some(DeployDetail::finalized("sig", false)));
         let lookup_failed = || unreachable().map(|_| None);
-        assert!(super::landed(held(), lookup_failed()).unwrap());
-        assert!(super::landed(lookup_failed(), held()).unwrap());
-        assert!(super::landed(Ok(None), held()).unwrap());
+        assert!(super::landed(held(), Some(lookup_failed())).unwrap());
+        assert!(super::landed(lookup_failed(), Some(held())).unwrap());
+        assert!(super::landed(Ok(None), Some(held())).unwrap());
     }
 
     #[test]
     fn a_refused_deploy_has_not_landed_when_a_node_does_not_know_it() {
         let lookup_failed = || unreachable().map(|_| None);
-        assert!(!super::landed(Ok(None), lookup_failed()).unwrap());
-        assert!(!super::landed(lookup_failed(), Ok(None)).unwrap());
+        assert!(!super::landed(Ok(None), Some(lookup_failed())).unwrap());
+        assert!(!super::landed(lookup_failed(), Some(Ok(None))).unwrap());
     }
 
     #[test]
     fn whether_a_refused_deploy_landed_is_unknown_when_neither_node_answers() {
         let lookup_failed = || unreachable().map(|_| None);
         assert!(matches!(
-            super::landed(lookup_failed(), lookup_failed()),
+            super::landed(lookup_failed(), Some(lookup_failed())),
             Err(Error::Transport { .. })
         ));
     }

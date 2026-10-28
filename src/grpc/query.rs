@@ -20,7 +20,7 @@ fn is_exploratory_capacity_rejection(status: &tonic::Status) -> bool {
         && status.message().contains("exploratory query capacity")
 }
 
-impl<'a> F1r3flyApi<'a> {
+impl F1r3flyApi {
     pub async fn exploratory_deploy(
         &self,
         rho_code: &str,
