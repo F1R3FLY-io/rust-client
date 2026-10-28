@@ -10,11 +10,15 @@ Native Rust command for testing orphan rates by sending multiple transfers with 
 
 ```bash
 # Basic usage (20 tests, 1 REV, 10s interval)
-cargo run -- load-test --to-address "111129p33f7vaRrpLqK8Nr35Y2aacAjrR5pd6PCzqcdrMuPHzymczH"
+cargo run -- load-test --to-address "111129p33f7vaRrpLqK8Nr35Y2aacAjrR5pd6PCzqcdrMuPHzymczH" \
+  --grpc http://localhost:40412 --http http://localhost:40413 \
+  --readonly-grpc http://localhost:40452
 
 # Custom configuration
 cargo run -- load-test \
   --to-address "111129p33f7vaRrpLqK8Nr35Y2aacAjrR5pd6PCzqcdrMuPHzymczH" \
+  --grpc http://localhost:40412 --http http://localhost:40413 \
+  --readonly-grpc http://localhost:40452 \
   --num-tests 50 \
   --amount 5 \
   --interval 15 \
@@ -30,10 +34,10 @@ cargo run -- load-test \
 - `--check-interval` - Fast polling interval (default: 1s)
 - `--chain-depth` - Main chain depth for orphan check (default: 200)
 - `--private-key` - Signing key, required (or set `FIREFLY_PRIVATE_KEY`)
-- `-H, --host` - Node host (default: localhost) — must be a bonded validator
-- `-p, --port` - gRPC port (default: 40412)
-- `--http-port` - HTTP port (default: 40413)
-- `--readonly-port` - Read-only gRPC port for balance checks (default: 40452)
+- `--grpc` - gRPC endpoint URL (default: `http://localhost:40401`) — must be a bonded validator
+- `--http` - HTTP endpoint URL of the same node (default: `http://localhost:40403`)
+- `--readonly-grpc` - gRPC endpoint URL of a read-only node for balance checks (required)
+- `--ca-cert`, `--connect-timeout`, `--timeout` - TLS trust and timeouts, as for every command
 
 ### Features
 
@@ -77,10 +81,10 @@ Check interval: 1s (fast mode)
 
 **Light testing (devnet):**
 ```bash
-cargo run -- load-test --to-address "111..." --num-tests 10 --amount 1 --interval 15
+cargo run -- load-test --to-address "111..." --readonly-grpc http://localhost:40452 --num-tests 10 --amount 1 --interval 15
 ```
 
 **Performance testing:**
 ```bash
-cargo run -- load-test --to-address "111..." --num-tests 50 --amount 1 --interval 5
+cargo run -- load-test --to-address "111..." --readonly-grpc http://localhost:40452 --num-tests 50 --amount 1 --interval 5
 ```

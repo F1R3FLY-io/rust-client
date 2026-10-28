@@ -60,7 +60,7 @@ impl Dispatcher {
 fn suggestion(error: &Error) -> Option<&'static str> {
     match error {
         Error::Transport { .. } => {
-            Some("check that the node is running and that the host and port are right")
+            Some("check that the node is running and that the endpoint URL is right")
         }
         Error::Http {
             code: Some(code), ..

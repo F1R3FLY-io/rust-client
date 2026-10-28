@@ -39,8 +39,8 @@ async fn block_transfers_against(body: String, extra_args: &[&str]) -> (Output, 
 
     tokio::time::timeout(Duration::from_secs(10), async {
         let output = Command::new(env!("CARGO_BIN_EXE_node_cli"))
-            .args(["block-transfers", "test-block", "-H", "127.0.0.1", "-p"])
-            .arg(port.to_string())
+            .args(["block-transfers", "test-block", "--http"])
+            .arg(format!("http://127.0.0.1:{port}"))
             .args(extra_args)
             .env("NO_PROXY", "127.0.0.1")
             .env("no_proxy", "127.0.0.1")

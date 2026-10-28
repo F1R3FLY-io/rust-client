@@ -74,6 +74,13 @@ pub const RESEND_EXPIRED: Key = Key {
     address: "11112DVSnNbQrJRM8sGgGsZdGdgT8yLPmZLFoRmKebJ3ZLzKLfxWgK",
 };
 
+/// Deploys through the TLS proxy.
+pub const TLS_DEPLOY: Key = Key {
+    private: "6e2da4d26f4d6c7b05e87410a6e7f55be1f8eedd5e8a888982a1402ec4ddeb4b",
+    public: "04e89170cf2f4dc1fafd4f160b063d7ada6aee204e4bc7ce35b884eab0a12ccea8abd0af8ac17015da50e49d71aee15cdb609fb7fb7474b30ba8908b5d994decf0",
+    address: "11112kCL39oAKhWegchWZfLzVf1aYuLER9uADqYBkGaUe581ufxy8A",
+};
+
 pub const LOAD_TEST: Key = Key {
     private: "6fbb857a48350ce2cfde38ddc134e8cb17cf45f8b8791e2ec2fb0cbc184700e4",
     public: "04cd6066f89dd7ff3d2fab67e9019523cb99c36ffe967bf7e91538ceb3cbf988a5ad9bbc8d8219b40f171e01fcf3a38aa57502d522f77cfef8852faf6707664fba",

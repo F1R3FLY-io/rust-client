@@ -2,6 +2,7 @@ use crate::args::LoadTestArgs;
 use crate::commands::query::query_node_status;
 use crate::commands::CliResult;
 use crate::f1r3fly_api::F1r3flyApi;
+use crate::node_http::NodeHttp;
 use chrono::Local;
 use std::time::{Duration, Instant};
 
@@ -19,9 +20,9 @@ pub struct TestResult {
 pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     use crate::utils::CryptoUtils;
 
+    let node = args.node.node()?;
     let amount_dust = if args.whole_tokens {
-        let (status_json, _) =
-            query_node_status(&reqwest::Client::new(), &args.host, args.http_port, false).await?;
+        let status_json = query_node_status(&node, false).await?;
         let decimals = status_json
             .get("nativeTokenDecimals")
             .and_then(|v| v.as_u64())
@@ -39,7 +40,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     println!("Amount: {amount_dust} dust");
     println!("Interval: {}s", args.interval);
     println!("Check interval: {}s (fast mode)", args.check_interval);
-    println!("Target: {}:{}", args.host, args.port);
+    println!("Target: {}", args.node.grpc);
     println!();
 
     // Derive sender address from private key
@@ -79,7 +80,10 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     println!();
 
     // Initialize API once (reuse connection)
-    let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?
+    let api = args
+        .node
+        .api()?
+        .with_signing_key(&args.private_key)?
         .with_shard_id(&args.deploy.shard_id);
 
     let mut results = Vec::new();
@@ -90,7 +94,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
         println!();
 
         // Run single test with detailed logging
-        let result = run_single_test(&api, args, test_num, &amount_dust).await?;
+        let result = run_single_test(&api, &node, args, test_num, &amount_dust).await?;
 
         results.push(result);
 
@@ -111,7 +115,8 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
 }
 
 async fn run_single_test(
-    api: &F1r3flyApi<'_>,
+    api: &F1r3flyApi,
+    node: &NodeHttp,
     args: &LoadTestArgs,
     test_num: u32,
     amount_dust: &num_bigint::BigUint,
@@ -139,9 +144,8 @@ async fn run_single_test(
     let block_wait_start = Instant::now();
 
     let block_hash = wait_for_block_fast(
-        api,
+        node,
         &deploy_id,
-        args.http_port,
         args.check_interval,
         args.inclusion_timeout,
     )
@@ -197,7 +201,7 @@ async fn run_single_test(
 
     // Step 5: Get wallet balance
     println!(" [{}] Checking wallet balance...", now_timestamp());
-    match get_wallet_balance(api, args).await {
+    match get_wallet_balance(args).await {
         Ok(balance) => {
             println!(" [{}] Wallet balance: {}", now_timestamp(), balance);
         }
@@ -274,9 +278,8 @@ fn generate_transfer_contract(
 
 // Fast block polling (configurable interval and timeout)
 async fn wait_for_block_fast(
-    api: &F1r3flyApi<'_>,
+    node: &NodeHttp,
     deploy_id: &str,
-    http_port: u16,
     check_interval: u64,
     timeout_seconds: u64,
 ) -> CliResult<String> {
@@ -287,7 +290,7 @@ async fn wait_for_block_fast(
             println!(" Still waiting... ({}s elapsed)", attempt * check_interval);
         }
 
-        match api.get_deploy_block_hash(deploy_id, http_port).await? {
+        match node.get_deploy_block_hash(deploy_id).await? {
             Some(hash) => return Ok(hash),
             None => {
                 tokio::time::sleep(Duration::from_secs(check_interval)).await;
@@ -299,11 +302,7 @@ async fn wait_for_block_fast(
 }
 
 // Fast main chain check (immediate, no retries)
-async fn is_on_main_chain_fast(
-    api: &F1r3flyApi<'_>,
-    block_hash: &str,
-    depth: u32,
-) -> CliResult<bool> {
+async fn is_on_main_chain_fast(api: &F1r3flyApi, block_hash: &str, depth: u32) -> CliResult<bool> {
     let blocks = api.show_main_chain(depth).await?;
 
     Ok(blocks.iter().any(|b| b.block_hash == block_hash))
@@ -334,8 +333,7 @@ async fn get_balance_for_address(address: &str, args: &LoadTestArgs) -> CliResul
  }}"#
     );
 
-    // Create a separate API instance for read-only port
-    let readonly_api = F1r3flyApi::new_readonly(&args.host, args.readonly_port);
+    let readonly_api = F1r3flyApi::new(args.node.transport.apply(&args.readonly_grpc)?)?;
 
     // Execute exploratory deploy to get balance on read-only node
     let (result, _block_info, _cost) = readonly_api
@@ -346,7 +344,7 @@ async fn get_balance_for_address(address: &str, args: &LoadTestArgs) -> CliResul
 }
 
 // Get wallet balance for the sender address (convenience wrapper)
-async fn get_wallet_balance(_api: &F1r3flyApi<'_>, args: &LoadTestArgs) -> CliResult<String> {
+async fn get_wallet_balance(args: &LoadTestArgs) -> CliResult<String> {
     use crate::utils::CryptoUtils;
 
     // Derive sender address from private key

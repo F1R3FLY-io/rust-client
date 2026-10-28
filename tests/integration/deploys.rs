@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use libtest_mimic::Trial;
 use node_cli::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
-use node_cli::{vault, DeployOptions, F1r3flyApi};
+use node_cli::{vault, DeployOptions, Endpoint, F1r3flyApi};
 
 use crate::common::cli::Cli;
 use crate::common::contracts;
@@ -163,7 +163,7 @@ fn deploy_status_reports_a_finalized_deploy() {
 
     Cli::new("deploy-status")
         .args(["--sig", &deploy_id])
-        .http_port_at(Node::ReadOnly)
+        .http_at(Node::ReadOnly)
         .run()
         .expect_success("deploy-status")
         .expect_contains("Finalized");
@@ -174,7 +174,7 @@ fn deploy_status_reports_a_finalized_deploy() {
 /// deploy: the node answers with the same ID and the deploy finalizes once.
 fn a_signed_deploy_sent_twice_is_one_deploy() {
     let key = node_cli::utils::CryptoUtils::decode_private_key(keys::RESUBMIT.private).unwrap();
-    let api = F1r3flyApi::new_readonly("localhost", Node::Validator1.grpc_port());
+    let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint())).unwrap();
     let signed = rt()
         .block_on(api.prepare(contracts::STDOUT_TERM, &DeployOptions::default()))
         .expect("prepare")
@@ -202,7 +202,7 @@ fn a_signed_deploy_sent_twice_is_one_deploy() {
 fn a_landed_deploy_resent_after_it_expired_is_the_same_deploy() {
     let key =
         node_cli::utils::CryptoUtils::decode_private_key(keys::RESEND_EXPIRED.private).unwrap();
-    let api = F1r3flyApi::new_readonly("localhost", Node::Validator1.grpc_port());
+    let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint())).unwrap();
     let expiration = unix_millis() + 45_000;
     let options = DeployOptions {
         expiration: Some(expiration),
@@ -249,13 +249,11 @@ fn unix_millis() -> i64 {
 /// A deploy signs its shard ID, so a node of another shard refuses it at
 /// submission.
 fn a_deploy_for_another_shard_is_refused() {
-    let api = F1r3flyApi::new(
-        keys::SPARE.private,
-        "localhost",
-        Node::Validator1.grpc_port(),
-    )
-    .unwrap()
-    .with_shard_id("not-this-shard");
+    let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint()))
+        .unwrap()
+        .with_signing_key(keys::SPARE.private)
+        .unwrap()
+        .with_shard_id("not-this-shard");
     let error = rt()
         .block_on(api.deploy(contracts::STDOUT_TERM, &DeployOptions::default()))
         .expect_err("a deploy for another shard should be refused");
@@ -270,16 +268,15 @@ fn a_deploy_for_another_shard_is_refused() {
 /// read-only node, which is how every supported deployment is wired.
 fn manager(key: &Key, finalization_timeout_secs: u32) -> F1r3flyConnectionManager {
     let mut config = ConnectionConfig::new(
-        "localhost".to_string(),
-        Node::Validator1.grpc_port(),
-        Node::Validator1.http_port(),
+        endpoint(Node::Validator1.grpc_endpoint()),
+        endpoint(Node::Validator1.http_endpoint()),
         key.private.to_string(),
     )
-    .with_observer(
-        "localhost".to_string(),
-        Node::ReadOnly.grpc_port(),
-        Node::ReadOnly.http_port(),
-    );
+    .with_observer(endpoint(Node::ReadOnly.http_endpoint()));
     config.finalization_timeout_secs = finalization_timeout_secs;
-    F1r3flyConnectionManager::new(config)
+    F1r3flyConnectionManager::new(config).expect("connection manager")
+}
+
+fn endpoint(url: String) -> Endpoint {
+    Endpoint::parse(&url).expect("a shard endpoint")
 }

@@ -1,10 +1,11 @@
 //! F1r3fly API client types and re-exports
 //!
-//! The implementation is split across `grpc/` submodules:
+//! The gRPC client is split across `grpc/` submodules:
 //! - `grpc::deploy` prepare, submit, deploy, propose
 //! - `grpc::query` exploratory_deploy, get_data_at_deploy_id
 //! - `grpc::blocks` show_main_chain, get_blocks_by_height, is_finalized, tip sampling
-//! - `grpc::http` get_deploy_block_hash, get_deploy_detail
+//!
+//! The HTTP client is [`crate::node_http::NodeHttp`].
 
 use serde::{Deserialize, Serialize};
 

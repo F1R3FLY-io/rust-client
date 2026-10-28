@@ -5,7 +5,7 @@
 Run a load test by sending multiple transfers and tracking finalization and orphan rates.
 
 ```bash
-node_cli load-test --to-address <ADDR> --num-tests <N> --amount <AMT> [OPTIONS]
+node_cli load-test --to-address <ADDR> --readonly-grpc <URL> --num-tests <N> --amount <AMT> [OPTIONS]
 ```
 
 | Flag | Default | Description |
@@ -16,17 +16,21 @@ node_cli load-test --to-address <ADDR> --num-tests <N> --amount <AMT> [OPTIONS]
 | `--amount` | `1` | Amount per transfer in base units (dust). Use `--whole-tokens`/`-d` for whole tokens. |
 | `--whole-tokens`, `-d` | `false` | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status |
 | `--interval` | `10` | Seconds between deploys |
-| `-H`, `--host` | `localhost` | Node host |
-| `-p`, `--port` | `40412` | Node gRPC port |
-| `--http-port` | `40413` | Node HTTP port for status queries |
+| `--grpc` | `http://localhost:40401` | Node gRPC endpoint, with no path; deploys go here |
+| `--http` | `http://localhost:40403` | Node HTTP endpoint, optionally with a base path, for status queries |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--inclusion-timeout` | `120` | Max seconds for block inclusion |
 | `--finalization-timeout` | `120` | Max seconds for finalization |
 | `--check-interval` | `1` | Seconds between polls |
 | `--chain-depth` | `200` | Depth to check for orphaned blocks |
-| `--readonly-port` | `40452` | Read-only gRPC port for balance check |
+| `--readonly-grpc` | required | gRPC endpoint of a read-only node, with no path, for balance queries |
 
 ```
-$ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000
+$ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000 \
+    --grpc http://localhost:40412 --http http://localhost:40413 \
+    --readonly-grpc http://localhost:40452
 
 F1R3FLY Load Test
 Tests: 3
@@ -59,11 +63,15 @@ Monitor real-time node events via WebSocket. Connects to `/ws/events` and stream
 The client reads all ten of the node's event types (`F1r3flyEvent`). An event type it does not know is printed as `Unknown event type: <name>`, counted, and matches no `--filter`.
 
 ```bash
-node_cli watch-events [-H HOST] [--http-port PORT] [--filter TYPE] [--retry-forever]
+node_cli watch-events [--http URL] [--filter TYPE] [--retry-forever]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--http` | `http://localhost:40403` | Node HTTP endpoint, optionally with a base path; `https://` connects over `wss` |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--filter` | all | `created`, `added`, `finalized`, `transfers`, `genesis`, or `lifecycle` |
 | `--retry-forever` | false | Reconnect indefinitely |
 
@@ -114,7 +122,7 @@ $ node_cli watch-events
 On readonly nodes, transfer events appear after block finalization:
 
 ```
-$ node_cli watch-events --http-port 40453
+$ node_cli watch-events --http http://localhost:40453
 
  Transfers Available
  Block:    edc71efd1dd41be6... (#130)
@@ -132,15 +140,17 @@ $ node_cli watch-events --filter finalized
  ...
 ```
 
-Auto-reconnects on disconnect (10 retries by default, indefinitely with `--retry-forever`).
+Auto-reconnects on disconnect (10 retries by default, indefinitely with `--retry-forever`). Once the stream is open, only `--connect-timeout` bounds it; `--timeout` does not cut it off.
 
 ## dag
 
 Interactive DAG visualization using a terminal UI (ratatui). Shows real-time block graph with parent/child relationships.
 
 ```bash
-node_cli dag [-H HOST] [--http-port PORT]
+node_cli dag [--http URL] [--ca-cert PEM] [--connect-timeout SECS] [--timeout SECS]
 ```
+
+Blocks are read from, and live events followed on, the one HTTP endpoint (default `http://localhost:40403`), which may carry a base path. The live event stream, once open, is bounded only by `--connect-timeout`.
 
 Interactive -- requires a terminal with TUI support.
 
@@ -156,14 +166,14 @@ node_cli bond-validator --stake <AMOUNT> --private-key <KEY> [OPTIONS]
 |------|---------|-------------|
 | `--stake` | required | Stake amount |
 | `--private-key` | required | Validator's signing key |
-| `-H`, `--host` | `localhost` | Node to submit the deploy to — must be a **bonded validator** |
-| `-p`, `--port` | `40412` | That node's gRPC port |
-| `--http-port` | `40413` | That node's HTTP port |
-| `--propose` | false | Propose block after bonding |
+| `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
+| `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
+| `--propose` | false | Propose block after bonding; `--grpc` must then be the node's internal API |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
-| `--observer-host` | | Observer for finalization |
-| `--observer-port` | `40452` | Observer gRPC port |
-| `--observer-http-port` | `40453` | Observer HTTP port polled for finalization status |
+| `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | `5000000000` | Most phlo the bond deploy may spend |
 | `--phlo-price` | `1` | Price per phlo, in the native token's base units |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
@@ -189,7 +199,7 @@ Bonding validator with stake: 1000
 Deploy ID:    3045022100...
 Block hash:   a1b2c3d4...
 Total time:   25.30s
-Bonding complete. Verify with: node_cli bonds
+Bonding complete. Verify with: node_cli bonds --http <read-only node>
 ```
 
 The command exits non-zero when the PoS contract rejects the bond:
@@ -221,13 +231,13 @@ node_cli unbond-validator --private-key <KEY> [OPTIONS]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--private-key` | required | Signing key of the validator to unbond |
-| `-H`, `--host` | `localhost` | Node to submit the deploy to — must be a **bonded validator** |
-| `-p`, `--port` | `40412` | That node's gRPC port |
-| `--http-port` | `40413` | That node's HTTP port |
+| `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
+| `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
-| `--observer-host` | | Observer for finalization |
-| `--observer-port` | `40452` | Observer gRPC port |
-| `--observer-http-port` | `40453` | Observer HTTP port polled for finalization status |
+| `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | `5000000000` | Most phlo the withdrawal deploy may spend |
 | `--phlo-price` | `1` | Price per phlo, in the native token's base units |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
@@ -251,7 +261,7 @@ Deploy ID: 3044022065871c6d...
 Block hash: b0737488...
 Total time: 23.32s
 Withdrawal requested. The validator leaves the bond set at the next epoch boundary.
-Track progress with: node_cli validator-status -k 0429af984ed4da1a...455f1727
+Track progress with: node_cli validator-status -k 0429af984ed4da1a...455f1727 --http <read-only node>
 ```
 
 The command exits non-zero when the PoS contract rejects the call, for example `PoS rejected the call: User is not bonded`, and when the verdict could not be read.
@@ -261,20 +271,22 @@ The command exits non-zero when the PoS contract rejects the call, for example `
 Check network health across multiple nodes.
 
 ```bash
-node_cli network-health [-H HOST] [--recursive] [--depth N] [--custom-ports PORTS]
+node_cli network-health [--http URL]...
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--recursive` | false | Discover and check peers recursively |
-| `--depth` | `1` | Recursion depth |
-| `--custom-ports` | | Specific ports to check |
-| `--standard-ports` | true | Check standard F1r3fly ports |
+| `--http` | single-host Docker shard | HTTP endpoint of a node to check, optionally with a base path; repeat it for each node. With none, checks `http://localhost:` 40403 (Bootstrap), 40413 (Validator1), 40423 (Validator2), 40433 (Validator3) and 40453 (Observer) |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
+| `--verbose`, `-v` | false | Print more details |
+| `--debug` | false | Print the underlying HTTP requests and responses |
 
 ```
-$ node_cli network-health --custom-ports 40413
+$ node_cli network-health --http http://localhost:40413
 
-Custom (localhost:40413): HEALTHY (4 peers)
+Node (http://localhost:40413): HEALTHY (4 peers)
 
 Network Health Summary:
    Healthy nodes: 1/1
@@ -289,35 +301,38 @@ Query Proof-of-Stake contract state. All are built on exploratory deploys, which
 only a **read-only node** serves — against any other node they fail with
 `Exploratory deploy can only be executed on read-only node`.
 
-### Port and transport
+### Endpoint and transport
 
-The read-only node exposes both a gRPC and an HTTP port, and these commands do
-not all use the same one. Passing the gRPC port to an HTTP command fails with
+The read-only node exposes both a gRPC and an HTTP API, and these commands do
+not all use the same one. Passing the gRPC endpoint to an HTTP command fails with
 `error sending request for url (…/api/explore-deploy)`, which does not name the
-real problem.
+real problem. An HTTP endpoint may carry a base path; a gRPC endpoint takes
+none. These commands have no default endpoint, since a node's default ports are
+a validator's, which refuses them; the flag is required. On the
+system-integration single-host Docker shard the read-only node is HTTP
+`http://localhost:40453` and gRPC `http://localhost:40452`.
 
-| Command | Transport | Port flag | Default |
+| Command | Transport | Flag | Default |
 |---|---|---|---|
-| `bonds` | HTTP | `-p` | `40453` |
-| `active-validators` | HTTP | `-p` | `40453` |
-| `validator-status` | HTTP | `--http-port` | `40453` |
-| `network-consensus` | HTTP | `--http-port` | `40453` |
-| `epoch-rewards` | HTTP | `--http-port` | `40453` |
-| `epoch-info` | gRPC | `-p` | `40452` |
-| `wallet-balance` | gRPC | `-p` | `40452` |
+| `bonds` | HTTP | `--http` | required |
+| `active-validators` | HTTP | `--http` | required |
+| `validator-status` | HTTP | `--http` | required |
+| `network-consensus` | HTTP | `--http` | required |
+| `epoch-rewards` | HTTP | `--http` | required |
+| `epoch-info` | gRPC | `--grpc` | required |
+| `wallet-balance` | gRPC | `--grpc` | required |
 
-Two non-PoS commands share the confusion, since they default to different
-nodes: `status` defaults to `40453` (the observer), while `blocks` defaults to
-`40413` (validator1).
+Each also takes `--ca-cert` for `https://` endpoints, and `--connect-timeout`
+(default 10) and `--timeout` (default 30) in seconds.
 
 ### epoch-info
 
 ```bash
-node_cli epoch-info [-H HOST] [-p GRPC_PORT]
+node_cli epoch-info --grpc URL
 ```
 
 ```
-$ node_cli epoch-info -p 40452
+$ node_cli epoch-info --grpc http://localhost:40452
 
 Current Epoch Status:
    Current Block: 403
@@ -335,11 +350,11 @@ Current Epoch Status:
 ### epoch-rewards
 
 ```bash
-node_cli epoch-rewards [-H HOST] [--http-port PORT]
+node_cli epoch-rewards --http URL
 ```
 
 ```
-$ node_cli epoch-rewards --http-port 40453
+$ node_cli epoch-rewards --http http://localhost:40453
 
 Current Epoch Rewards (3 validators):
 
@@ -353,7 +368,7 @@ Current Epoch Rewards (3 validators):
 ### validator-status
 
 ```bash
-node_cli validator-status -k <PUBLIC_KEY> [-H HOST] [--http-port PORT]
+node_cli validator-status -k <PUBLIC_KEY> --http URL
 ```
 
 Reports the validator's state as of the last finalized block:
@@ -363,7 +378,7 @@ Reports the validator's state as of the last finalized block:
 - `WITHDRAWING` after the validator leaves the bond set, until the payout.
 
 ```
-$ node_cli validator-status -k 0457febafcc25dd3...b4ae661c --http-port 40453
+$ node_cli validator-status -k 0457febafcc25dd3...b4ae661c --http http://localhost:40453
 
 BONDED: stake 1000
 ACTIVE: participating in consensus
@@ -374,11 +389,11 @@ As of block: 573 (last finalized)
 ### network-consensus
 
 ```bash
-node_cli network-consensus [-H HOST] [--http-port PORT]
+node_cli network-consensus --http URL
 ```
 
 ```
-$ node_cli network-consensus --http-port 40453
+$ node_cli network-consensus --http http://localhost:40453
 
 Network Consensus Health:
    As of block: 573 (last finalized)

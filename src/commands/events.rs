@@ -1,9 +1,10 @@
 use crate::args::WatchEventsArgs;
 use crate::commands::CliResult;
+use crate::endpoint::{connect_websocket, Endpoint};
 use crate::error::Error;
 use futures_util::StreamExt;
 use serde::Deserialize;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
 
 /// F1R3FLY node event from WebSocket /ws/events endpoint.
 ///
@@ -245,7 +246,8 @@ pub async fn watch_events_command(args: &WatchEventsArgs) -> CliResult {
         }
     }
 
-    let ws_url = format!("ws://{}:{}/ws/events", args.host, args.http_port);
+    let endpoint = args.node.transport.apply(&args.node.http)?;
+    let ws_url = endpoint.websocket_url(EVENTS_PATH);
 
     println!(" Connecting to F1r3fly node WebSocket...");
     println!(" URL: {ws_url}");
@@ -262,7 +264,7 @@ pub async fn watch_events_command(args: &WatchEventsArgs) -> CliResult {
     const RETRY_DELAY_SECS: u64 = 10;
 
     loop {
-        match connect_and_watch(&ws_url, args, &mut stats).await {
+        match connect_and_watch(&endpoint, &ws_url, args, &mut stats).await {
             Ok(_) => {
                 break;
             }
@@ -298,14 +300,15 @@ pub async fn watch_events_command(args: &WatchEventsArgs) -> CliResult {
     Ok(())
 }
 
+const EVENTS_PATH: &str = "/ws/events";
+
 async fn connect_and_watch(
+    endpoint: &Endpoint,
     ws_url: &str,
     args: &WatchEventsArgs,
     stats: &mut EventStats,
 ) -> CliResult {
-    let (ws_stream, _) = connect_async(ws_url)
-        .await
-        .map_err(|e| Error::transport(ws_url, e))?;
+    let ws_stream = connect_websocket(endpoint, EVENTS_PATH).await?;
 
     println!(" Connected to node WebSocket");
     println!(" Watching for block events... (Press Ctrl+C to stop)\n");
@@ -532,12 +535,7 @@ mod bigint_tests {
             [true, false, true]
         );
 
-        let args = WatchEventsArgs {
-            host: "localhost".into(),
-            http_port: 40403,
-            filter: Some("transfers".into()),
-            retry_forever: false,
-        };
+        let args = crate::commands::events::event_type_tests::watch(Some("transfers"));
         let mut stats = EventStats::new();
         handle_event(&text, &args, &mut stats).unwrap();
         assert_eq!(stats.total, 1);
@@ -576,13 +574,14 @@ mod bigint_tests {
 mod event_type_tests {
     use super::*;
 
-    fn watch(filter: Option<&str>) -> WatchEventsArgs {
-        WatchEventsArgs {
-            host: "localhost".into(),
-            http_port: 40403,
-            filter: filter.map(Into::into),
-            retry_forever: false,
+    pub(super) fn watch(filter: Option<&str>) -> WatchEventsArgs {
+        use clap::Parser;
+
+        let mut args = vec!["watch-events"];
+        if let Some(filter) = filter {
+            args.extend(["--filter", filter]);
         }
+        WatchEventsArgs::try_parse_from(args).unwrap()
     }
 
     #[test]

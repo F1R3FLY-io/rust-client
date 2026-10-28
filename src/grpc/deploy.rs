@@ -13,7 +13,7 @@ use crate::f1r3fly_api::ProposeResult;
 /// The node's answer to a deploy it already holds.
 const ALREADY_KNOWN: &str = "Deploy already known";
 
-impl<'a> F1r3flyApi<'a> {
+impl F1r3flyApi {
     /// Fix a deploy's fields for signing, anchoring its validity window at the
     /// node's current tip.
     pub async fn prepare(&self, term: &str, options: &DeployOptions) -> Result<UnsignedDeploy> {
@@ -30,9 +30,7 @@ impl<'a> F1r3flyApi<'a> {
     /// those cases apart.
     pub async fn submit(&self, deploy: &SignedDeploy) -> Result<String> {
         let id = deploy.id();
-        let connect_start = Instant::now();
         let mut client = self.deploy_client().await?;
-        tracing::debug!(elapsed = ?connect_start.elapsed(), "gRPC connect");
 
         let do_deploy_start = Instant::now();
         let response = client

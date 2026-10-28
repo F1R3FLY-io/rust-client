@@ -18,10 +18,10 @@ This document describes the design for a real-time, scrollable DAG (Directed Acy
 
 ```bash
 # Start the DAG viewer
-node-cli dag --host localhost --port 40403
+node-cli dag --http http://localhost:40403
 
 # Options
-node-cli dag --host <host> --port <port> [OPTIONS]
+node-cli dag --http <URL> [OPTIONS]
   --depth <N>        Initial blocks to load (default: 50)
   --no-live          Disable real-time updates
   --validators       Color-code by validator

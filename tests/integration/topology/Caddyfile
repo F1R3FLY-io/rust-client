@@ -1,0 +1,27 @@
+# TLS in front of validator1, so the client's https:// endpoints run against a
+# real node. The certificate is issued per run by the harness.
+{
+	admin off
+	auto_https off
+}
+
+# gRPC
+:40460 {
+	tls /tls/server.pem /tls/server.key
+	reverse_proxy h2c://validator1:40402
+}
+
+# HTTP and WebSocket
+:40461 {
+	tls /tls/server.pem /tls/server.key
+	reverse_proxy validator1:40403
+}
+
+# HTTP and WebSocket under a base path, as a proxy serving several nodes would
+:40462 {
+	tls /tls/server.pem /tls/server.key
+	handle_path /node1/* {
+		reverse_proxy validator1:40403
+	}
+	respond 404
+}

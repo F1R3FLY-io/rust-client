@@ -1,43 +1,7 @@
 use crate::error::{Error, Result};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use std::time::{Duration, Instant};
-
-pub struct HttpClient {
-    client: reqwest::Client,
-}
-
-impl Default for HttpClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HttpClient {
-    pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
-    }
-
-    pub async fn get_json(&self, url: &str) -> Result<serde_json::Value> {
-        let response = send(self.client.get(url), url).await?;
-        if !response.status().is_success() {
-            return Err(http_error(response, url).await);
-        }
-        json(response, url, "JSON response").await
-    }
-
-    pub async fn get_with_timing(&self, url: &str) -> Result<(serde_json::Value, Duration)> {
-        let start_time = Instant::now();
-        let result = self.get_json(url).await?;
-        Ok((result, start_time.elapsed()))
-    }
-}
-
-pub fn build_url(host: &str, port: u16, path: &str) -> String {
-    format!("http://{host}:{port}{path}")
-}
+use std::time::Duration;
 
 /// The node's error body: `{"error": <code>, "message": <text>}`.
 #[derive(Debug, Deserialize)]

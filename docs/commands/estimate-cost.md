@@ -7,7 +7,7 @@ Hits the node's `POST /api/estimate-cost` HTTP endpoint. The code executes again
 ## Usage
 
 ```bash
-node_cli estimate-cost -f <FILE> [-H HOST] [--http-port PORT] [--deployer PUBKEY]
+node_cli estimate-cost -f <FILE> [--http URL] [--deployer PUBKEY]
 ```
 
 ## Flags
@@ -17,8 +17,10 @@ node_cli estimate-cost -f <FILE> [-H HOST] [--http-port PORT] [--deployer PUBKEY
 | `--file` | `-f` | required | Rholang file to estimate |
 | `--deployer` | | (none) | Hex-encoded 65-byte uncompressed secp256k1 public key (`04`-prefixed) |
 | `--private-key` | | (env) | Hex-encoded private key; derives `--deployer` locally (never leaves the machine). Mutually exclusive with `--deployer`. |
-| `--host` | `-H` | `localhost` | Node hostname |
-| `--http-port` | | `40413` | HTTP port for API queries |
+| `--http` | | `http://localhost:40403` | Node HTTP endpoint, `http://` or `https://`, optionally with a base path |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--block-hash` | | latest | Estimate against a specific block's state |
 
 Runs read-only by default. **Always pass `--deployer` (or `--private-key`) for identity-dependent contracts** such as vault transfers — without it the estimate may be significantly lower than the real deploy cost because the node executes under an empty deployer identity.
@@ -26,7 +28,7 @@ Runs read-only by default. **Always pass `--deployer` (or `--private-key`) for i
 ## Example
 
 ```
-$ node_cli estimate-cost -f contract.rho -H localhost --http-port 40453 --deployer 04aabb...
+$ node_cli estimate-cost -f contract.rho --http http://localhost:40453 --deployer 04aabb...
 
 317
 ```
@@ -34,7 +36,7 @@ $ node_cli estimate-cost -f contract.rho -H localhost --http-port 40453 --deploy
 Output is just the cost number — easy to parse in scripts:
 
 ```bash
-COST=$(node_cli estimate-cost -f contract.rho --http-port 40453 --deployer "$PUBKEY")
+COST=$(node_cli estimate-cost -f contract.rho --http http://localhost:40453 --deployer "$PUBKEY")
 echo "Estimated cost: $COST phlogiston"
 
 # Leave headroom: the estimate runs against the current state, not the state
@@ -45,7 +47,7 @@ node_cli deploy-and-wait -f contract.rho --phlo-limit $((COST * 2))
 ## Library Usage
 
 ```rust
-let manager = F1r3flyConnectionManager::new(config);
+let manager = F1r3flyConnectionManager::new(config)?;
 let cost = manager.estimate_cost("new x in { x!(1 + 1) }", Some(&deployer_pubkey_hex)).await?;
 println!("Estimated cost: {} phlogiston", cost);
 ```

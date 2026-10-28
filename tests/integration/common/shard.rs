@@ -30,6 +30,7 @@ impl Shard {
         run(Command::new("docker").args(["pull", &image]))?;
         println!("node image {image} at {}", shard.image_digest(&image));
 
+        issue_tls_certificates(&tls_dir())?;
         shard.compose(&["up", "-d"])?;
         shard.wait_until_ready(Node::all(), Duration::from_secs(180))?;
         Ok(shard)
@@ -141,9 +142,51 @@ impl Shard {
         command
             .args(["compose", "-p", PROJECT, "-f"])
             .arg(self.topology.join("compose.yml"))
-            .args(args);
+            .args(args)
+            .env("IT_TLS_DIR", tls_dir());
         command
     }
+}
+
+/// The certificate authority the TLS proxy's certificate is issued by, for
+/// `--ca-cert`.
+pub fn ca_certificate() -> PathBuf {
+    tls_dir().join("ca.pem")
+}
+
+fn tls_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("target/integration-tls")
+}
+
+/// Issue a fresh CA and a `localhost` server certificate for the TLS proxy.
+/// The CA's key is never written, so nothing else can be issued under it.
+fn issue_tls_certificates(dir: &Path) -> Result<(), String> {
+    use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, KeyPair};
+
+    let failed = |e: rcgen::Error| format!("issuing TLS certificates: {e}");
+    let ca_key = KeyPair::generate().map_err(failed)?;
+    let mut ca_params = CertificateParams::new(Vec::<String>::new()).map_err(failed)?;
+    ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    ca_params
+        .distinguished_name
+        .push(DnType::CommonName, "rust-client integration CA");
+    let ca = ca_params.self_signed(&ca_key).map_err(failed)?;
+
+    let server_key = KeyPair::generate().map_err(failed)?;
+    let server = CertificateParams::new(vec!["localhost".to_string()])
+        .map_err(failed)?
+        .signed_by(&server_key, &ca, &ca_key)
+        .map_err(failed)?;
+
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    for (name, pem) in [
+        ("ca.pem", ca.pem()),
+        ("server.pem", server.pem()),
+        ("server.key", server_key.serialize_pem()),
+    ] {
+        std::fs::write(dir.join(name), pem).map_err(|e| format!("{name}: {e}"))?;
+    }
+    Ok(())
 }
 
 impl Drop for Shard {

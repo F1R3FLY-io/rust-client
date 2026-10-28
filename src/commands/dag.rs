@@ -1,16 +1,17 @@
 use chrono::{TimeZone, Utc};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
-use tokio_tungstenite::connect_async;
 
 use crate::args::DagArgs;
 use crate::commands::CliResult;
 use crate::dag::{BlockStatus, DagApp, DagBlock, DagEvent};
-use crate::error::Error;
+use crate::endpoint::connect_websocket;
+use crate::node_http::NodeHttp;
 
 /// Run the DAG visualization command
 pub async fn run_dag(args: &DagArgs) -> CliResult {
-    println!("Loading blocks from {}:{}...", args.host, args.http_port);
+    let node = args.node.node()?;
+    println!("Loading blocks from {}...", node.endpoint());
 
     // Create channel for WebSocket events
     let (tx, rx) = mpsc::channel::<DagEvent>(100);
@@ -20,19 +21,16 @@ pub async fn run_dag(args: &DagArgs) -> CliResult {
     app.renderer.show_deploys = args.show_deploys;
 
     // Load initial blocks
-    let blocks = fetch_initial_blocks(&args.host, args.http_port, args.depth).await?;
+    let blocks = fetch_initial_blocks(&node, args.depth).await?;
     app.load_blocks(blocks);
 
     // Set up event receiver if live mode
     if !args.no_live {
         app = app.with_event_receiver(rx);
 
-        // Spawn WebSocket listener (same port as HTTP API)
-        let ws_url = format!("ws://{}:{}/ws/events", args.host, args.http_port);
-        let api_base = format!("http://{}:{}", args.host, args.http_port);
         let tx_clone = tx.clone();
         tokio::spawn(async move {
-            if let Err(e) = run_websocket_listener(ws_url, api_base, tx_clone).await {
+            if let Err(e) = run_websocket_listener(node, tx_clone).await {
                 eprintln!("WebSocket error: {e}");
             }
         });
@@ -45,10 +43,8 @@ pub async fn run_dag(args: &DagArgs) -> CliResult {
 }
 
 /// Fetch initial blocks from the API
-async fn fetch_initial_blocks(host: &str, port: u16, depth: usize) -> CliResult<Vec<DagBlock>> {
-    let url = format!("http://{host}:{port}/api/blocks/{depth}");
-
-    let body = crate::utils::HttpClient::new().get_json(&url).await?;
+async fn fetch_initial_blocks(node: &NodeHttp, depth: usize) -> CliResult<Vec<DagBlock>> {
+    let body = node.get_json(&format!("/api/blocks/{depth}")).await?;
 
     let mut blocks = Vec::new();
 
@@ -126,21 +122,18 @@ fn parse_block_json(json: &serde_json::Value) -> Option<DagBlock> {
 }
 
 /// Fetch a single block by hash from the API with retries
-async fn fetch_block_by_hash(api_base: &str, hash: &str) -> Option<DagBlock> {
+async fn fetch_block_by_hash(node: &NodeHttp, hash: &str) -> Option<DagBlock> {
     // Retry a few times with delays - the block might not be available immediately
     for attempt in 0..3 {
         if attempt > 0 {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
 
-        let url = format!("{api_base}/api/block/{hash}");
-        if let Ok(response) = reqwest::get(&url).await {
-            if let Ok(body) = response.json::<serde_json::Value>().await {
-                // Response format: {"blockInfo": {...}, "deploys": [...]}
-                if let Some(block_info) = body.get("blockInfo") {
-                    if let Some(block) = parse_block_info_json(block_info) {
-                        return Some(block);
-                    }
+        if let Ok(body) = node.get_json(&format!("/api/block/{hash}")).await {
+            // Response format: {"blockInfo": {...}, "deploys": [...]}
+            if let Some(block_info) = body.get("blockInfo") {
+                if let Some(block) = parse_block_info_json(block_info) {
+                    return Some(block);
                 }
             }
         }
@@ -206,14 +199,8 @@ fn parse_block_info_json(info: &serde_json::Value) -> Option<DagBlock> {
 }
 
 /// Run the WebSocket listener for real-time events
-async fn run_websocket_listener(
-    ws_url: String,
-    api_base: String,
-    tx: mpsc::Sender<DagEvent>,
-) -> CliResult {
-    let (ws_stream, _) = connect_async(&ws_url)
-        .await
-        .map_err(|e| Error::transport(&ws_url, e))?;
+async fn run_websocket_listener(node: NodeHttp, tx: mpsc::Sender<DagEvent>) -> CliResult {
+    let ws_stream = connect_websocket(node.endpoint(), "/ws/events").await?;
 
     let (_, mut read) = ws_stream.split();
 
@@ -226,7 +213,7 @@ async fn run_websocket_listener(
                     let enriched_event = match &event {
                         DagEvent::BlockCreated(block) => {
                             if let Some(mut full_block) =
-                                fetch_block_by_hash(&api_base, &block.hash).await
+                                fetch_block_by_hash(&node, &block.hash).await
                             {
                                 full_block.status = BlockStatus::Created;
                                 DagEvent::BlockCreated(Box::new(full_block))
@@ -237,8 +224,7 @@ async fn run_websocket_listener(
                         DagEvent::BlockAdded(hash) => {
                             // Fetch full block and return as BlockCreated with Added status
                             // This ensures we have block_number even if we missed BlockCreated
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
-                            {
+                            if let Some(mut full_block) = fetch_block_by_hash(&node, hash).await {
                                 full_block.status = BlockStatus::Added;
                                 DagEvent::BlockCreated(Box::new(full_block))
                             } else {
@@ -247,8 +233,7 @@ async fn run_websocket_listener(
                         }
                         DagEvent::BlockFinalized(hash) => {
                             // Fetch full block and return as BlockCreated with Finalized status
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
-                            {
+                            if let Some(mut full_block) = fetch_block_by_hash(&node, hash).await {
                                 full_block.status = BlockStatus::Finalized;
                                 DagEvent::BlockCreated(Box::new(full_block))
                             } else {

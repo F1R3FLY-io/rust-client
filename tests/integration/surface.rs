@@ -73,7 +73,7 @@ pub fn trials() -> Vec<Trial> {
         }),
         Trial::test("surface::epoch_rewards_are_readable", || {
             Cli::new("epoch-rewards")
-                .http_port_at(Node::ReadOnly)
+                .http_at(Node::ReadOnly)
                 .run()
                 .expect_success("epoch-rewards");
             Ok(())
@@ -86,7 +86,7 @@ pub fn trials() -> Vec<Trial> {
                 let estimate = Cli::new("estimate-cost")
                     .args(["-f", contracts::path("stdout.rho")])
                     .args(["--deployer", keys::ESTIMATE_COST.public])
-                    .http_port_at(Node::ReadOnly)
+                    .http_at(Node::ReadOnly)
                     .run()
                     .expect_success("estimate-cost");
                 assert!(
@@ -98,7 +98,7 @@ pub fn trials() -> Vec<Trial> {
                 Cli::new("estimate-cost")
                     .args(["-f", contracts::path("broken.rho")])
                     .args(["--deployer", keys::ESTIMATE_COST.public])
-                    .http_port_at(Node::ReadOnly)
+                    .http_at(Node::ReadOnly)
                     .run()
                     .expect_failure("estimate-cost on a term that does not parse")
                     .expect_contains("rholang_bad_term");
@@ -107,9 +107,9 @@ pub fn trials() -> Vec<Trial> {
         ),
         Trial::test("surface::network_health_reports_the_shard", || {
             Cli::new("network-health")
-                .args(["-H", "localhost"])
                 .run()
-                .expect_success("network-health");
+                .expect_success("network-health")
+                .expect_contains("Healthy nodes: 5/5");
             Ok(())
         }),
         Trial::test("surface::metrics_are_exposed", || {

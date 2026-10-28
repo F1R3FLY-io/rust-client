@@ -1,6 +1,155 @@
 use clap::{ArgAction, Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+use crate::commands::CliResult;
+use crate::connection_manager::{DEFAULT_GRPC_URL, DEFAULT_HTTP_URL};
+use crate::endpoint::Endpoint;
+use crate::f1r3fly_api::F1r3flyApi;
+use crate::node_http::NodeHttp;
+
+fn parse_endpoint(url: &str) -> Result<Endpoint, String> {
+    Endpoint::parse(url).map_err(|e| e.to_string())
+}
+
+/// How every endpoint of a command is reached: trusted certificate
+/// authorities and timeouts
+#[derive(Args, Debug, Clone)]
+pub struct TransportArgs {
+    /// PEM file of the certificate authorities that https endpoints are
+    /// trusted against, in place of the bundled public roots
+    #[arg(long = "ca-cert")]
+    pub ca_cert: Option<PathBuf>,
+
+    /// Seconds a connection to a node may take to establish
+    #[arg(
+        long = "connect-timeout",
+        default_value_t = crate::endpoint::DEFAULT_CONNECT_TIMEOUT.as_secs(),
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub connect_timeout: u64,
+
+    /// Seconds a single request to a node may take
+    #[arg(
+        long = "timeout",
+        default_value_t = crate::endpoint::DEFAULT_REQUEST_TIMEOUT.as_secs(),
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub timeout: u64,
+}
+
+impl TransportArgs {
+    /// `endpoint`, with this command's certificate authorities and timeouts.
+    pub fn apply(&self, endpoint: &Endpoint) -> CliResult<Endpoint> {
+        let endpoint = endpoint
+            .clone()
+            .with_connect_timeout(std::time::Duration::from_secs(self.connect_timeout))
+            .with_request_timeout(std::time::Duration::from_secs(self.timeout));
+        let Some(path) = &self.ca_cert else {
+            return Ok(endpoint);
+        };
+        let pem = std::fs::read(path).map_err(|cause| crate::Error::Io {
+            path: path.clone(),
+            cause,
+        })?;
+        Ok(endpoint.with_ca_certificates(pem)?)
+    }
+}
+
+/// The node a command reaches over gRPC
+#[derive(Args, Debug, Clone)]
+pub struct GrpcNodeArgs {
+    /// Node gRPC endpoint, http:// or https://, with no path
+    #[arg(long = "grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    pub grpc: Endpoint,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+}
+
+impl GrpcNodeArgs {
+    pub fn api(&self) -> CliResult<F1r3flyApi> {
+        Ok(F1r3flyApi::new(self.transport.apply(&self.grpc)?)?)
+    }
+}
+
+/// The node a command reaches over HTTP
+#[derive(Args, Debug, Clone)]
+pub struct HttpNodeArgs {
+    /// Node HTTP endpoint, http:// or https://, optionally with a base path
+    #[arg(long = "http", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
+    pub http: Endpoint,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+}
+
+impl HttpNodeArgs {
+    pub fn node(&self) -> CliResult<NodeHttp> {
+        Ok(NodeHttp::new(self.transport.apply(&self.http)?)?)
+    }
+}
+
+/// A read-only node a command queries over gRPC. There is no default: the
+/// default node ports are a validator's, which refuses these queries.
+#[derive(Args, Debug, Clone)]
+pub struct ReadOnlyGrpcArgs {
+    /// gRPC endpoint of a read-only node, http:// or https://, with no path
+    #[arg(long = "grpc", value_parser = parse_endpoint)]
+    pub grpc: Endpoint,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+}
+
+impl ReadOnlyGrpcArgs {
+    pub fn api(&self) -> CliResult<F1r3flyApi> {
+        Ok(F1r3flyApi::new(self.transport.apply(&self.grpc)?)?)
+    }
+}
+
+/// A read-only node a command queries over HTTP. There is no default: the
+/// default node ports are a validator's, which refuses these queries.
+#[derive(Args, Debug, Clone)]
+pub struct ReadOnlyHttpArgs {
+    /// HTTP endpoint of a read-only node, http:// or https://, optionally with a base path
+    #[arg(long = "http", value_parser = parse_endpoint)]
+    pub http: Endpoint,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+}
+
+impl ReadOnlyHttpArgs {
+    pub fn node(&self) -> CliResult<NodeHttp> {
+        Ok(NodeHttp::new(self.transport.apply(&self.http)?)?)
+    }
+}
+
+/// The node a command reaches over both gRPC and HTTP
+#[derive(Args, Debug, Clone)]
+pub struct NodeArgs {
+    /// Node gRPC endpoint, http:// or https://, with no path
+    #[arg(long = "grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    pub grpc: Endpoint,
+
+    /// Node HTTP endpoint, http:// or https://, optionally with a base path
+    #[arg(long = "http", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
+    pub http: Endpoint,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+}
+
+impl NodeArgs {
+    pub fn api(&self) -> CliResult<F1r3flyApi> {
+        Ok(F1r3flyApi::new(self.transport.apply(&self.grpc)?)?)
+    }
+
+    pub fn node(&self) -> CliResult<NodeHttp> {
+        Ok(NodeHttp::new(self.transport.apply(&self.http)?)?)
+    }
+}
+
 /// Command-line interface for interacting with F1r3fly nodes
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -26,7 +175,7 @@ pub enum Commands {
     /// Check if a block is finalized
     IsFinalized(IsFinalizedArgs),
 
-    /// Execute Rholang code without committing to the blockchain (exploratory deployment)
+    /// Execute Rholang code without committing to the blockchain (exploratory deployment; needs a read-only node)
     ExploratoryDeploy(ExploratoryDeployArgs),
 
     /// Estimate phlogiston cost of Rholang code without deploying
@@ -42,25 +191,25 @@ pub enum Commands {
     GenerateVaultAddress(GenerateVaultAddressArgs),
 
     /// Get node status and peer information
-    Status(HttpArgs),
+    Status(HttpNodeArgs),
 
     /// Get recent blocks or specific block information
     Blocks(BlocksArgs),
 
-    /// Get current validator bonds from PoS contract
-    Bonds(HttpArgs),
+    /// Get current validator bonds from PoS contract (needs a read-only node)
+    Bonds(ReadOnlyHttpArgs),
 
-    /// Get active validators from PoS contract
-    ActiveValidators(HttpArgs),
+    /// Get active validators from PoS contract (needs a read-only node)
+    ActiveValidators(ReadOnlyHttpArgs),
 
-    /// Check wallet balance for a specific address
+    /// Check wallet balance for a specific address (needs a read-only node)
     WalletBalance(WalletBalanceArgs),
 
     /// Check if a validator is bonded
     BondStatus(BondStatusArgs),
 
     /// Get node metrics
-    Metrics(HttpArgs),
+    Metrics(HttpNodeArgs),
 
     /// Bond a new validator to the network (dynamic validator addition)
     BondValidator(BondValidatorArgs),
@@ -72,7 +221,7 @@ pub enum Commands {
     NetworkHealth(NetworkHealthArgs),
 
     /// Get the last finalized block
-    LastFinalizedBlock(HttpArgs),
+    LastFinalizedBlock(HttpNodeArgs),
 
     /// Get blocks in the main chain
     ShowMainChain(ShowMainChainArgs),
@@ -86,17 +235,17 @@ pub enum Commands {
     /// Get a specific deploy by ID
     GetDeploy(GetDeployArgs),
 
-    /// Get current epoch information and status
-    EpochInfo(EpochInfoArgs),
+    /// Get current epoch information and status (needs a read-only node)
+    EpochInfo(ReadOnlyGrpcArgs),
 
-    /// Check individual validator status (bonded, active, withdrawal progress)
+    /// Check individual validator status: bonded, active, withdrawal progress (needs a read-only node)
     ValidatorStatus(ValidatorStatusArgs),
 
-    /// Get current epoch rewards information
-    EpochRewards(EpochRewardsArgs),
+    /// Get current epoch rewards information (needs a read-only node)
+    EpochRewards(ReadOnlyHttpArgs),
 
-    /// Get network-wide consensus health overview
-    NetworkConsensus(NetworkConsensusArgs),
+    /// Get network-wide consensus health overview (needs a read-only node)
+    NetworkConsensus(ReadOnlyHttpArgs),
 
     /// Get blocks by height range
     GetBlocksByHeight(GetBlocksByHeightArgs),
@@ -110,7 +259,7 @@ pub enum Commands {
     /// Interactive DAG visualization with real-time updates
     Dag(DagArgs),
 
-    /// Get transfer information from a block's deploys
+    /// Get transfer information from a block's deploys (needs a read-only node)
     BlockTransfers(BlockTransfersArgs),
 
     /// Check canonical-state finalization status of a deploy by signature
@@ -121,34 +270,17 @@ pub enum Commands {
 /// wait for the deploy to finalize
 #[derive(Args, Debug)]
 pub struct DeployWaitArgs {
-    /// Node hostname
-    #[arg(short = 'H', long = "host", default_value = "localhost")]
-    pub host: String,
+    #[command(flatten)]
+    pub node: NodeArgs,
 
-    /// gRPC port for deploy operations
-    #[arg(short = 'p', long = "port", default_value_t = 40412)]
-    pub port: u16,
-
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+    /// HTTP endpoint of a second node, such as the shard's read-only node,
+    /// polled alongside the deploy node for the deploy's verdict
+    #[arg(long = "observer", value_parser = parse_endpoint)]
+    pub observer: Option<Endpoint>,
 
     /// Maximum seconds to wait for the deploy to finalize
     #[arg(long = "max-wait", default_value_t = 300)]
     pub max_wait: u64,
-
-    /// Observer node host for finalization checks (falls back to main host if not specified)
-    #[arg(long = "observer-host")]
-    pub observer_host: Option<String>,
-
-    /// Observer node gRPC port (falls back to 40452 if not specified)
-    #[arg(long = "observer-port")]
-    pub observer_port: Option<u16>,
-
-    /// Observer node HTTP port polled for finalization status (falls back to 40453 if not
-    /// specified). For a standalone node with no separate observer, pass the node's HTTP port.
-    #[arg(long = "observer-http-port")]
-    pub observer_http_port: Option<u16>,
 
     #[command(flatten)]
     pub deploy: DeployOptionsArgs,
@@ -236,13 +368,8 @@ pub struct GetDataArgs {
     #[arg(short = 'b', long = "block-hash")]
     pub block_hash: String,
 
-    /// Node hostname
-    #[arg(short = 'H', long = "host", default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port
-    #[arg(short = 'p', long = "port", default_value_t = 40412)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: GrpcNodeArgs,
 }
 
 #[derive(Parser, Debug)]
@@ -251,13 +378,8 @@ pub struct GetDeployArgs {
     #[arg(short = 'd', long = "deploy-id")]
     pub deploy_id: String,
 
-    /// Node hostname
-    #[arg(short = 'H', long = "host", default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port for API queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+    #[command(flatten)]
+    pub node: HttpNodeArgs,
 
     /// Output format (json, pretty, summary)
     #[arg(short = 'f', long = "format", default_value = "pretty")]
@@ -275,13 +397,8 @@ pub struct DeployStatusArgs {
     #[arg(short = 's', long = "sig")]
     pub sig: String,
 
-    /// Node hostname
-    #[arg(short = 'H', long = "host", default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port for API queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+    #[command(flatten)]
+    pub node: HttpNodeArgs,
 
     /// Output format (json, pretty)
     #[arg(short = 'f', long = "format", default_value = "pretty")]
@@ -299,13 +416,8 @@ pub struct DeployArgs {
     #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: GrpcNodeArgs,
 
     /// Most phlo the deploy may spend
     #[arg(long = "phlo-limit", default_value_t = crate::deploy::DEFAULT_PHLO_LIMIT)]
@@ -315,16 +427,25 @@ pub struct DeployArgs {
     pub deploy: DeployOptionsArgs,
 }
 
-/// Arguments for propose command
+/// A node's internal gRPC API, the only one that serves propose.
+pub const DEFAULT_INTERNAL_GRPC_URL: &str = "http://localhost:40402";
+
+/// Arguments for propose command. Propose is served on the node's internal
+/// gRPC API, not the external one deploys use.
 #[derive(Parser)]
 pub struct ProposeArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+    /// Node's internal gRPC endpoint, http:// or https://, with no path
+    #[arg(long = "grpc", default_value = DEFAULT_INTERNAL_GRPC_URL, value_parser = parse_endpoint)]
+    pub grpc: Endpoint,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    #[command(flatten)]
+    pub transport: TransportArgs,
+}
+
+impl ProposeArgs {
+    pub fn api(&self) -> CliResult<F1r3flyApi> {
+        Ok(F1r3flyApi::new(self.transport.apply(&self.grpc)?)?)
+    }
 }
 
 /// Arguments for is-finalized command
@@ -334,13 +455,8 @@ pub struct IsFinalizedArgs {
     #[arg(short, long)]
     pub block_hash: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: GrpcNodeArgs,
 
     /// Maximum number of retry attempts
     #[arg(short, long, default_value_t = 12)]
@@ -351,20 +467,15 @@ pub struct IsFinalizedArgs {
     pub retry_delay: u64,
 }
 
-/// Arguments for exploratory-deploy command
+/// Arguments for exploratory-deploy command. Only a read-only node serves it.
 #[derive(Parser)]
 pub struct ExploratoryDeployArgs {
     /// Path to the Rholang file to execute
     #[arg(short, long)]
     pub file: PathBuf,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: ReadOnlyGrpcArgs,
 
     /// Block hash to use as reference (optional)
     #[arg(short, long)]
@@ -381,13 +492,8 @@ pub struct EstimateCostArgs {
     #[arg(short, long)]
     pub file: PathBuf,
 
-    /// Node hostname
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port for API queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+    #[command(flatten)]
+    pub node: HttpNodeArgs,
 
     /// Block hash to estimate against (optional)
     #[arg(long = "block-hash")]
@@ -447,28 +553,11 @@ pub struct GenerateVaultAddressArgs {
     pub private_key: Option<String>,
 }
 
-/// Arguments for HTTP-based commands (status, bonds, metrics)
-#[derive(Parser)]
-pub struct HttpArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port number (not gRPC port)
-    #[arg(short, long, default_value_t = 40453)]
-    pub port: u16,
-}
-
 /// Arguments for blocks command
 #[derive(Parser)]
 pub struct BlocksArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port number (not gRPC port)
-    #[arg(short, long, default_value_t = 40413)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: HttpNodeArgs,
 
     /// Number of recent blocks to fetch (default: 5)
     #[arg(short, long, default_value_t = 5)]
@@ -482,13 +571,8 @@ pub struct BlocksArgs {
 /// Arguments for show-main-chain command
 #[derive(Parser)]
 pub struct ShowMainChainArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: GrpcNodeArgs,
 
     /// Number of blocks to fetch from main chain (default: 10)
     #[arg(short, long, default_value_t = 10)]
@@ -498,13 +582,8 @@ pub struct ShowMainChainArgs {
 /// Arguments for get-blocks-by-height command
 #[derive(Parser)]
 pub struct GetBlocksByHeightArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: GrpcNodeArgs,
 
     /// Start block number (inclusive)
     #[arg(short, long)]
@@ -515,32 +594,22 @@ pub struct GetBlocksByHeightArgs {
     pub end_block_number: i64,
 }
 
-/// Arguments for wallet-balance command
+/// Arguments for wallet-balance command. Only a read-only node serves it.
 #[derive(Parser)]
 pub struct WalletBalanceArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number (requires read-only node)
-    #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: ReadOnlyGrpcArgs,
 
     /// Wallet address to check balance for
     #[arg(short = 'a', long)]
     pub address: String,
 }
 
-/// Arguments for bond-status command
+/// Arguments for bond-status command. Any node serves it.
 #[derive(Parser)]
 pub struct BondStatusArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port of any node
-    #[arg(short, long, default_value_t = 40413)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: HttpNodeArgs,
 
     /// Public key to check bond status for
     #[arg(short = 'k', long)]
@@ -596,25 +665,13 @@ pub struct UnbondValidatorArgs {
 /// Arguments for network-health command
 #[derive(Parser)]
 pub struct NetworkHealthArgs {
-    /// Check standard F1r3fly shard ports (bootstrap, validator1, validator2, observer)
-    #[arg(short, long, default_value_t = true, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
-    pub standard_ports: bool,
+    /// HTTP endpoint of a node to check; repeat it for each node. Without any,
+    /// the nodes of a single-host Docker shard on localhost are checked.
+    #[arg(long = "http", value_parser = parse_endpoint)]
+    pub nodes: Vec<Endpoint>,
 
-    /// Additional custom ports to check (comma-separated, e.g. "60503,70503")
-    #[arg(short, long)]
-    pub custom_ports: Option<String>,
-
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// Enable recursive peer discovery to find all peers in the network
-    #[arg(short, long)]
-    pub recursive: bool,
-
-    /// Maximum number of unique peers to discover (-1 or 0 means no limit)
-    #[arg(short = 'n', long, default_value = "20")]
-    pub max_peers: i32,
+    #[command(flatten)]
+    pub transport: TransportArgs,
 
     /// Print more details about the results
     #[arg(short, long)]
@@ -686,17 +743,12 @@ pub struct LoadTestArgs {
     #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
     pub private_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
+    #[command(flatten)]
+    pub node: NodeArgs,
 
-    /// gRPC port number
-    #[arg(short, long, default_value_t = 40412)]
-    pub port: u16,
-
-    /// HTTP port for status queries
-    #[arg(long = "http-port", default_value_t = 40413)]
-    pub http_port: u16,
+    /// gRPC endpoint of a read-only node, for balance queries
+    #[arg(long = "readonly-grpc", value_parser = parse_endpoint)]
+    pub readonly_grpc: Endpoint,
 
     /// Check interval in seconds for deploy status (fast mode)
     #[arg(long = "check-interval", default_value_t = 1)]
@@ -705,10 +757,6 @@ pub struct LoadTestArgs {
     /// Max depth to check main chain for orphan detection
     #[arg(long = "chain-depth", default_value_t = 200)]
     pub chain_depth: u32,
-
-    /// Read-only gRPC port for balance queries (requires read-only node)
-    #[arg(long = "readonly-port", default_value_t = 40452)]
-    pub readonly_port: u16,
 
     /// Maximum time in seconds to wait for block inclusion
     #[arg(long = "inclusion-timeout", default_value_t = 120)]
@@ -733,49 +781,8 @@ pub struct ValidatorStatusArgs {
     #[arg(short = 'k', long)]
     pub public_key: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port of a read-only node, for explore-deploy queries
-    #[arg(long = "http-port", default_value_t = 40453)]
-    pub http_port: u16,
-}
-
-/// Arguments for network-consensus command
-#[derive(Parser)]
-pub struct NetworkConsensusArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port of a read-only node, for explore-deploy queries
-    #[arg(long = "http-port", default_value_t = 40453)]
-    pub http_port: u16,
-}
-
-/// Arguments for epoch-info
-#[derive(Parser)]
-pub struct EpochInfoArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// gRPC port number (use 40452 for observer/read-only node)
-    #[arg(short, long, default_value_t = 40452)]
-    pub port: u16,
-}
-
-/// Arguments for epoch-rewards
-#[derive(Parser)]
-pub struct EpochRewardsArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port of a read-only node, for explore-deploy queries
-    #[arg(long = "http-port", default_value_t = 40453)]
-    pub http_port: u16,
+    #[command(flatten)]
+    pub node: ReadOnlyHttpArgs,
 }
 
 /// Arguments for get-node-id command
@@ -809,13 +816,8 @@ pub struct GetNodeIdArgs {
 /// Arguments for watch-events command
 #[derive(Parser, Debug)]
 pub struct WatchEventsArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port number for WebSocket connection
-    #[arg(long, default_value_t = 40403)]
-    pub http_port: u16,
+    #[command(flatten)]
+    pub node: HttpNodeArgs,
 
     /// Filter events by type: created, added, finalized (or finalised), transfers, genesis, lifecycle
     #[arg(short, long)]
@@ -826,19 +828,12 @@ pub struct WatchEventsArgs {
     pub retry_forever: bool,
 }
 
+/// Arguments for dag. Blocks are read from, and live events followed on, the
+/// one HTTP endpoint.
 #[derive(Parser, Debug)]
 pub struct DagArgs {
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port for block queries
-    #[arg(long, default_value_t = 40413)]
-    pub http_port: u16,
-
-    /// WebSocket port for real-time events
-    #[arg(long, default_value_t = 40403)]
-    pub ws_port: u16,
+    #[command(flatten)]
+    pub node: HttpNodeArgs,
 
     /// Initial number of blocks to load
     #[arg(short, long, default_value_t = 50)]
@@ -859,13 +854,8 @@ pub struct BlockTransfersArgs {
     /// Block hash to get transfers from
     pub block_hash: String,
 
-    /// Host address
-    #[arg(short = 'H', long, default_value = "localhost")]
-    pub host: String,
-
-    /// HTTP port number
-    #[arg(short, long, default_value_t = 40403)]
-    pub port: u16,
+    #[command(flatten)]
+    pub node: ReadOnlyHttpArgs,
 
     /// Show all deploys, not just those with transfers
     #[arg(long = "all-deploys", default_value_t = false)]
@@ -907,5 +897,118 @@ mod bigint_tests {
         .unwrap();
         assert_eq!(tokens.amount, "1.000000000000000001");
         assert!(tokens.whole_tokens);
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn every_command_parses_without_conflicting_flags() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+    }
+
+    fn status(args: &[&str]) -> Result<HttpNodeArgs, clap::Error> {
+        let argv = ["node_cli", "status"].iter().chain(args);
+        match Cli::try_parse_from(argv)?.command {
+            Commands::Status(args) => Ok(args),
+            _ => unreachable!("parsed the status command"),
+        }
+    }
+
+    #[test]
+    fn timeouts_reach_the_endpoint_and_zero_is_refused() {
+        let args = status(&[
+            "--http",
+            "https://proxy.example/node1",
+            "--connect-timeout",
+            "3",
+            "--timeout",
+            "120",
+        ])
+        .unwrap();
+        let endpoint = args.transport.apply(&args.http).unwrap();
+        assert_eq!(endpoint.connect_timeout(), Duration::from_secs(3));
+        assert_eq!(endpoint.request_timeout(), Duration::from_secs(120));
+        assert_eq!(endpoint.to_string(), "https://proxy.example/node1");
+
+        let defaults = status(&[]).unwrap();
+        let endpoint = defaults.transport.apply(&defaults.http).unwrap();
+        assert_eq!(
+            endpoint.request_timeout(),
+            crate::endpoint::DEFAULT_REQUEST_TIMEOUT
+        );
+
+        assert!(status(&["--timeout", "0"]).is_err());
+    }
+
+    #[test]
+    fn a_grpc_endpoint_with_a_path_is_refused() {
+        let Commands::Propose(args) =
+            Cli::try_parse_from(["node_cli", "propose", "--grpc", "http://localhost:40402/x"])
+                .unwrap()
+                .command
+        else {
+            unreachable!("parsed the propose command")
+        };
+        assert!(args.api().is_err());
+    }
+
+    #[test]
+    fn propose_defaults_to_the_internal_api() {
+        let Commands::Propose(args) = Cli::try_parse_from(["node_cli", "propose"])
+            .unwrap()
+            .command
+        else {
+            unreachable!("parsed the propose command")
+        };
+        assert_eq!(args.grpc.to_string(), DEFAULT_INTERNAL_GRPC_URL);
+    }
+
+    #[test]
+    fn read_only_queries_need_an_explicit_endpoint() {
+        for args in [
+            &["node_cli", "bonds"][..],
+            &["node_cli", "epoch-info"],
+            &["node_cli", "wallet-balance", "-a", "1111x"],
+            &["node_cli", "exploratory-deploy", "-f", "q.rho"],
+            &["node_cli", "validator-status", "-k", "04ab"],
+            &["node_cli", "block-transfers", "abcd"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err(), "{args:?} was accepted");
+        }
+        assert!(
+            Cli::try_parse_from(["node_cli", "bonds", "--http", "http://observer:40453"]).is_ok()
+        );
+    }
+
+    #[test]
+    fn a_ca_with_a_plaintext_endpoint_is_refused() {
+        let ca = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let dir = std::env::temp_dir().join(format!("node-cli-ca-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ca.pem");
+        std::fs::write(&path, ca.cert.pem()).unwrap();
+
+        let args = status(&[
+            "--http",
+            "http://localhost:40403",
+            "--ca-cert",
+            path.to_str().unwrap(),
+        ])
+        .unwrap();
+        assert!(args.transport.apply(&args.http).is_err());
+        let args = status(&[
+            "--http",
+            "https://localhost:40403",
+            "--ca-cert",
+            path.to_str().unwrap(),
+        ])
+        .unwrap();
+        assert!(args.transport.apply(&args.http).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

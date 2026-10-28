@@ -15,18 +15,18 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--to-address` | `-t` | required | Recipient vault address (starts with `1111`) |
 | `--amount` | `-a` | required | Amount in base units (dust) by default. Use `--whole-tokens`/`-d` for whole tokens. |
 | `--private-key` | | dev key | Sender's signing key |
-| `--host` | `-H` | `localhost` | Node hostname — must be a **bonded validator** |
-| `--port` | `-p` | `40412` | gRPC port |
-| `--http-port` | | `40413` | HTTP port |
+| `--grpc` | | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit to — must be a **bonded validator** |
+| `--http` | | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `500000` | Most phlo the transfer deploy may spend |
 | `--phlo-price` | | `1` | Price per phlo, in the native token's base units |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
-| `--propose` | | false | Also propose a block after deploy |
+| `--propose` | | false | Also propose a block after deploy; `--grpc` must then be the node's internal API |
 | `--max-wait` | | `300` | Max seconds to wait for finalization |
 | `--check-interval` | | `5` | Seconds between finalization status polls |
-| `--observer-host` | | same as host | Observer for finalization |
-| `--observer-port` | | `40452` | Observer gRPC port |
-| `--observer-http-port` | | `40453` | Observer HTTP port polled for finalization status |
+| `--observer` | | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--expiration` | | none | Expiration timestamp (ms) |
 | `--expires-in` | | none | Expiration duration (seconds) |
 | `--whole-tokens` | `-d` | false | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status (default: base units / dust) |
