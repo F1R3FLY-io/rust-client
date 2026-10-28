@@ -81,6 +81,23 @@ pub struct DeployDetail {
     pub valid_after_block_number: Option<i64>,
 }
 
+impl DeployDetail {
+    /// Why the deploy's execution failed, or `None` when it succeeded.
+    pub fn execution_failure(&self) -> Option<String> {
+        execution_failure(self.errored, self.system_deploy_error.as_deref())
+    }
+}
+
+/// A system deploy (payment, refund) can fail without the user deploy being
+/// flagged `errored`, so either signal is a failed execution.
+fn execution_failure(errored: bool, system_deploy_error: Option<&str>) -> Option<String> {
+    match system_deploy_error.filter(|error| !error.is_empty()) {
+        Some(error) => Some(error.to_string()),
+        None if errored => Some("execution errored".to_string()),
+        None => None,
+    }
+}
+
 /// Canonical-state finalization status for a deploy, from
 /// `/api/deploy-finalization-status/{sig}`.
 ///
@@ -117,8 +134,46 @@ pub struct DeployResult {
     pub data: Result<Vec<f1r3fly_models::rhoapi::Par>, String>,
 }
 
+impl DeployResult {
+    /// Why the deploy's execution failed, or `None` when it succeeded.
+    pub fn execution_failure(&self) -> Option<String> {
+        execution_failure(self.errored, self.system_deploy_error.as_deref())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProposeResult {
     Proposed(String),
     Skipped(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::execution_failure;
+
+    #[test]
+    fn a_system_deploy_error_is_a_failure_even_when_not_flagged_errored() {
+        assert_eq!(
+            execution_failure(false, Some("Deploy payment failed: Insufficient funds")),
+            Some("Deploy payment failed: Insufficient funds".to_string())
+        );
+    }
+
+    #[test]
+    fn an_errored_flag_alone_is_a_failure() {
+        assert_eq!(
+            execution_failure(true, None),
+            Some("execution errored".to_string())
+        );
+        assert_eq!(
+            execution_failure(true, Some("")),
+            Some("execution errored".to_string())
+        );
+    }
+
+    #[test]
+    fn no_flag_and_no_error_is_success() {
+        assert_eq!(execution_failure(false, None), None);
+        assert_eq!(execution_failure(false, Some("")), None);
+    }
 }

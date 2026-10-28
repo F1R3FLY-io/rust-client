@@ -90,10 +90,10 @@ in {{
 /// the deploy must not have errored, its deployId data must be readable, and the
 /// vault must have accepted the transfer.
 pub fn check_transfer_result(result: &crate::f1r3fly_api::DeployResult) -> Result<(), String> {
-    if result.errored || result.system_deploy_error.is_some() {
+    if let Some(failure) = result.execution_failure() {
         return Err(format!(
-            "transfer deploy errored on-chain (cost: {:?}, system error: {:?})",
-            result.cost, result.system_deploy_error
+            "transfer deploy errored on-chain (cost: {:?}): {failure}",
+            result.cost
         ));
     }
     let data = result

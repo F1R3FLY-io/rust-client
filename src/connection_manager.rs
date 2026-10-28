@@ -2,7 +2,7 @@
 ///
 /// Manages connections to F1r3fly nodes with connection reuse and pooling.
 /// Provides a high-level async API for deploying Rholang code and querying state.
-use crate::f1r3fly_api::F1r3flyApi;
+use crate::f1r3fly_api::{DeployFinalizationStatus, F1r3flyApi};
 use crate::utils::CryptoUtils;
 use crate::vault::{build_transfer_rholang, TransferResult};
 use log;
@@ -123,6 +123,56 @@ impl std::fmt::Display for ConnectionError {
 
 impl std::error::Error for ConnectionError {}
 
+type StatusAnswer = Result<Option<DeployFinalizationStatus>, String>;
+
+/// What one poll of the deploy node and the observer established.
+#[derive(Debug)]
+enum PollOutcome {
+    Terminal(DeployFinalizationStatus),
+    /// `included`: an answer names a block carrying the deploy.
+    Pending {
+        included: bool,
+    },
+    /// The deploy node cannot serve the endpoint and the observer gave no answer.
+    Unserved,
+}
+
+/// Terminal states are write-once on a node, so whichever node reports one first
+/// has the verdict. Two nodes reporting different terminal states is an error,
+/// never a choice. A 404 (`Ok(None)`) from the deploy node is conclusive unless
+/// the observer answered.
+fn poll_outcome(node: StatusAnswer, observer: StatusAnswer) -> Result<PollOutcome, String> {
+    let node_unserved = matches!(node, Ok(None));
+    let node = node.ok().flatten();
+    let observer = observer.ok().flatten();
+
+    let terminal = |status: &Option<DeployFinalizationStatus>| {
+        status
+            .as_ref()
+            .filter(|status| status.is_terminal())
+            .cloned()
+    };
+    match (terminal(&node), terminal(&observer)) {
+        (Some(from_node), Some(from_observer)) if from_node.state != from_observer.state => {
+            return Err(format!(
+                "the deploy node reports {} but the observer reports {}",
+                from_node.state, from_observer.state
+            ));
+        }
+        (Some(status), _) | (None, Some(status)) => return Ok(PollOutcome::Terminal(status)),
+        (None, None) => {}
+    }
+
+    if node_unserved && observer.is_none() {
+        return Ok(PollOutcome::Unserved);
+    }
+    let included = [&node, &observer]
+        .into_iter()
+        .flatten()
+        .any(|status| status.latest_block_hash.is_some());
+    Ok(PollOutcome::Pending { included })
+}
+
 /// Manages F1r3fly node connections with connection reuse
 #[derive(Clone)]
 pub struct F1r3flyConnectionManager {
@@ -229,108 +279,68 @@ impl F1r3flyConnectionManager {
     /// Wait for a deploy to reach a terminal finalization state (`Finalized` /
     /// `Failed` / `Expired`) via `/api/deploy-finalization-status/{sig}`.
     ///
-    /// Queries the observer first and the deploy node when the observer does not
-    /// answer. Fails immediately when neither node serves the endpoint, and when
-    /// the budget elapses without a terminal state.
+    /// Each poll asks the deploy node and the observer; the first terminal
+    /// state either reports is the verdict. Fails immediately when the deploy
+    /// node does not serve the endpoint and the observer gave no answer, and
+    /// when the budget elapses without a terminal state.
     pub async fn wait_for_deploy_finalization(
         &self,
         deploy_sig_hex: &str,
         total_timeout_secs: u64,
         poll_interval_secs: u64,
     ) -> Result<crate::f1r3fly_api::DeployFinalizationStatus, ConnectionError> {
+        let node_api = self.api()?;
         let observer_api = self.observer_api()?;
-        let node_api = self.api();
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
-        // A `Failed` verdict is written only past the contestability bound
-        // (`deploy-lifespan + max-parent-depth` blocks), while `/api/deploy/{id}`
-        // describes the errored execution as soon as a block carries it.
-        let mut errored_execution: Option<String> = None;
+        let mut execution_failure: Option<String> = None;
 
         for attempt in 1..=max_attempts {
-            // Map errors to String immediately: the un-Send `Box<dyn Error>`
-            // must not live across the poll sleep below, or every future built
-            // on this loop (transfer, deploy_and_wait) stops being Send.
-            let observer = observer_api
-                .deploy_finalization_status(deploy_sig_hex, self.config.observer_http_port)
-                .await
-                .map_err(|e| e.to_string());
+            let (node, observer) = tokio::join!(
+                node_api.deploy_finalization_status(deploy_sig_hex, self.config.http_port),
+                observer_api
+                    .deploy_finalization_status(deploy_sig_hex, self.config.observer_http_port),
+            );
+            let node = node.map_err(|e| e.to_string());
+            let observer = observer.map_err(|e| e.to_string());
+            if node.is_err() || observer.is_err() {
+                tracing::warn!(
+                    deploy_sig = deploy_sig_hex,
+                    attempt,
+                    node = ?node,
+                    observer = ?observer,
+                    "deploy-finalization-status unavailable from a node; will retry"
+                );
+            }
 
-            let status = match observer {
-                Ok(Some(status)) => Some(status),
-                observer => {
-                    let node = match &node_api {
-                        Ok(api) => Some(
-                            api.deploy_finalization_status(deploy_sig_hex, self.config.http_port)
-                                .await
-                                .map_err(|e| e.to_string()),
-                        ),
-                        Err(_) => None,
-                    };
-                    match (observer, node) {
-                        (_, Some(Ok(Some(status)))) => Some(status),
-                        (Ok(None), Some(Ok(None)) | None) => {
-                            return Err(ConnectionError::OperationFailed(
-                                "the node does not serve /api/deploy-finalization-status \
-                                 (requires f1r3node-rust v0.4.15 or later)"
-                                    .to_string(),
-                            ));
-                        }
-                        (observer, node) => {
-                            tracing::warn!(
-                                deploy_sig = deploy_sig_hex,
-                                attempt,
-                                observer = ?observer,
-                                node = ?node,
-                                "deploy-finalization-status unavailable; will retry"
-                            );
-                            None
-                        }
+            let included =
+                match poll_outcome(node, observer).map_err(ConnectionError::OperationFailed)? {
+                    PollOutcome::Terminal(status) => {
+                        tracing::debug!(
+                            deploy_sig = deploy_sig_hex,
+                            state = %status.state,
+                            attempt,
+                            "Deploy reached terminal state"
+                        );
+                        return Ok(status);
                     }
-                }
-            };
-
-            let included = match status {
-                Some(status) if status.is_terminal() => {
-                    tracing::debug!(
-                        deploy_sig = deploy_sig_hex,
-                        state = %status.state,
-                        attempt,
-                        "Deploy reached terminal state"
-                    );
-                    return Ok(status);
-                }
-                // A Pending answer names the block carrying the deploy, so the
-                // detail read below runs only once there is one to read.
-                Some(status) => status.latest_block_hash.is_some(),
-                None => false,
-            };
-
-            if included && errored_execution.is_none() {
-                let detail = match &node_api {
-                    Ok(api) => api
-                        .get_deploy_detail(deploy_sig_hex, self.config.http_port)
-                        .await
-                        .ok()
-                        .flatten(),
-                    Err(_) => None,
+                    PollOutcome::Unserved => {
+                        return Err(ConnectionError::OperationFailed(
+                            "the node does not serve /api/deploy-finalization-status \
+                         (requires f1r3node-rust v0.4.15 or later)"
+                                .to_string(),
+                        ));
+                    }
+                    PollOutcome::Pending { included } => included,
                 };
 
-                if let Some(detail) = detail.filter(|detail| detail.errored) {
-                    let reason = detail
-                        .system_deploy_error
-                        .filter(|error| !error.is_empty())
-                        .map(|error| format!(": {error}"))
-                        .unwrap_or_default();
-                    let description = format!(
-                        "block {} (cost {}){reason}",
-                        detail.block_number, detail.cost
-                    );
+            if included && execution_failure.is_none() {
+                execution_failure = self.failed_execution(&node_api, deploy_sig_hex).await;
+                if let Some(description) = &execution_failure {
                     tracing::warn!(
                         deploy_sig = deploy_sig_hex,
                         "Deploy executed with an error in {description}; \
-                         waiting for the canonical verdict"
+                         waiting for the verdict"
                     );
-                    errored_execution = Some(description);
                 }
             }
 
@@ -339,12 +349,33 @@ impl F1r3flyConnectionManager {
             }
         }
 
-        let cause = errored_execution
+        let cause = execution_failure
             .map(|description| format!("executed with an error in {description}; no verdict"))
             .unwrap_or_else(|| "did not reach terminal state".to_string());
         Err(ConnectionError::OperationFailed(format!(
             "Deploy {deploy_sig_hex} {cause} within {total_timeout_secs}s"
         )))
+    }
+
+    /// The deploy node's description of a failed execution, as `block N (cost C): reason`.
+    async fn failed_execution(&self, api: &F1r3flyApi<'_>, deploy_sig_hex: &str) -> Option<String> {
+        match api
+            .get_deploy_detail(deploy_sig_hex, self.config.http_port)
+            .await
+            .map_err(|e| e.to_string())
+        {
+            Ok(Some(detail)) => detail.execution_failure().map(|failure| {
+                format!(
+                    "block {} (cost {}): {failure}",
+                    detail.block_number, detail.cost
+                )
+            }),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(deploy_sig = deploy_sig_hex, %error, "Could not read deploy detail");
+                None
+            }
+        }
     }
 
     /// Deploy Rholang code, wait for canonical finalization, and read result.
@@ -407,8 +438,13 @@ impl F1r3flyConnectionManager {
                 block_hash
             }
             "Failed" => {
+                let cause = self
+                    .failed_execution(&api, &deploy_id)
+                    .await
+                    .map(|description| format!("in {description}"))
+                    .unwrap_or_else(|| "during execution".to_string());
                 return Err(ConnectionError::OperationFailed(format!(
-                    "Deploy {deploy_id} failed during execution (Rholang error or insufficient phlo)"
+                    "Deploy {deploy_id} failed {cause}"
                 )));
             }
             "Expired" => {
@@ -557,5 +593,78 @@ mod tests {
         assert_eq!(config.grpc_port, 9000);
         assert_eq!(config.http_port, 9001);
         assert_eq!(config.signing_key, "my_key");
+    }
+
+    fn status(state: &str, block: Option<&str>) -> StatusAnswer {
+        Ok(Some(DeployFinalizationStatus {
+            state: state.to_string(),
+            rejection_count: 0,
+            latest_block_hash: block.map(str::to_string),
+        }))
+    }
+
+    fn unreachable() -> StatusAnswer {
+        Err("connection refused".to_string())
+    }
+
+    #[test]
+    fn a_terminal_state_from_the_deploy_node_ends_the_wait_while_the_observer_is_pending() {
+        let outcome = poll_outcome(status("Failed", Some("b1")), status("Pending", Some("b1")));
+        assert!(
+            matches!(outcome, Ok(PollOutcome::Terminal(ref s)) if s.state == "Failed"),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_terminal_state_from_the_observer_ends_the_wait_while_the_node_is_unreachable() {
+        let outcome = poll_outcome(unreachable(), status("Finalized", Some("b1")));
+        assert!(
+            matches!(outcome, Ok(PollOutcome::Terminal(ref s)) if s.state == "Finalized"),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn conflicting_terminal_states_are_an_error() {
+        let outcome = poll_outcome(
+            status("Failed", Some("b1")),
+            status("Finalized", Some("b1")),
+        );
+        assert!(outcome.is_err(), "{outcome:?}");
+    }
+
+    #[test]
+    fn a_deploy_node_that_does_not_serve_the_endpoint_is_conclusive_when_the_observer_is_unreachable(
+    ) {
+        assert!(matches!(
+            poll_outcome(Ok(None), unreachable()),
+            Ok(PollOutcome::Unserved)
+        ));
+        assert!(matches!(
+            poll_outcome(Ok(None), Ok(None)),
+            Ok(PollOutcome::Unserved)
+        ));
+    }
+
+    #[test]
+    fn an_answering_observer_keeps_the_wait_alive_when_the_deploy_node_does_not_serve_the_endpoint()
+    {
+        assert!(matches!(
+            poll_outcome(Ok(None), status("Pending", None)),
+            Ok(PollOutcome::Pending { included: false })
+        ));
+    }
+
+    #[test]
+    fn a_pending_answer_naming_a_block_marks_the_deploy_included() {
+        assert!(matches!(
+            poll_outcome(status("Pending", None), status("Pending", Some("b1"))),
+            Ok(PollOutcome::Pending { included: true })
+        ));
+        assert!(matches!(
+            poll_outcome(unreachable(), unreachable()),
+            Ok(PollOutcome::Pending { included: false })
+        ));
     }
 }

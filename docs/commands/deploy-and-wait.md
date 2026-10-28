@@ -8,7 +8,7 @@ This is the primary command for deploying contracts. It handles the full lifecyc
 3. Read the `deployId` channel data from the finalized block (using `latest_block_hash` from the status response)
 4. Get deploy execution details (cost, errored)
 
-**Note:** Step 2 queries the observer first, and the deploy node's own HTTP endpoint when the observer does not answer. The status reports whether the deploy's effects are in canonical state, so a deploy dropped during merge of a finalized block is not reported as finalized. The command requires a node that serves the endpoint (f1r3node-rust v0.4.15 or later) and fails immediately otherwise.
+**Note:** Step 2 queries the deploy node and the observer on every poll, and stops at the first terminal state either reports; a node never changes a verdict once written. The status reports whether the deploy's effects are in canonical state, so a deploy dropped during merge of a finalized block is not reported as finalized. The command requires a deploy node that serves the endpoint (f1r3node-rust v0.4.15 or later) and fails immediately otherwise, unless the observer answers.
 
 ## Usage
 
@@ -85,12 +85,12 @@ Block proposed: abc123...
 
 The deploy must reach a terminal state (`Finalized`, `Failed`, or `Expired`) within `--max-wait` seconds. The status is polled every `--check-interval` seconds.
 
-- `Failed` → command exits with error indicating Rholang execution failure
+- `Failed` → command exits with an error naming the block, cost and execution error
 - `Expired` → command exits with error indicating the deploy never landed canonically
-- Timeout while still `Pending` → command exits with error
+- Timeout while still `Pending` → command exits with error; if the deploy node already reports a failed execution, the error names it
 
 ## Observer Node
 
-Finalization checks run against the observer node (read-only), not the validator. This avoids interfering with block production. Set `--observer-host`, `--observer-port` and `--observer-http-port` if the observer is on a different host or ports. The two ports are independent; neither is derived from the other.
+Finalization checks run against both the deploy node and the observer node (read-only). Set `--observer-host`, `--observer-port` and `--observer-http-port` if the observer is on a different host or ports. The two ports are independent; neither is derived from the other.
 
-On a standard Docker shard, the observer is at port 40452 (gRPC) and 40453 (HTTP). For a standalone node with no separate observer, pass the node's own HTTP port as `--observer-http-port`; otherwise every poll first tries port 40453 and falls back to the deploy node.
+On a standard Docker shard, the observer is at port 40452 (gRPC) and 40453 (HTTP). For a standalone node with no separate observer, pass the node's own HTTP port as `--observer-http-port`; otherwise every poll also tries port 40453, which nothing answers.
