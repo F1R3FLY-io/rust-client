@@ -906,7 +906,7 @@ pub async fn validator_status_command(
     Ok(())
 }
 
-pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn epoch_info_command(args: &EpochInfoArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         " Getting current epoch information from {}:{}",
         args.host, args.port
@@ -1029,7 +1029,9 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn epoch_rewards_command(
+    args: &EpochRewardsArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         " Getting current epoch rewards from {}:{}",
         args.host, args.http_port

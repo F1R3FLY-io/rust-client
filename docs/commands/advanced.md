@@ -299,8 +299,6 @@ real problem.
 | `epoch-info` | gRPC | `-p` | `40452` |
 | `wallet-balance` | gRPC | `-p` | `40452` |
 
-`epoch-info` also accepts `--http-port`, but does not read it.
-
 Two non-PoS commands share the confusion, since they default to different
 nodes: `status` defaults to `40453` (the observer), while `blocks` defaults to
 `40413` (validator1).
@@ -330,11 +328,11 @@ Current Epoch Status:
 ### epoch-rewards
 
 ```bash
-node_cli epoch-rewards [-H HOST] [-p GRPC_PORT] [--http-port PORT]
+node_cli epoch-rewards [-H HOST] [--http-port PORT]
 ```
 
 ```
-$ node_cli epoch-rewards -p 40452 --http-port 40453
+$ node_cli epoch-rewards --http-port 40453
 
 Current Epoch Rewards (3 validators):
 
