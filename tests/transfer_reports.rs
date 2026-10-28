@@ -116,5 +116,9 @@ async fn a_pending_transfer_report_is_an_error_not_zero_transfers() {
         format!("{stdout}{stderr}").contains("has not produced the transfer report"),
         "{stdout}\n{stderr}"
     );
+    assert!(
+        format!("{stdout}{stderr}").contains("only a read-only node attaches transfers"),
+        "{stdout}\n{stderr}"
+    );
     assert!(!stdout.contains("Total transfers: 0"), "{stdout}");
 }

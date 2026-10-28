@@ -1335,7 +1335,8 @@ pub async fn block_transfers_command(
         }
         if start_time.elapsed() >= std::time::Duration::from_secs(args.max_wait) {
             return Err(format!(
-                "the node has not produced the transfer report for block {} within {}s",
+                "the node has not produced the transfer report for block {} within {}s; \
+                 only a read-only node attaches transfers, a validator never does",
                 args.block_hash, args.max_wait
             )
             .into());

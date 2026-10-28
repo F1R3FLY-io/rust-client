@@ -227,7 +227,7 @@ Extracts native token transfers from a block's deploys.
 node_cli block-transfers <BLOCK_HASH> [-H HOST] [-p HTTP_PORT] [--all-deploys] [--max-wait SECONDS]
 ```
 
-The node attaches transfers to a block's deploys once it has replayed the block. Until then the command re-reads the block every 2 seconds, up to `--max-wait` (default 60), and exits with an error if the report never arrives; it never reports a pending block as having no transfers.
+Point it at a read-only node: a validator never attaches transfers, so against one the command waits out `--max-wait` and fails. The read-only node attaches transfers to a block's deploys once it has replayed the block. Until then the command re-reads the block every 2 seconds, up to `--max-wait` (default 60), and exits with an error if the report never arrives; it never reports a pending block as having no transfers.
 
 ```
 $ node_cli block-transfers 860a56e195ff08ad...
