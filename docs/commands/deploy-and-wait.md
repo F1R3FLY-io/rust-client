@@ -22,9 +22,11 @@ node_cli deploy-and-wait -f <FILE> [OPTIONS]
 |------|-------|---------|-------------|
 | `--file` | `-f` | required | Rholang file to deploy |
 | `--private-key` | `-k` | dev key | Signing key (64 hex chars) |
-| `--grpc` | | `http://localhost:40401` | Deploy node's gRPC endpoint |
-| `--http` | | `http://localhost:40403` | Deploy node's HTTP endpoint, polled for finalization status |
+| `--grpc` | | `http://localhost:40401` | Deploy node's gRPC endpoint, with no path |
+| `--http` | | `http://localhost:40403` | Deploy node's HTTP endpoint, optionally with a base path, polled for finalization status |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `50000` | Most phlo the deploy may spend |
 | `--phlo-price` | | `1` | Price per phlo, in the native token's base units |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
@@ -104,3 +106,5 @@ node_cli deploy-and-wait -f contract.rho \
 ## TLS
 
 An `https://` endpoint connects over TLS, trusting the bundled public roots, or only the certificate authorities in `--ca-cert` when given. `http://` endpoints ignore `--ca-cert`.
+
+`--http` and `--observer` may carry a base path, such as `https://proxy.example/node1`, for a node served under a prefix behind a proxy; `--grpc` takes no path and is refused with one. `--connect-timeout` and `--timeout` apply to all three endpoints.

@@ -8,9 +8,11 @@ use crate::common::keys;
 use crate::common::node::Node;
 use crate::common::shard;
 
-/// validator1's gRPC and HTTP APIs behind the TLS proxy.
+/// validator1's gRPC and HTTP APIs behind the TLS proxy, the HTTP API also
+/// under a base path.
 const TLS_GRPC: &str = "https://localhost:40460";
 const TLS_HTTP: &str = "https://localhost:40461";
+const TLS_HTTP_UNDER_PATH: &str = "https://localhost:40462/node1";
 
 /// An endpoint nothing listens on.
 const UNREACHABLE: &str = "http://localhost:1";
@@ -101,13 +103,13 @@ fn the_read_only_node_refuses_deploys() {
         .expect_contains("read-only mode");
 }
 
-/// Deploy, verdict and result all go over TLS, and with no observer the wait
-/// polls only the deploy node.
+/// Deploy, verdict and result all go over TLS, the HTTP calls under a base
+/// path, and with no observer the wait polls only the deploy node.
 fn a_deploy_through_tls_finalizes_on_the_deploy_node_alone() {
     Cli::new("deploy-and-wait")
         .args(["-f", contracts::path("stdout.rho")])
         .key(&keys::TLS_DEPLOY)
-        .args(["--grpc", TLS_GRPC, "--http", TLS_HTTP])
+        .args(["--grpc", TLS_GRPC, "--http", TLS_HTTP_UNDER_PATH])
         .args(["--ca-cert".to_string(), ca_certificate()])
         .args(["--max-wait", "120"])
         .run()

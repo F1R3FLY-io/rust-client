@@ -14,8 +14,10 @@ node_cli get-data --deploy-id <ID> --block-hash <HASH> [OPTIONS]
 |------|-------|---------|-------------|
 | `--deploy-id` | `-d` | required | Deploy ID (hex) |
 | `--block-hash` | `-b` | required | Block hash containing the deploy |
-| `--grpc` | | `http://localhost:40401` | Node gRPC endpoint, `http://` or `https://` |
+| `--grpc` | | `http://localhost:40401` | Node gRPC endpoint, `http://` or `https://`, with no path |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 
 ## Example
 

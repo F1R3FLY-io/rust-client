@@ -333,7 +333,7 @@ async fn get_balance_for_address(address: &str, args: &LoadTestArgs) -> CliResul
  }}"#
     );
 
-    let readonly_api = F1r3flyApi::new(args.node.tls.apply(&args.readonly_grpc)?);
+    let readonly_api = F1r3flyApi::new(args.node.transport.apply(&args.readonly_grpc)?)?;
 
     // Execute exploratory deploy to get balance on read-only node
     let (result, _block_info, _cost) = readonly_api

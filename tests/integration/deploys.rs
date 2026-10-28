@@ -174,7 +174,7 @@ fn deploy_status_reports_a_finalized_deploy() {
 /// deploy: the node answers with the same ID and the deploy finalizes once.
 fn a_signed_deploy_sent_twice_is_one_deploy() {
     let key = node_cli::utils::CryptoUtils::decode_private_key(keys::RESUBMIT.private).unwrap();
-    let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint()));
+    let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint())).unwrap();
     let signed = rt()
         .block_on(api.prepare(contracts::STDOUT_TERM, &DeployOptions::default()))
         .expect("prepare")
@@ -202,7 +202,7 @@ fn a_signed_deploy_sent_twice_is_one_deploy() {
 fn a_landed_deploy_resent_after_it_expired_is_the_same_deploy() {
     let key =
         node_cli::utils::CryptoUtils::decode_private_key(keys::RESEND_EXPIRED.private).unwrap();
-    let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint()));
+    let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint())).unwrap();
     let expiration = unix_millis() + 45_000;
     let options = DeployOptions {
         expiration: Some(expiration),
@@ -250,6 +250,7 @@ fn unix_millis() -> i64 {
 /// submission.
 fn a_deploy_for_another_shard_is_refused() {
     let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint()))
+        .unwrap()
         .with_signing_key(keys::SPARE.private)
         .unwrap()
         .with_shard_id("not-this-shard");

@@ -44,6 +44,15 @@ where
     }
 }
 
+/// A timeout of `var` whole seconds, or `default` when it is unset. Zero is
+/// refused: it would fail every request.
+fn env_timeout(var: &'static str, default: Duration) -> Result<Duration> {
+    match env_or::<u64>(var, default.as_secs())? {
+        0 => Err(Error::invalid(var, "a timeout must be at least 1 second")),
+        secs => Ok(Duration::from_secs(secs)),
+    }
+}
+
 /// Configuration for F1r3fly node connection
 #[derive(Debug, Clone)]
 pub struct ConnectionConfig {
@@ -74,6 +83,10 @@ impl ConnectionConfig {
     /// - `FIREFLY_OBSERVER_URL`: Observer's HTTP endpoint (default: none)
     /// - `FIREFLY_CA_CERT`: PEM file of the certificate authorities every
     ///   `https` endpoint trusts, in place of the bundled public roots
+    /// - `FIREFLY_CONNECT_TIMEOUT`: Seconds a connection may take to establish
+    ///   (default: [`crate::endpoint::DEFAULT_CONNECT_TIMEOUT`])
+    /// - `FIREFLY_REQUEST_TIMEOUT`: Seconds one request may take
+    ///   (default: [`crate::endpoint::DEFAULT_REQUEST_TIMEOUT`])
     /// - `FIREFLY_FINALIZATION_TIMEOUT`: Max seconds to wait for a deploy to finalize (default: 90)
     /// - `FIREFLY_SHARD_ID`: Shard deploys are signed for (default: "root")
     pub fn from_env() -> Result<Self> {
@@ -88,8 +101,19 @@ impl ConnectionConfig {
                 })
             })
             .transpose()?;
+        let connect_timeout = env_timeout(
+            "FIREFLY_CONNECT_TIMEOUT",
+            crate::endpoint::DEFAULT_CONNECT_TIMEOUT,
+        )?;
+        let request_timeout = env_timeout(
+            "FIREFLY_REQUEST_TIMEOUT",
+            crate::endpoint::DEFAULT_REQUEST_TIMEOUT,
+        )?;
         let endpoint = |var: &'static str, url: &str| -> Result<Endpoint> {
-            let endpoint = Endpoint::parse(url).map_err(|e| Error::invalid(var, e))?;
+            let endpoint = Endpoint::parse(url)
+                .map_err(|e| Error::invalid(var, e))?
+                .with_connect_timeout(connect_timeout)
+                .with_request_timeout(request_timeout);
             match &ca_pem {
                 Some(pem) => endpoint.with_ca_certificates(pem.clone()),
                 None => Ok(endpoint),
@@ -275,7 +299,7 @@ impl F1r3flyConnectionManager {
 
     /// Create a new connection manager with explicit configuration
     pub fn new(config: ConnectionConfig) -> Result<Self> {
-        let api = F1r3flyApi::new(config.grpc.clone())
+        let api = F1r3flyApi::new(config.grpc.clone())?
             .with_signing_key(&config.signing_key)?
             .with_shard_id(&config.shard_id);
         let node = NodeHttp::new(config.http.clone())?;

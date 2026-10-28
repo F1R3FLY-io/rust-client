@@ -4,7 +4,7 @@ Rust crate for interacting with F1r3fly blockchain nodes. Usable as a **library*
 
 ## Quick Start
 
-Node endpoints are URLs: `http://` is plaintext, `https://` is TLS (add `--ca-cert <PEM>` to trust a private CA). Every command defaults to a node's own ports, gRPC `http://localhost:40401` and HTTP `http://localhost:40403`; the examples below target the system-integration single-host Docker shard.
+Node endpoints are URLs: `http://` is plaintext, `https://` is TLS (add `--ca-cert <PEM>` to trust a private CA). An HTTP endpoint may carry a base path, such as `https://proxy.example/node1`; a gRPC endpoint may not. `--connect-timeout` (default 10) and `--timeout` (default 30) bound, in seconds, connecting and each request. Every command defaults to a node's own ports, gRPC `http://localhost:40401` and HTTP `http://localhost:40403`; the examples below target the system-integration single-host Docker shard.
 
 ```bash
 # Build
@@ -75,6 +75,8 @@ from here. Never reuse a key from a README against anything real.
 | `FIREFLY_HTTP_URL` | No | `http://localhost:40403` | Deploy node's HTTP endpoint |
 | `FIREFLY_OBSERVER_URL` | No | none | HTTP endpoint of a second node polled for the deploy's verdict; without it, only the deploy node is polled |
 | `FIREFLY_CA_CERT` | No | none | PEM file of the certificate authorities trusted for every `https://` endpoint, in place of the bundled public roots |
+| `FIREFLY_CONNECT_TIMEOUT` | No | `10` | Seconds a connection may take to establish (at least 1) |
+| `FIREFLY_REQUEST_TIMEOUT` | No | `30` | Seconds a single request may take (at least 1) |
 | `FIREFLY_FINALIZATION_TIMEOUT` | No | `90` | Max seconds to wait for a deploy to finalize |
 | `FIREFLY_SHARD_ID` | No | `root` | Shard deploys are signed for: the node's `casper.shard-name` |
 

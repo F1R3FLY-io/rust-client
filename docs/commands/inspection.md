@@ -1,6 +1,6 @@
 # Node Inspection Commands
 
-Commands for querying node state. HTTP commands take `--http <URL>` (default `http://localhost:40403`); gRPC commands take `--grpc <URL>` (default `http://localhost:40401`). Every one also takes `--ca-cert <PEM file>`, the certificate authorities trusted for an `https://` endpoint in place of the bundled public roots.
+Commands for querying node state. HTTP commands take `--http <URL>` (default `http://localhost:40403`); gRPC commands take `--grpc <URL>` (default `http://localhost:40401`). An HTTP endpoint may carry a base path, such as `https://proxy.example/node1`, for a node served under a prefix behind a proxy; a gRPC endpoint takes no path. Every command also takes `--ca-cert <PEM file>`, the certificate authorities trusted for an `https://` endpoint in place of the bundled public roots, `--connect-timeout <SECS>` (default 10), the seconds a connection may take to establish, and `--timeout <SECS>` (default 30), the seconds a single request may take.
 
 On the system-integration single-host Docker shard, validator1's HTTP endpoint is `http://localhost:40413` and the read-only node's is `http://localhost:40453` (gRPC `http://localhost:40452`).
 
@@ -253,7 +253,7 @@ node_cli bond-status -k <PUBLIC_KEY> [--http URL]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--http` | `http://localhost:40403` | HTTP endpoint of any node |
+| `--http` | `http://localhost:40403` | HTTP endpoint of any node, optionally with a base path |
 
 ```
 $ node_cli bond-status -k 0457febafcc25dd3...b4ae661c

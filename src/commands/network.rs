@@ -11,14 +11,14 @@ fn build_config(
     private_key: &str,
     check_interval: u64,
 ) -> CliResult<ConnectionConfig> {
-    let tls = &wait.node.tls;
+    let transport = &wait.node.transport;
     let mut config = ConnectionConfig::new(
-        tls.apply(&wait.node.grpc)?,
-        tls.apply(&wait.node.http)?,
+        transport.apply(&wait.node.grpc)?,
+        transport.apply(&wait.node.http)?,
         private_key.to_string(),
     );
     if let Some(observer) = &wait.observer {
-        config = config.with_observer(tls.apply(observer)?);
+        config = config.with_observer(transport.apply(observer)?);
     }
     config.finalization_timeout_secs = wait.max_wait as u32;
     config.poll_interval_secs = check_interval;

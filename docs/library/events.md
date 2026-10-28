@@ -41,7 +41,7 @@ pub struct DeployEvent {
 
 ## How it works
 
-1. Connects to `/ws/events` on the node's HTTP endpoint: `ws://` for an `http` endpoint, `wss://` (trusting the endpoint's CA bundle) for `https`
+1. Connects to `/ws/events` on the node's HTTP endpoint, under its base path if it has one, within the endpoint's connect timeout: `ws://` for an `http` endpoint, `wss://` (trusting the endpoint's CA bundle) for `https`
 2. Receives JSON events from the node in envelope format
 3. Unwraps envelope and deserializes using `f1r3fly_shared::F1r3flyEvent` (type-safe)
 4. Tracks `block-finalised` events and their deploy lists

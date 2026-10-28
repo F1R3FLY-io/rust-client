@@ -16,8 +16,10 @@ node_cli deploy -f <FILE> [OPTIONS]
 |------|-------|---------|-------------|
 | `--file` | `-f` | required | Rholang file to deploy |
 | `--private-key` | `-k` | dev key | Signing key (64 hex chars) |
-| `--grpc` | | `http://localhost:40401` | Node gRPC endpoint, `http://` or `https://` |
+| `--grpc` | | `http://localhost:40401` | Node gRPC endpoint, `http://` or `https://`, with no path |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `50000` | Most phlo the deploy may spend |
 | `--phlo-price` | | `1` | Price per phlo, in the native token's base units |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |

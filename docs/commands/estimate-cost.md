@@ -17,8 +17,10 @@ node_cli estimate-cost -f <FILE> [--http URL] [--deployer PUBKEY]
 | `--file` | `-f` | required | Rholang file to estimate |
 | `--deployer` | | (none) | Hex-encoded 65-byte uncompressed secp256k1 public key (`04`-prefixed) |
 | `--private-key` | | (env) | Hex-encoded private key; derives `--deployer` locally (never leaves the machine). Mutually exclusive with `--deployer`. |
-| `--http` | | `http://localhost:40403` | Node HTTP endpoint, `http://` or `https://` |
+| `--http` | | `http://localhost:40403` | Node HTTP endpoint, `http://` or `https://`, optionally with a base path |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--block-hash` | | latest | Estimate against a specific block's state |
 
 Runs read-only by default. **Always pass `--deployer` (or `--private-key`) for identity-dependent contracts** such as vault transfers — without it the estimate may be significantly lower than the real deploy cost because the node executes under an empty deployer identity.

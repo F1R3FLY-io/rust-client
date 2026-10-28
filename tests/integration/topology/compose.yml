@@ -12,7 +12,7 @@
 # Node state lives in the container layer: the shard is created and destroyed
 # per run, so nothing here is meant to survive `down`.
 #
-# Host ports 40400-40461 must be free, so a shard from another project on
+# Host ports 40400-40462 must be free, so a shard from another project on
 # 404xx must be down first.
 
 name: rust-client-it
@@ -165,8 +165,9 @@ services:
       - "40442:40402"
       - "40443:40403"
 
-  # Terminates TLS for validator1's gRPC (40460) and HTTP (40461) APIs. The
-  # harness issues its certificate per run into IT_TLS_DIR.
+  # Terminates TLS for validator1's gRPC (40460) and HTTP (40461) APIs, and
+  # serves the HTTP API under /node1 on 40462. The harness issues its
+  # certificate per run into IT_TLS_DIR.
   tls-proxy:
     image: caddy:2.10-alpine
     container_name: it-tls-proxy
@@ -178,6 +179,7 @@ services:
     ports:
       - "40460:40460"
       - "40461:40461"
+      - "40462:40462"
 
 networks:
   shard:

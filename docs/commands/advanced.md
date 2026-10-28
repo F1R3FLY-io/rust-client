@@ -16,14 +16,16 @@ node_cli load-test --to-address <ADDR> --num-tests <N> --amount <AMT> [OPTIONS]
 | `--amount` | `1` | Amount per transfer in base units (dust). Use `--whole-tokens`/`-d` for whole tokens. |
 | `--whole-tokens`, `-d` | `false` | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status |
 | `--interval` | `10` | Seconds between deploys |
-| `--grpc` | `http://localhost:40401` | Node gRPC endpoint, deploys go here |
-| `--http` | `http://localhost:40403` | Node HTTP endpoint, for status queries |
+| `--grpc` | `http://localhost:40401` | Node gRPC endpoint, with no path; deploys go here |
+| `--http` | `http://localhost:40403` | Node HTTP endpoint, optionally with a base path, for status queries |
 | `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--inclusion-timeout` | `120` | Max seconds for block inclusion |
 | `--finalization-timeout` | `120` | Max seconds for finalization |
 | `--check-interval` | `1` | Seconds between polls |
 | `--chain-depth` | `200` | Depth to check for orphaned blocks |
-| `--readonly-grpc` | `http://localhost:40401` | gRPC endpoint of a read-only node, for balance queries |
+| `--readonly-grpc` | `http://localhost:40401` | gRPC endpoint of a read-only node, with no path, for balance queries |
 
 ```
 $ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000
@@ -64,8 +66,10 @@ node_cli watch-events [--http URL] [--filter TYPE] [--retry-forever]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--http` | `http://localhost:40403` | Node HTTP endpoint; `https://` connects over `wss` |
+| `--http` | `http://localhost:40403` | Node HTTP endpoint, optionally with a base path; `https://` connects over `wss` |
 | `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--filter` | all | `created`, `added`, `finalized`, `transfers`, `genesis`, or `lifecycle` |
 | `--retry-forever` | false | Reconnect indefinitely |
 
@@ -134,17 +138,17 @@ $ node_cli watch-events --filter finalized
  ...
 ```
 
-Auto-reconnects on disconnect (10 retries by default, indefinitely with `--retry-forever`).
+Auto-reconnects on disconnect (10 retries by default, indefinitely with `--retry-forever`). Once the stream is open, only `--connect-timeout` bounds it; `--timeout` does not cut it off.
 
 ## dag
 
 Interactive DAG visualization using a terminal UI (ratatui). Shows real-time block graph with parent/child relationships.
 
 ```bash
-node_cli dag [--http URL] [--ca-cert PEM]
+node_cli dag [--http URL] [--ca-cert PEM] [--connect-timeout SECS] [--timeout SECS]
 ```
 
-Blocks are read from, and live events followed on, the one HTTP endpoint (default `http://localhost:40403`).
+Blocks are read from, and live events followed on, the one HTTP endpoint (default `http://localhost:40403`), which may carry a base path. The live event stream, once open, is bounded only by `--connect-timeout`.
 
 Interactive -- requires a terminal with TUI support.
 
@@ -160,12 +164,14 @@ node_cli bond-validator --stake <AMOUNT> --private-key <KEY> [OPTIONS]
 |------|---------|-------------|
 | `--stake` | required | Stake amount |
 | `--private-key` | required | Validator's signing key |
-| `--grpc` | `http://localhost:40401` | gRPC endpoint of the node to submit the deploy to — must be a **bonded validator** |
-| `--http` | `http://localhost:40403` | That node's HTTP endpoint |
+| `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
+| `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
 | `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--propose` | false | Propose block after bonding; `--grpc` must then be the node's internal API |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
-| `--observer` | none | HTTP endpoint of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
+| `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | `5000000000` | Most phlo the bond deploy may spend |
 | `--phlo-price` | `1` | Price per phlo, in the native token's base units |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
@@ -223,11 +229,13 @@ node_cli unbond-validator --private-key <KEY> [OPTIONS]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--private-key` | required | Signing key of the validator to unbond |
-| `--grpc` | `http://localhost:40401` | gRPC endpoint of the node to submit the deploy to — must be a **bonded validator** |
-| `--http` | `http://localhost:40403` | That node's HTTP endpoint |
+| `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
+| `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
 | `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
-| `--observer` | none | HTTP endpoint of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
+| `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | `5000000000` | Most phlo the withdrawal deploy may spend |
 | `--phlo-price` | `1` | Price per phlo, in the native token's base units |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
@@ -266,8 +274,10 @@ node_cli network-health [--http URL]...
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--http` | single-host Docker shard | HTTP endpoint of a node to check; repeat it for each node. With none, checks `http://localhost:` 40403 (Bootstrap), 40413 (Validator1), 40423 (Validator2), 40433 (Validator3) and 40453 (Observer) |
+| `--http` | single-host Docker shard | HTTP endpoint of a node to check, optionally with a base path; repeat it for each node. With none, checks `http://localhost:` 40403 (Bootstrap), 40413 (Validator1), 40423 (Validator2), 40433 (Validator3) and 40453 (Observer) |
 | `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--verbose`, `-v` | false | Print more details |
 | `--debug` | false | Print the underlying HTTP requests and responses |
 
@@ -294,7 +304,8 @@ only a **read-only node** serves — against any other node they fail with
 The read-only node exposes both a gRPC and an HTTP API, and these commands do
 not all use the same one. Passing the gRPC endpoint to an HTTP command fails with
 `error sending request for url (…/api/explore-deploy)`, which does not name the
-real problem. Every command defaults to a node's own ports on localhost; on the
+real problem. An HTTP endpoint may carry a base path; a gRPC endpoint takes
+none. Every command defaults to a node's own ports on localhost; on the
 system-integration single-host Docker shard the read-only node is HTTP
 `http://localhost:40453` and gRPC `http://localhost:40452`.
 
@@ -308,7 +319,8 @@ system-integration single-host Docker shard the read-only node is HTTP
 | `epoch-info` | gRPC | `--grpc` | `http://localhost:40401` |
 | `wallet-balance` | gRPC | `--grpc` | `http://localhost:40401` |
 
-Each also takes `--ca-cert` for `https://` endpoints.
+Each also takes `--ca-cert` for `https://` endpoints, and `--connect-timeout`
+(default 10) and `--timeout` (default 30) in seconds.
 
 ### epoch-info
 

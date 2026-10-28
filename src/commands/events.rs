@@ -246,7 +246,7 @@ pub async fn watch_events_command(args: &WatchEventsArgs) -> CliResult {
         }
     }
 
-    let endpoint = args.node.tls.apply(&args.node.http)?;
+    let endpoint = args.node.transport.apply(&args.node.http)?;
     let ws_url = endpoint.websocket_url(EVENTS_PATH);
 
     println!(" Connecting to F1r3fly node WebSocket...");

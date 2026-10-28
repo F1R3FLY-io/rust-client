@@ -64,6 +64,21 @@ gRPC, HTTP and WebSocket connections all honor the scheme and the endpoint's
 certificate authorities. `from_env` applies `FIREFLY_CA_CERT` to every endpoint
 it reads.
 
+Each endpoint also carries a connect timeout and a request timeout
+(`endpoint::DEFAULT_CONNECT_TIMEOUT`, 10 s, and `DEFAULT_REQUEST_TIMEOUT`, 30 s);
+an open WebSocket stream is bounded only by the connect timeout. An HTTP
+endpoint may carry a base path, for a node served under a prefix behind a
+proxy; requests and the event WebSocket go under it. A gRPC endpoint takes no
+path, and `F1r3flyApi::new` refuses one (check with `has_path()`).
+
+```rust
+use std::time::Duration;
+
+let http = Endpoint::parse("https://proxy.example/node1")?
+    .with_connect_timeout(Duration::from_secs(5))
+    .with_request_timeout(Duration::from_secs(60));
+```
+
 ### Deploy and wait
 
 ```rust
@@ -162,7 +177,7 @@ client reads and sends pre-signed deploys:
 ```rust
 use node_cli::{Endpoint, F1r3flyApi};
 
-let api = F1r3flyApi::new(Endpoint::parse("http://localhost:40401")?)
+let api = F1r3flyApi::new(Endpoint::parse("http://localhost:40401")?)?
     .with_signing_key("private_key_hex")?;
 
 // Deploy only (no waiting)
@@ -270,7 +285,10 @@ match manager.transfer("1111recipient...", amount).await {
 
 The defaults are `connection_manager::DEFAULT_GRPC_URL` and `DEFAULT_HTTP_URL`.
 Certificate authorities for `https` endpoints are set on each `Endpoint` with
-`with_ca_certificates`, or by `FIREFLY_CA_CERT` for `from_env`.
+`with_ca_certificates`, or by `FIREFLY_CA_CERT` for `from_env`. Timeouts are set
+on each `Endpoint` with `with_connect_timeout` and `with_request_timeout`, or by
+`FIREFLY_CONNECT_TIMEOUT` and `FIREFLY_REQUEST_TIMEOUT` (whole seconds, at least
+1; defaults 10 and 30) for `from_env`.
 
 ### Exact token amounts
 

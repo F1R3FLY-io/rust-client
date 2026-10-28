@@ -12,8 +12,10 @@ node_cli propose [OPTIONS]
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--grpc` | | `http://localhost:40401` | The node's **internal** gRPC endpoint, `http://` or `https://` |
+| `--grpc` | | `http://localhost:40401` | The node's **internal** gRPC endpoint, `http://` or `https://`, with no path |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 
 Propose is served on a node's internal gRPC API (port 40402 on a node; 40412 for validator1 on the system-integration Docker shard), not the external API on 40401 that deploys use, so `--grpc` must name the internal port:
 

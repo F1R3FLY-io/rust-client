@@ -373,7 +373,7 @@ pub async fn network_health_command(args: &NetworkHealthArgs) -> CliResult {
             .collect()
     };
     let connect = |endpoint: &Endpoint| -> CliResult<NodeHttp> {
-        Ok(NodeHttp::new(args.tls.apply(endpoint)?)?)
+        Ok(NodeHttp::new(args.transport.apply(endpoint)?)?)
     };
 
     let mut healthy_nodes = 0;

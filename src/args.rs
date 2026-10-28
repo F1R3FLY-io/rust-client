@@ -11,85 +11,106 @@ fn parse_endpoint(url: &str) -> Result<Endpoint, String> {
     Endpoint::parse(url).map_err(|e| e.to_string())
 }
 
-/// Certificate authorities for `https` endpoints
+/// How every endpoint of a command is reached: trusted certificate
+/// authorities and timeouts
 #[derive(Args, Debug, Clone)]
-pub struct TlsArgs {
+pub struct TransportArgs {
     /// PEM file of the certificate authorities that https endpoints are
     /// trusted against, in place of the bundled public roots
     #[arg(long = "ca-cert")]
     pub ca_cert: Option<PathBuf>,
+
+    /// Seconds a connection to a node may take to establish
+    #[arg(
+        long = "connect-timeout",
+        default_value_t = crate::endpoint::DEFAULT_CONNECT_TIMEOUT.as_secs(),
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub connect_timeout: u64,
+
+    /// Seconds a single request to a node may take
+    #[arg(
+        long = "timeout",
+        default_value_t = crate::endpoint::DEFAULT_REQUEST_TIMEOUT.as_secs(),
+        value_parser = clap::value_parser!(u64).range(1..)
+    )]
+    pub timeout: u64,
 }
 
-impl TlsArgs {
-    /// `endpoint`, trusting this command's certificate authorities.
+impl TransportArgs {
+    /// `endpoint`, with this command's certificate authorities and timeouts.
     pub fn apply(&self, endpoint: &Endpoint) -> CliResult<Endpoint> {
+        let endpoint = endpoint
+            .clone()
+            .with_connect_timeout(std::time::Duration::from_secs(self.connect_timeout))
+            .with_request_timeout(std::time::Duration::from_secs(self.timeout));
         let Some(path) = &self.ca_cert else {
-            return Ok(endpoint.clone());
+            return Ok(endpoint);
         };
         let pem = std::fs::read(path).map_err(|cause| crate::Error::Io {
             path: path.clone(),
             cause,
         })?;
-        Ok(endpoint.clone().with_ca_certificates(pem)?)
+        Ok(endpoint.with_ca_certificates(pem)?)
     }
 }
 
 /// The node a command reaches over gRPC
 #[derive(Args, Debug, Clone)]
 pub struct GrpcNodeArgs {
-    /// Node gRPC endpoint, http:// or https://
+    /// Node gRPC endpoint, http:// or https://, with no path
     #[arg(long = "grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     #[command(flatten)]
-    pub tls: TlsArgs,
+    pub transport: TransportArgs,
 }
 
 impl GrpcNodeArgs {
     pub fn api(&self) -> CliResult<F1r3flyApi> {
-        Ok(F1r3flyApi::new(self.tls.apply(&self.grpc)?))
+        Ok(F1r3flyApi::new(self.transport.apply(&self.grpc)?)?)
     }
 }
 
 /// The node a command reaches over HTTP
 #[derive(Args, Debug, Clone)]
 pub struct HttpNodeArgs {
-    /// Node HTTP endpoint, http:// or https://
+    /// Node HTTP endpoint, http:// or https://, optionally with a base path
     #[arg(long = "http", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
     pub http: Endpoint,
 
     #[command(flatten)]
-    pub tls: TlsArgs,
+    pub transport: TransportArgs,
 }
 
 impl HttpNodeArgs {
     pub fn node(&self) -> CliResult<NodeHttp> {
-        Ok(NodeHttp::new(self.tls.apply(&self.http)?)?)
+        Ok(NodeHttp::new(self.transport.apply(&self.http)?)?)
     }
 }
 
 /// The node a command reaches over both gRPC and HTTP
 #[derive(Args, Debug, Clone)]
 pub struct NodeArgs {
-    /// Node gRPC endpoint, http:// or https://
+    /// Node gRPC endpoint, http:// or https://, with no path
     #[arg(long = "grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
-    /// Node HTTP endpoint, http:// or https://
+    /// Node HTTP endpoint, http:// or https://, optionally with a base path
     #[arg(long = "http", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
     pub http: Endpoint,
 
     #[command(flatten)]
-    pub tls: TlsArgs,
+    pub transport: TransportArgs,
 }
 
 impl NodeArgs {
     pub fn api(&self) -> CliResult<F1r3flyApi> {
-        Ok(F1r3flyApi::new(self.tls.apply(&self.grpc)?))
+        Ok(F1r3flyApi::new(self.transport.apply(&self.grpc)?)?)
     }
 
     pub fn node(&self) -> CliResult<NodeHttp> {
-        Ok(NodeHttp::new(self.tls.apply(&self.http)?)?)
+        Ok(NodeHttp::new(self.transport.apply(&self.http)?)?)
     }
 }
 
@@ -601,7 +622,7 @@ pub struct NetworkHealthArgs {
     pub nodes: Vec<Endpoint>,
 
     #[command(flatten)]
-    pub tls: TlsArgs,
+    pub transport: TransportArgs,
 
     /// Print more details about the results
     #[arg(short, long)]
@@ -827,5 +848,63 @@ mod bigint_tests {
         .unwrap();
         assert_eq!(tokens.amount, "1.000000000000000001");
         assert!(tokens.whole_tokens);
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn every_command_parses_without_conflicting_flags() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+    }
+
+    fn status(args: &[&str]) -> Result<HttpNodeArgs, clap::Error> {
+        let argv = ["node_cli", "status"].iter().chain(args);
+        match Cli::try_parse_from(argv)?.command {
+            Commands::Status(args) => Ok(args),
+            _ => unreachable!("parsed the status command"),
+        }
+    }
+
+    #[test]
+    fn timeouts_reach_the_endpoint_and_zero_is_refused() {
+        let args = status(&[
+            "--http",
+            "https://proxy.example/node1",
+            "--connect-timeout",
+            "3",
+            "--timeout",
+            "120",
+        ])
+        .unwrap();
+        let endpoint = args.transport.apply(&args.http).unwrap();
+        assert_eq!(endpoint.connect_timeout(), Duration::from_secs(3));
+        assert_eq!(endpoint.request_timeout(), Duration::from_secs(120));
+        assert_eq!(endpoint.to_string(), "https://proxy.example/node1");
+
+        let defaults = status(&[]).unwrap();
+        let endpoint = defaults.transport.apply(&defaults.http).unwrap();
+        assert_eq!(
+            endpoint.request_timeout(),
+            crate::endpoint::DEFAULT_REQUEST_TIMEOUT
+        );
+
+        assert!(status(&["--timeout", "0"]).is_err());
+    }
+
+    #[test]
+    fn a_grpc_endpoint_with_a_path_is_refused() {
+        let Commands::Propose(args) =
+            Cli::try_parse_from(["node_cli", "propose", "--grpc", "http://localhost:40402/x"])
+                .unwrap()
+                .command
+        else {
+            unreachable!("parsed the propose command")
+        };
+        assert!(args.node.api().is_err());
     }
 }
