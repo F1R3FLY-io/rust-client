@@ -823,6 +823,10 @@ pub struct BlockTransfersArgs {
     /// Show all deploys, not just those with transfers
     #[arg(long = "all-deploys", default_value_t = false)]
     pub all_deploys: bool,
+
+    /// Maximum seconds to wait for the node to produce the block's transfer report
+    #[arg(long = "max-wait", default_value_t = 60)]
+    pub max_wait: u64,
 }
 
 #[cfg(test)]
