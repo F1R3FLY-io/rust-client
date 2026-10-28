@@ -17,9 +17,10 @@ Use `F1r3flyApi` directly when you need a single operation (exploratory deploy, 
 ### deploy_and_wait (4 phases)
 
 ```
-1. Deploy         F1r3flyApi::deploy_with_phlo_limit_and_expiration() -> deploy_id
-                  (deploy_and_wait maps its bigger_phlo bool to 50k/5B;
-                   deploy_and_wait_with_phlo_limit takes the limit directly)
+1. Deploy         F1r3flyApi::deploy(term, &DeployOptions) -> deploy_id
+                  = prepare (anchors the validity window at the tip)
+                  + UnsignedDeploy::sign + submit; submit_and_wait starts
+                  here with a deploy signed earlier
 2. Finalization   wait_for_deploy_finalization() polls
                   GET /api/deploy-finalization-status/{sig} on the deploy node
                   and the observer together, until either reports a terminal

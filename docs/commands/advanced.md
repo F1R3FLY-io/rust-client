@@ -164,6 +164,9 @@ node_cli bond-validator --stake <AMOUNT> --private-key <KEY> [OPTIONS]
 | `--observer-host` | | Observer for finalization |
 | `--observer-port` | `40452` | Observer gRPC port |
 | `--observer-http-port` | `40453` | Observer HTTP port polled for finalization status |
+| `--phlo-limit` | `5000000000` | Most phlo the bond deploy may spend |
+| `--phlo-price` | `1` | Price per phlo, in the native token's base units |
+| `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
 **Submit to a bonded validator.** Any other node — including a bootstrap or
 ceremony-master node, and the validator being bonded, which is not yet in the
@@ -173,8 +176,8 @@ timeout.
 
 **Fund the validator's vault first.** The bond is paid for by the key being
 bonded, and the vault must hold `phlo limit × phlo price` **plus** the stake at
-submission. `bond-validator` uses the bigger phlo limit, 5,000,000,000, and the
-default phlo price is 1. An under-funded vault does not reject the deploy: it
+submission. `bond-validator` defaults to a phlo limit of 5,000,000,000 and a
+phlo price of 1. An under-funded vault does not reject the deploy: it
 is included in a block and fails there with
 `systemDeployError: "Deploy payment failed: Insufficient funds"`. See
 [Bonding a validator](../guides/bonding-a-validator.md) for the full sequence.
@@ -198,10 +201,10 @@ Bonding validator with stake: 1000
 Deploy ID: 3045022100e415...
 Block hash: 63fb62fd...
 Total time: 21.14s
- Bond rejected by PoS: Public key is already bonded.
+ PoS rejected the call: Public key is already bonded.
 ```
 
-It also exits non-zero, without claiming a rejection, when the deploy finalized but its verdict could not be read: `Bond deploy finalized, but its PoS verdict could not be read: <error>`. Check the outcome with `validator-status`.
+It also exits non-zero, without claiming a rejection, when the deploy finalized but its verdict could not be read: `Bond verdict could not be read: deploy <id> finalized in block <hash>, but its result could not be read: <error>`. Check the outcome with `validator-status`; do not bond again.
 
 A bond joins the active set at an epoch boundary only while the shard's `number-of-active-validators` has room; past that limit it stays bonded but not active.
 
@@ -225,6 +228,9 @@ node_cli unbond-validator --private-key <KEY> [OPTIONS]
 | `--observer-host` | | Observer for finalization |
 | `--observer-port` | `40452` | Observer gRPC port |
 | `--observer-http-port` | `40453` | Observer HTTP port polled for finalization status |
+| `--phlo-limit` | `5000000000` | Most phlo the withdrawal deploy may spend |
+| `--phlo-price` | `1` | Price per phlo, in the native token's base units |
+| `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
 The same routing rule as `bond-validator` applies: submit to a bonded
 validator, or the deploy is accepted and never included.
@@ -248,7 +254,7 @@ Withdrawal requested. The validator leaves the bond set at the next epoch bounda
 Track progress with: node_cli validator-status -k 0429af984ed4da1a...455f1727
 ```
 
-The command exits non-zero when the PoS contract rejects the call, for example `Withdrawal rejected by PoS: User is not bonded`, and when the verdict could not be read.
+The command exits non-zero when the PoS contract rejects the call, for example `PoS rejected the call: User is not bonded`, and when the verdict could not be read.
 
 ## network-health
 

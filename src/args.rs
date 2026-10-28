@@ -150,6 +150,22 @@ pub struct DeployWaitArgs {
     #[arg(long = "observer-http-port")]
     pub observer_http_port: Option<u16>,
 
+    #[command(flatten)]
+    pub deploy: DeployOptionsArgs,
+}
+
+/// What a deploying command signs into its deploy, beyond the term and its
+/// phlo limit, whose default differs per command
+#[derive(Args, Debug)]
+pub struct DeployOptionsArgs {
+    /// Price per phlo, in the native token's base units
+    #[arg(long = "phlo-price", default_value_t = crate::deploy::DEFAULT_PHLO_PRICE)]
+    pub phlo_price: i64,
+
+    /// Shard the deploy is signed for: the target node's casper.shard-name
+    #[arg(long = "shard-id", env = "FIREFLY_SHARD_ID", default_value = crate::deploy::DEFAULT_SHARD_ID)]
+    pub shard_id: String,
+
     /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
     /// Use 0 or omit for no expiration.
     #[arg(long)]
@@ -159,6 +175,29 @@ pub struct DeployWaitArgs {
     /// Mutually exclusive with --expiration.
     #[arg(long, conflicts_with = "expiration")]
     pub expires_in: Option<u64>,
+}
+
+impl DeployOptionsArgs {
+    /// The deploy options these flags describe, with the command's phlo limit.
+    pub fn options(&self, phlo_limit: u64) -> crate::deploy::DeployOptions {
+        let expiration = match (self.expiration, self.expires_in) {
+            (Some(at), _) => Some(at).filter(|at| *at != 0),
+            (None, Some(seconds)) => Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("the system clock is set before 1970")
+                    .as_millis() as i64
+                    + seconds as i64 * 1000,
+            ),
+            (None, None) => None,
+        };
+        crate::deploy::DeployOptions {
+            phlo_limit,
+            phlo_price: self.phlo_price,
+            expiration,
+            timestamp: None,
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -174,9 +213,9 @@ pub struct DeployAndWaitArgs {
     #[command(flatten)]
     pub wait: DeployWaitArgs,
 
-    /// Use bigger phlo limit (100,000,000 instead of 50,000)
-    #[arg(long = "bigger-phlo")]
-    pub bigger_phlo: bool,
+    /// Most phlo the deploy may spend
+    #[arg(long = "phlo-limit", default_value_t = crate::deploy::DEFAULT_PHLO_LIMIT)]
+    pub phlo_limit: u64,
 
     /// Also propose a block after deploy
     #[arg(long, default_value_t = false)]
@@ -268,19 +307,12 @@ pub struct DeployArgs {
     #[arg(short, long, default_value_t = 40412)]
     pub port: u16,
 
-    /// Use bigger phlo limit
-    #[arg(short, long, default_value_t = false)]
-    pub bigger_phlo: bool,
+    /// Most phlo the deploy may spend
+    #[arg(long = "phlo-limit", default_value_t = crate::deploy::DEFAULT_PHLO_LIMIT)]
+    pub phlo_limit: u64,
 
-    /// Expiration timestamp in milliseconds (Unix epoch). Deploy becomes invalid after this time.
-    /// Use 0 or omit for no expiration.
-    #[arg(long)]
-    pub expiration: Option<i64>,
-
-    /// Expiration duration in seconds from now. Deploy becomes invalid after this duration.
-    /// Mutually exclusive with --expiration.
-    #[arg(long, conflicts_with = "expiration")]
-    pub expires_in: Option<u64>,
+    #[command(flatten)]
+    pub deploy: DeployOptionsArgs,
 }
 
 /// Arguments for propose command
@@ -525,6 +557,10 @@ pub struct BondValidatorArgs {
     #[arg(short, long)]
     pub stake: String,
 
+    /// Most phlo the deploy may spend
+    #[arg(long = "phlo-limit", default_value_t = crate::pos::POS_CALL_PHLO_LIMIT)]
+    pub phlo_limit: u64,
+
     /// Private key for signing the deploy (hex format) - determines which validator gets bonded
     #[arg(long)]
     pub private_key: String,
@@ -547,6 +583,10 @@ pub struct UnbondValidatorArgs {
     /// Private key of the validator to unbond (hex format)
     #[arg(long)]
     pub private_key: String,
+
+    /// Most phlo the deploy may spend
+    #[arg(long = "phlo-limit", default_value_t = crate::pos::POS_CALL_PHLO_LIMIT)]
+    pub phlo_limit: u64,
 
     /// Check interval in seconds for deploy status
     #[arg(long = "check-interval", default_value_t = 5)]
@@ -606,9 +646,9 @@ pub struct TransferArgs {
     #[command(flatten)]
     pub wait: DeployWaitArgs,
 
-    /// Use bigger phlo limit (recommended for transfers)
-    #[arg(short, long, default_value_t = true)]
-    pub bigger_phlo: bool,
+    /// Most phlo the deploy may spend
+    #[arg(long = "phlo-limit", default_value_t = crate::vault::TRANSFER_PHLO_LIMIT)]
+    pub phlo_limit: u64,
 
     /// Also propose a block after transfer
     #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
@@ -677,6 +717,13 @@ pub struct LoadTestArgs {
     /// Maximum time in seconds to wait for block finalization
     #[arg(long = "finalization-timeout", default_value_t = 120)]
     pub finalization_timeout: u64,
+
+    /// Most phlo each transfer deploy may spend
+    #[arg(long = "phlo-limit", default_value_t = crate::vault::TRANSFER_PHLO_LIMIT)]
+    pub phlo_limit: u64,
+
+    #[command(flatten)]
+    pub deploy: DeployOptionsArgs,
 }
 
 /// Arguments for validator-status command

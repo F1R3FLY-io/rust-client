@@ -37,12 +37,9 @@ Output is just the cost number — easy to parse in scripts:
 COST=$(node_cli estimate-cost -f contract.rho --http-port 40453 --deployer "$PUBKEY")
 echo "Estimated cost: $COST phlogiston"
 
-if [ "$COST" -gt 50000 ]; then
-    echo "Using bigger phlo limit"
-    node_cli deploy-and-wait -f contract.rho --bigger-phlo
-else
-    node_cli deploy-and-wait -f contract.rho
-fi
+# Leave headroom: the estimate runs against the current state, not the state
+# the deploy will execute against.
+node_cli deploy-and-wait -f contract.rho --phlo-limit $((COST * 2))
 ```
 
 ## Library Usage

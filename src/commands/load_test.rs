@@ -79,7 +79,8 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     println!();
 
     // Initialize API once (reuse connection)
-    let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
+    let api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?
+        .with_shard_id(&args.deploy.shard_id);
 
     let mut results = Vec::new();
 
@@ -122,8 +123,9 @@ async fn run_single_test(
     let deploy_start = Instant::now();
 
     let rholang = generate_transfer_contract(args, amount_dust)?;
-    // Load tests don't use expiration timestamp (0 means no expiration)
-    let deploy_id = api.deploy(&rholang, true, "rholang", 0).await?.to_string();
+    let deploy_id = api
+        .deploy(&rholang, &args.deploy.options(args.phlo_limit))
+        .await?;
 
     println!(
         " [{}] Deploy submitted ({}ms)",

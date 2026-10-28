@@ -23,16 +23,14 @@ pub struct F1r3flyApi<'a> {
     pub(crate) grpc_port: u16,
     pub(crate) tip_floor: Arc<AtomicI64>,
     pub(crate) exploratory_retry_budget: Option<Duration>,
+    pub(crate) shard_id: String,
 }
 
 impl<'a> F1r3flyApi<'a> {
     pub fn new(signing_key: &str, node_host: &'a str, grpc_port: u16) -> Result<Self> {
         Ok(F1r3flyApi {
             signing_key: Some(crate::utils::CryptoUtils::decode_private_key(signing_key)?),
-            node_host,
-            grpc_port,
-            tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
-            exploratory_retry_budget: None,
+            ..Self::new_readonly(node_host, grpc_port)
         })
     }
 
@@ -45,7 +43,15 @@ impl<'a> F1r3flyApi<'a> {
             grpc_port,
             tip_floor: Arc::new(AtomicI64::new(TIP_FLOOR_UNSET)),
             exploratory_retry_budget: None,
+            shard_id: crate::deploy::DEFAULT_SHARD_ID.to_string(),
         }
+    }
+
+    /// Sign deploys for this shard: the node's `casper.shard-name`. Without
+    /// it, deploys sign [`crate::deploy::DEFAULT_SHARD_ID`].
+    pub fn with_shard_id(mut self, shard_id: impl Into<String>) -> Self {
+        self.shard_id = shard_id.into();
+        self
     }
 
     /// Cap how long exploratory deploys may spend retrying capacity

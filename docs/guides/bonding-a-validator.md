@@ -71,8 +71,8 @@ where it is not, the vault needs
 phlo limit × phlo price   +   the stake
 ```
 
-at the moment the bond is submitted. `bond-validator` deploys with the bigger
-phlo limit, **5,000,000,000**, and the default phlo price is 1 — so budget at
+at the moment the bond is submitted. `bond-validator` deploys with a default
+phlo limit of **5,000,000,000** (`--phlo-limit`) and a phlo price of 1 — so budget at
 least 5,000,000,000 plus the stake, not merely enough to cover the stake. An
 under-funded vault does not reject the deploy: it is included in a block and
 then fails there, with

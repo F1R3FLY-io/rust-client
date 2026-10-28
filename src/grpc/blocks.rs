@@ -106,14 +106,6 @@ impl<'a> F1r3flyApi<'a> {
         Ok(blocks)
     }
 
-    pub async fn get_current_block_number(&self) -> Result<i64> {
-        self.show_main_chain(1)
-            .await?
-            .first()
-            .map(|block| block.block_number)
-            .ok_or_else(|| Error::decode("main chain", "no blocks"))
-    }
-
     pub(crate) async fn get_current_block_number_monotonic(&self) -> Result<i64> {
         let sampled_tip = self.get_current_block_number_sampled().await?;
         let cached_tip = self.tip_floor.load(Ordering::Relaxed);
