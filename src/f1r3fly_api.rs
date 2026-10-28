@@ -86,6 +86,27 @@ impl DeployDetail {
     pub fn execution_failure(&self) -> Option<String> {
         execution_failure(self.errored, self.system_deploy_error.as_deref())
     }
+
+    /// A finalized deploy's detail with only its outcome set.
+    #[cfg(test)]
+    pub(crate) fn finalized(deploy_id: &str, errored: bool) -> Self {
+        DeployDetail {
+            deploy_id: deploy_id.to_string(),
+            block_hash: "abcd".to_string(),
+            block_number: 12,
+            timestamp: 0,
+            cost: 252_435,
+            errored,
+            is_finalized: true,
+            deployer: None,
+            term: None,
+            system_deploy_error: None,
+            phlo_price: None,
+            phlo_limit: None,
+            sig_algorithm: None,
+            valid_after_block_number: None,
+        }
+    }
 }
 
 /// A system deploy (payment, refund) can fail without the user deploy being
@@ -120,25 +141,20 @@ impl DeployFinalizationStatus {
     }
 }
 
-/// Result of a full deploy-and-wait operation
+/// Result of a full deploy-and-wait operation: a finalized deploy.
+///
+/// Both reads happen after finalization, so a failed read is a
+/// [`crate::Error::DeployResultUnreadable`]: the deploy itself is final.
 #[derive(Debug)]
 pub struct DeployResult {
     pub deploy_id: String,
     pub block_hash: String,
-    pub block_number: Option<i64>,
-    pub cost: Option<u64>,
-    pub errored: bool,
-    pub system_deploy_error: Option<String>,
+    /// The deploy's execution as the deploy node recorded it: block, cost and
+    /// whether it failed.
+    pub detail: crate::error::Result<DeployDetail>,
     /// Data on the deploy's `deployId` channel. `Ok` with no elements when the
-    /// deploy wrote nothing; `Err` when the data could not be read.
+    /// deploy wrote nothing.
     pub data: crate::error::Result<Vec<f1r3fly_models::rhoapi::Par>>,
-}
-
-impl DeployResult {
-    /// Why the deploy's execution failed, or `None` when it succeeded.
-    pub fn execution_failure(&self) -> Option<String> {
-        execution_failure(self.errored, self.system_deploy_error.as_deref())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

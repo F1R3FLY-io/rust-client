@@ -60,6 +60,13 @@ pub const OVERDRAFT: Key = Key {
     address: "1111tVVZEKhPoAQfE8NRvypFa7c7FGmBvzNcBrVHPByGx5gAsMd42",
 };
 
+/// Sends one signed deploy more than once.
+pub const RESUBMIT: Key = Key {
+    private: "eb6619a6db82f607f582ccb37c2c686a65659c37610ffd6b30d47037eff481e7",
+    public: "046c6448ce32d026723e9453e8a5a2e1836e911b4296579d00b0e00f94e2c2dc9cca070613c437a193e072735c99a7a61766043860258cf7d4f05f87f06d55d716",
+    address: "11112AdM2amz5cGJFKFdXs51p8YM69TG6Jge2qnVpn96VK9zFnMBwL",
+};
+
 pub const LOAD_TEST: Key = Key {
     private: "6fbb857a48350ce2cfde38ddc134e8cb17cf45f8b8791e2ec2fb0cbc184700e4",
     public: "04cd6066f89dd7ff3d2fab67e9019523cb99c36ffe967bf7e91538ceb3cbf988a5ad9bbc8d8219b40f171e01fcf3a38aa57502d522f77cfef8852faf6707664fba",

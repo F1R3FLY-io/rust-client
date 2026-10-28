@@ -1,5 +1,6 @@
 // Library modules
 pub mod connection_manager;
+pub mod deploy;
 pub mod error;
 pub mod events;
 pub mod f1r3fly_api;
@@ -7,7 +8,6 @@ pub mod grpc;
 pub mod pos;
 pub mod registry;
 pub mod rholang_helpers;
-pub mod signing;
 pub mod utils;
 pub mod vault;
 
@@ -23,6 +23,7 @@ pub mod dispatcher;
 
 // Re-export primary types
 pub use connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
+pub use deploy::{DeployOptions, SignedDeploy, UnsignedDeploy};
 pub use error::{Contract, Error, Result, TransportError};
 pub use events::NodeEvents;
 pub use f1r3fly_api::{DeployDetail, DeployResult, F1r3flyApi, ProposeResult};

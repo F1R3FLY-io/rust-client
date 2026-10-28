@@ -18,7 +18,7 @@ use num_bigint::BigUint;
 /// a 5B limit would require the deployer's balance to cover it upfront. 500k
 /// comfortably covers the measured cost while staying affordable for small
 /// vaults.
-pub const TRANSFER_PHLO_LIMIT: i64 = 500_000;
+pub const TRANSFER_PHLO_LIMIT: u64 = 500_000;
 
 /// Result of a vault transfer operation
 #[derive(Debug, Clone)]
@@ -91,12 +91,10 @@ in {{
 /// the deploy must not have errored, its deployId data must be readable, and the
 /// vault must have accepted the transfer.
 pub fn check_transfer_result(result: crate::f1r3fly_api::DeployResult) -> Result<()> {
-    if let Some(failure) = result.execution_failure() {
+    let detail = result.detail?;
+    if let Some(failure) = detail.execution_failure() {
         return Err(Error::DeployFailed {
-            execution: Some(match result.cost {
-                Some(cost) => format!("{failure} (cost {cost})"),
-                None => failure,
-            }),
+            execution: Some(format!("{failure} (cost {})", detail.cost)),
             deploy_id: result.deploy_id,
         });
     }
@@ -471,10 +469,7 @@ mod tests {
         DeployResult {
             deploy_id: "3045".to_string(),
             block_hash: "abcd".to_string(),
-            block_number: Some(12),
-            cost: Some(252435),
-            errored: false,
-            system_deploy_error: None,
+            detail: Ok(crate::f1r3fly_api::DeployDetail::finalized("3045", false)),
             data,
         }
     }
@@ -502,7 +497,7 @@ mod tests {
     #[test]
     fn an_errored_deploy_fails() {
         let mut result = finalized(Ok(vec![]));
-        result.errored = true;
+        result.detail = Ok(crate::f1r3fly_api::DeployDetail::finalized("3045", true));
         let err = check_transfer_result(result).unwrap_err();
         assert!(
             matches!(err, Error::DeployFailed { ref deploy_id, execution: Some(_) }

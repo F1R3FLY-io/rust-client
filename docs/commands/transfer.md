@@ -1,6 +1,6 @@
 # transfer
 
-Transfer native tokens between vault addresses. Deploys a transfer contract, waits for finalization, and reports the vault's verdict. The command exits non-zero when the deploy errors, when the vault rejects the transfer (for example `Transfer failed: vault rejected the transfer: Insufficient funds`), and when the verdict could not be read.
+Transfer native tokens between vault addresses. Deploys a transfer contract, waits for finalization, and reports the vault's verdict. The command exits non-zero when the deploy errors, when the vault rejects the transfer (for example `the vault rejected the call: Insufficient funds`), and when the verdict could not be read.
 
 ## Usage
 
@@ -18,7 +18,9 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--host` | `-H` | `localhost` | Node hostname — must be a **bonded validator** |
 | `--port` | `-p` | `40412` | gRPC port |
 | `--http-port` | | `40413` | HTTP port |
-| `--bigger-phlo` | `-b` | true | Use the 5,000,000,000 phlo limit instead of 50,000 |
+| `--phlo-limit` | | `500000` | Most phlo the transfer deploy may spend |
+| `--phlo-price` | | `1` | Price per phlo, in the native token's base units |
+| `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
 | `--propose` | | false | Also propose a block after deploy |
 | `--max-wait` | | `300` | Max seconds to wait for finalization |
 | `--check-interval` | | `5` | Seconds between finalization status polls |
@@ -60,9 +62,9 @@ Transfer: 1111AtahZe...r3g -> 111127RX5Z...iHA (100000000 dust)
   never found.
 - The sender address is derived from the private key automatically
 - `--amount` is in base units (dust) by default; use `--whole-tokens`/`-d` to specify whole tokens (scaled by the native token's decimals fetched from node status)
-- Uses the bigger phlo limit (5,000,000,000) by default because transfer
-  contracts are expensive. The sender's vault must cover `phlo limit × phlo
-  price` plus the amount being transferred
+- Deploys with a 500,000 phlo limit by default: the transfer contract costs
+  about 250,000. The sender's vault must cover `phlo limit × phlo price` plus
+  the amount being transferred
 - `Transfer complete.` is printed only after the vault reports the transfer accepted on the deploy's `deployId` channel
 - Vault addresses must start with `1111`
 

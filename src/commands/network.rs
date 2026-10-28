@@ -5,7 +5,7 @@ use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use crate::f1r3fly_api::{DeployResult, F1r3flyApi, ProposeResult};
 use crate::pos::{build_bond_rholang, parse_pos_call_result, WITHDRAW_RHOLANG};
 use std::fs;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 fn build_config(wait: &DeployWaitArgs, private_key: &str, check_interval: u64) -> ConnectionConfig {
     let mut config = ConnectionConfig::new(
@@ -25,23 +25,8 @@ fn build_config(wait: &DeployWaitArgs, private_key: &str, check_interval: u64) -
     if let Some(obs_http_port) = wait.observer_http_port {
         config.observer_http_port = obs_http_port;
     }
+    config.shard_id = wait.deploy.shard_id.clone();
     config
-}
-
-/// Calculates the expiration timestamp from CLI arguments.
-/// Returns 0 if no expiration is specified.
-fn calculate_expiration_timestamp(expiration: Option<i64>, expires_in: Option<u64>) -> i64 {
-    if let Some(exp_ts) = expiration {
-        exp_ts
-    } else if let Some(duration_secs) = expires_in {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get system time")
-            .as_millis() as i64;
-        now + (duration_secs as i64 * 1000)
-    } else {
-        0 // No expiration
-    }
 }
 
 pub async fn exploratory_deploy_command(args: &ExploratoryDeployArgs) -> CliResult {
@@ -157,34 +142,19 @@ pub async fn deploy_command(args: &DeployArgs) -> CliResult {
 
     // Initialize the F1r3fly API client
     println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
-
-    let phlo_limit = if args.bigger_phlo {
-        "5,000,000,000"
-    } else {
-        "50,000"
-    };
-    println!("Using phlo limit: {phlo_limit}");
-
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("Deploy expiration: {expiration_timestamp} ms");
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?
+        .with_shard_id(&args.deploy.shard_id);
+    let options = args.deploy.options(args.phlo_limit);
+    println!("Using phlo limit: {}", options.phlo_limit);
+    if let Some(expiration) = options.expiration {
+        println!("Deploy expiration: {expiration} ms");
     }
 
     // Deploy the Rholang code
     println!("Deploying Rholang code...");
     let start_time = Instant::now();
 
-    match f1r3fly_api
-        .deploy(
-            &rholang_code,
-            args.bigger_phlo,
-            "rholang",
-            expiration_timestamp,
-        )
-        .await
-    {
+    match f1r3fly_api.deploy(&rholang_code, &options).await {
         Ok(deploy_id) => {
             let duration = start_time.elapsed();
             println!("Deployment successful!");
@@ -241,34 +211,22 @@ pub async fn full_deploy_command(args: &DeployArgs) -> CliResult {
 
     // Initialize the F1r3fly API client
     println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
-
-    let phlo_limit = if args.bigger_phlo {
-        "5,000,000,000"
-    } else {
-        "50,000"
-    };
-    println!("Using phlo limit: {phlo_limit}");
-
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("Deploy expiration: {expiration_timestamp} ms");
+    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?
+        .with_shard_id(&args.deploy.shard_id);
+    let options = args.deploy.options(args.phlo_limit);
+    println!("Using phlo limit: {}", options.phlo_limit);
+    if let Some(expiration) = options.expiration {
+        println!("Deploy expiration: {expiration} ms");
     }
 
     // Deploy and propose
     println!("Deploying Rholang code and proposing a block...");
     let start_time = Instant::now();
 
-    match f1r3fly_api
-        .full_deploy(
-            &rholang_code,
-            args.bigger_phlo,
-            "rholang",
-            expiration_timestamp,
-        )
-        .await
-    {
+    let deploy_id = f1r3fly_api.deploy(&rholang_code, &options).await?;
+    println!("Deploy ID: {deploy_id}");
+
+    match f1r3fly_api.propose().await {
         Ok(ProposeResult::Proposed(block_hash)) => {
             let duration = start_time.elapsed();
             println!("Deployment and block proposal successful!");
@@ -333,7 +291,6 @@ pub async fn is_finalized_command(args: &IsFinalizedArgs) -> CliResult {
 pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
     println!("Bonding validator with stake: {}", args.stake);
 
-    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
     let manager = F1r3flyConnectionManager::new(build_config(
         &args.wait,
         &args.private_key,
@@ -344,8 +301,7 @@ pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
     let result = manager
         .deploy_and_wait(
             &build_bond_rholang(&crate::vault::parse_amount(&args.stake)?)?,
-            true,
-            expiration,
+            &args.wait.deploy.options(args.phlo_limit),
         )
         .await?;
 
@@ -377,7 +333,6 @@ pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
     };
     println!("Requesting withdrawal for validator: {public_key}");
 
-    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
     let manager = F1r3flyConnectionManager::new(build_config(
         &args.wait,
         &args.private_key,
@@ -386,7 +341,7 @@ pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(WITHDRAW_RHOLANG, true, expiration)
+        .deploy_and_wait(WITHDRAW_RHOLANG, &args.wait.deploy.options(args.phlo_limit))
         .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
@@ -403,7 +358,11 @@ pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
 /// Fail when a PoS method deploy errored, its verdict could not be read, or the
 /// contract rejected the call.
 fn ensure_pos_call_succeeded(action: &str, result: &DeployResult) -> CliResult {
-    if let Some(failure) = result.execution_failure() {
+    let detail = result
+        .detail
+        .as_ref()
+        .map_err(|err| format!("{action} outcome could not be read: {err}"))?;
+    if let Some(failure) = detail.execution_failure() {
         return Err(format!("{action} deploy failed: {failure}").into());
     }
     let data = result
@@ -453,7 +412,6 @@ pub async fn transfer_command(args: &TransferArgs) -> CliResult {
 
     let rholang_code =
         crate::vault::build_transfer_rholang(&from_address, &args.to_address, &amount_dust)?;
-    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
 
     let manager = F1r3flyConnectionManager::new(build_config(
         &args.wait,
@@ -463,13 +421,13 @@ pub async fn transfer_command(args: &TransferArgs) -> CliResult {
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
+        .deploy_and_wait(&rholang_code, &args.wait.deploy.options(args.phlo_limit))
         .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
-    if let Some(cost) = result.cost {
-        println!("Cost: {cost}");
+    if let Ok(detail) = &result.detail {
+        println!("Cost: {}", detail.cost);
     }
     println!("Total time: {:.2?}", start.elapsed());
 
@@ -497,26 +455,26 @@ pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
         &args.private_key,
         args.check_interval,
     ));
-    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
 
     println!("Deploying and waiting for finalization...");
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
+        .deploy_and_wait(&rholang_code, &args.wait.deploy.options(args.phlo_limit))
         .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
-    if let Some(block_num) = result.block_number {
-        println!("Block number: {block_num}");
-    }
-    if let Some(cost) = result.cost {
-        println!("Cost: {cost}");
-    }
-    if let Some(failure) = result.execution_failure() {
-        println!("Errored: true");
-        println!("Deploy error: {failure}");
+    match &result.detail {
+        Ok(detail) => {
+            println!("Block number: {}", detail.block_number);
+            println!("Cost: {}", detail.cost);
+            if let Some(failure) = detail.execution_failure() {
+                println!("Errored: true");
+                println!("Deploy error: {failure}");
+            }
+        }
+        Err(err) => println!("Execution: unreadable ({err})"),
     }
     match &result.data {
         Ok(data) if data.is_empty() => println!("Data: (none)"),
@@ -540,6 +498,7 @@ pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
         }
     }
 
+    result.detail?;
     result.data?;
     Ok(())
 }
@@ -751,10 +710,7 @@ mod tests {
         DeployResult {
             deploy_id: "3045".to_string(),
             block_hash: "abcd".to_string(),
-            block_number: Some(46),
-            cost: Some(1),
-            errored: false,
-            system_deploy_error: None,
+            detail: Ok(crate::f1r3fly_api::DeployDetail::finalized("3045", false)),
             data,
         }
     }

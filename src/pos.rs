@@ -13,6 +13,9 @@ use serde_json::Value;
 use crate::error::{Contract, Error, Result};
 use crate::rholang_helpers::convert_rholang_to_json;
 
+/// Phlo limit of a bond or withdrawal deploy.
+pub const POS_CALL_PHLO_LIMIT: u64 = 5_000_000_000;
+
 fn malformed(detail: impl std::fmt::Display) -> Error {
     Error::decode("PoS snapshot", detail)
 }

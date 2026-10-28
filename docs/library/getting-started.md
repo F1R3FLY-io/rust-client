@@ -43,28 +43,55 @@ than derived.
 ### Deploy and wait
 
 ```rust
+use node_cli::DeployOptions;
+
 let result = manager
-    .deploy_and_wait("new x in { x!(1) }", false, 0)
+    .deploy_and_wait("new x in { x!(1) }", &DeployOptions::default())
     .await?;
 
 println!("Deploy: {}", result.deploy_id);
 println!("Block:  {}", result.block_hash);
-println!("Cost:   {:?}", result.cost);
-match &result.data {
-    Ok(pars) => println!("Data:   {pars:?}"),  // empty when the deploy wrote nothing
-    Err(e) => eprintln!("deployId data could not be read: {e}"),
-}
+let detail = result.detail?;            // block, cost, and whether execution failed
+println!("Cost:   {}", detail.cost);
+let pars = result.data?;                // empty when the deploy wrote nothing
 ```
 
-The boolean maps to a phlo limit of 50k (`false`) or 5B (`true`). When the
-deploy's cost falls between those — and the deployer's balance must cover the
-limit, so 5B is not a safe default — pass an explicit limit instead:
+`DeployOptions` carries what the deploy signs besides its term: `phlo_limit`
+(default `deploy::DEFAULT_PHLO_LIMIT`, 50,000), `phlo_price` (default 1),
+`expiration` (Unix ms, or `None`) and `timestamp` (`None` for automatic; set it
+for contracts such as `insertSigned` that check the deploy's timestamp). The
+deployer's vault must cover `phlo_limit × phlo_price`, so set the limit to what
+the deploy needs rather than to something very large:
 
 ```rust
-let result = manager
-    .deploy_and_wait_with_phlo_limit("new x in { x!(1) }", 500_000, 0)
-    .await?;
+let options = DeployOptions::default().with_phlo_limit(500_000);
+let result = manager.deploy_and_wait("new x in { x!(1) }", &options).await?;
 ```
+
+The shard a deploy is signed for is a connection setting, `shard_id` (env
+`FIREFLY_SHARD_ID`, default `root`); it must match the node's `casper.shard-name`.
+
+### Sign now, send later
+
+A deploy's ID is its signature, so it is known before any node sees the deploy.
+Sign it, keep the bytes, and send them as often as needed: a node that already
+holds the deploy answers with the same ID, so a deploy whose fate is unknown
+after a timeout or a crash can be resent without deploying twice.
+
+```rust
+let api = manager.get_api()?;
+let unsigned = api.prepare("new x in { x!(1) }", &DeployOptions::default()).await?;
+let signed = unsigned.sign(&secret_key);            // or with_signature(..) from a hardware key
+store(signed.id(), signed.to_bytes());              // the ID is final from here on
+
+let stored = node_cli::SignedDeploy::from_bytes(&bytes)?;   // verified on load
+let result = manager.submit_and_wait(&stored).await?;
+```
+
+`UnsignedDeploy::digest()` is what an external signer signs (DER secp256k1
+ECDSA); `with_signature(public_key, der)` verifies the signature before
+accepting it. Automatic timestamps never repeat within a process, so two
+identical deploys sent at once get different IDs.
 
 ### Read-only query
 
@@ -91,10 +118,9 @@ let transfer = manager.transfer("1111recipient...", 100_000_000u64.into()).await
 println!("TX: {} in block {}", transfer.deploy_id, transfer.block_hash);
 ```
 
-Library transfers use `vault::TRANSFER_PHLO_LIMIT` (500k): the RevVault
-transfer contract costs ~250k phlo, above the 50k default deploy limit. The
-CLI's `transfer` is different — it defaults `--bigger-phlo` to true and so
-deploys with a 5,000,000,000 limit.
+Transfers, from the library and the CLI alike, use `vault::TRANSFER_PHLO_LIMIT`
+(500k): the RevVault transfer contract costs ~250k phlo, above the 50k default
+deploy limit. Bonds and withdrawals use `pos::POS_CALL_PHLO_LIMIT` (5B).
 
 ## F1r3flyApi (Low-Level)
 
@@ -106,7 +132,7 @@ use node_cli::F1r3flyApi;
 let api = F1r3flyApi::new("private_key_hex", "localhost", 40412)?;
 
 // Deploy only (no waiting)
-let deploy_id = api.deploy("new x in { x!(1) }", false, "rholang", 0).await?;
+let deploy_id = api.deploy("new x in { x!(1) }", &DeployOptions::default()).await?;
 
 // Exploratory deploy (read-only)
 let (data, block_info) = api.exploratory_deploy("new x in { x!(1) }", None, false).await?;
@@ -123,15 +149,12 @@ let finalized = api.is_finalized(&block_hash, 12, 5).await?;
 ```rust
 use node_cli::{DeployResult, DeployDetail, ProposeResult};
 
-// DeployResult — from deploy_and_wait
+// DeployResult — from deploy_and_wait and submit_and_wait: a finalized deploy
 pub struct DeployResult {
     pub deploy_id: String,
     pub block_hash: String,
-    pub block_number: Option<i64>,
-    pub cost: Option<u64>,
-    pub errored: bool,
-    pub system_deploy_error: Option<String>,
-    pub data: node_cli::Result<Vec<Par>>,  // deployId channel; Err when the read failed
+    pub detail: node_cli::Result<DeployDetail>,  // execution; Err when the read failed
+    pub data: node_cli::Result<Vec<Par>>,        // deployId channel; Err when the read failed
 }
 
 // DeployDetail — from get_deploy_detail (HTTP)
@@ -160,7 +183,7 @@ variant rather than the message:
 
 | Variant | Meaning | Retry? |
 |---|---|---|
-| `Transport` | The request did not reach the node or the answer did not come back | For reads, yes. A deploy or transfer may already have been submitted: do not resend it blindly |
+| `Transport` | The request did not reach the node or the answer did not come back | For reads, yes. For a deploy, resend the same `SignedDeploy` with `submit`; a new deploy could execute twice |
 | `Http` | The node answered HTTP with an error status; `code` carries its error code, such as `readonly_node_required` | Depends on `code` |
 | `Grpc` | A gRPC call ended with a non-OK status | Depends on the status |
 | `NodeRejected` | The node handled the request and refused it, such as a deploy with a bad signature | No |
@@ -196,6 +219,7 @@ match manager.transfer("1111recipient...", amount).await {
 | `observer_http_port` | `40453` | Observer HTTP port polled for finalization status |
 | `finalization_timeout_secs` | `90` | Max seconds to wait for a deploy to finalize |
 | `poll_interval_secs` | `2` | Seconds between finalization status polls |
+| `shard_id` | `root` | Shard deploys are signed for: the node's `casper.shard-name` |
 
 ### Exact token amounts
 
