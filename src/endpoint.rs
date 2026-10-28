@@ -90,9 +90,15 @@ impl Endpoint {
     }
 
     /// Trust only the certificate authorities in `pem`, one or more PEM
-    /// certificates, instead of the bundled public roots. Applies to `https`
-    /// endpoints; a plaintext endpoint ignores it.
+    /// certificates, instead of the bundled public roots. A plaintext endpoint
+    /// is refused: a CA there means TLS was intended but `http` was written.
     pub fn with_ca_certificates(mut self, pem: impl Into<Vec<u8>>) -> Result<Self> {
+        if !self.is_tls() {
+            return Err(Error::invalid(
+                "CA certificate",
+                format!("{self} is plaintext; a CA certificate applies only to https endpoints"),
+            ));
+        }
         let pem: Vec<u8> = pem.into();
         parse_certificates(&pem)?;
         self.ca_pem = Some(pem.into());
@@ -348,6 +354,21 @@ pub(crate) mod tests {
         let trusted = endpoint.with_ca_certificates(ca.cert.pem()).unwrap();
         assert!(trusted.http_client().is_ok());
         assert!(trusted.websocket_tls().is_ok());
+    }
+
+    #[test]
+    fn a_ca_on_a_plaintext_endpoint_is_refused() {
+        let ca = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let error = Endpoint::parse("http://localhost:40401")
+            .unwrap()
+            .with_ca_certificates(ca.cert.pem())
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("http://localhost:40401 is plaintext"),
+            "{error}"
+        );
     }
 
     /// A listener that accepts connections and never answers on them, like a

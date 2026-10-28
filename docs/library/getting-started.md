@@ -61,8 +61,9 @@ let grpc = Endpoint::parse("https://node.example:40401")?
 ```
 
 gRPC, HTTP and WebSocket connections all honor the scheme and the endpoint's
-certificate authorities. `from_env` applies `FIREFLY_CA_CERT` to every endpoint
-it reads.
+certificate authorities. `with_ca_certificates` refuses an `http://` endpoint,
+since it is plaintext. `from_env` applies `FIREFLY_CA_CERT` to every endpoint it
+reads, so it fails if any of them is `http://`.
 
 Each endpoint also carries a connect timeout and a request timeout
 (`endpoint::DEFAULT_CONNECT_TIMEOUT`, 10 s, and `DEFAULT_REQUEST_TIMEOUT`, 30 s);
@@ -288,7 +289,10 @@ Certificate authorities for `https` endpoints are set on each `Endpoint` with
 `with_ca_certificates`, or by `FIREFLY_CA_CERT` for `from_env`. Timeouts are set
 on each `Endpoint` with `with_connect_timeout` and `with_request_timeout`, or by
 `FIREFLY_CONNECT_TIMEOUT` and `FIREFLY_REQUEST_TIMEOUT` (whole seconds, at least
-1; defaults 10 and 30) for `from_env`.
+1; defaults 10 and 30) for `from_env`. `from_env` fails if a removed variable
+(`FIREFLY_HOST`, `FIREFLY_GRPC_PORT`, `FIREFLY_HTTP_PORT`,
+`FIREFLY_OBSERVER_HOST`, `FIREFLY_OBSERVER_GRPC_PORT`,
+`FIREFLY_OBSERVER_HTTP_PORT`) is set, naming its replacement.
 
 ### Exact token amounts
 

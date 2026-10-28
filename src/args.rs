@@ -89,6 +89,42 @@ impl HttpNodeArgs {
     }
 }
 
+/// A read-only node a command queries over gRPC. There is no default: the
+/// default node ports are a validator's, which refuses these queries.
+#[derive(Args, Debug, Clone)]
+pub struct ReadOnlyGrpcArgs {
+    /// gRPC endpoint of a read-only node, http:// or https://, with no path
+    #[arg(long = "grpc", value_parser = parse_endpoint)]
+    pub grpc: Endpoint,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+}
+
+impl ReadOnlyGrpcArgs {
+    pub fn api(&self) -> CliResult<F1r3flyApi> {
+        Ok(F1r3flyApi::new(self.transport.apply(&self.grpc)?)?)
+    }
+}
+
+/// A read-only node a command queries over HTTP. There is no default: the
+/// default node ports are a validator's, which refuses these queries.
+#[derive(Args, Debug, Clone)]
+pub struct ReadOnlyHttpArgs {
+    /// HTTP endpoint of a read-only node, http:// or https://, optionally with a base path
+    #[arg(long = "http", value_parser = parse_endpoint)]
+    pub http: Endpoint,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+}
+
+impl ReadOnlyHttpArgs {
+    pub fn node(&self) -> CliResult<NodeHttp> {
+        Ok(NodeHttp::new(self.transport.apply(&self.http)?)?)
+    }
+}
+
 /// The node a command reaches over both gRPC and HTTP
 #[derive(Args, Debug, Clone)]
 pub struct NodeArgs {
@@ -161,10 +197,10 @@ pub enum Commands {
     Blocks(BlocksArgs),
 
     /// Get current validator bonds from PoS contract (needs a read-only node)
-    Bonds(HttpNodeArgs),
+    Bonds(ReadOnlyHttpArgs),
 
     /// Get active validators from PoS contract (needs a read-only node)
-    ActiveValidators(HttpNodeArgs),
+    ActiveValidators(ReadOnlyHttpArgs),
 
     /// Check wallet balance for a specific address (needs a read-only node)
     WalletBalance(WalletBalanceArgs),
@@ -200,16 +236,16 @@ pub enum Commands {
     GetDeploy(GetDeployArgs),
 
     /// Get current epoch information and status (needs a read-only node)
-    EpochInfo(GrpcNodeArgs),
+    EpochInfo(ReadOnlyGrpcArgs),
 
     /// Check individual validator status: bonded, active, withdrawal progress (needs a read-only node)
     ValidatorStatus(ValidatorStatusArgs),
 
     /// Get current epoch rewards information (needs a read-only node)
-    EpochRewards(HttpNodeArgs),
+    EpochRewards(ReadOnlyHttpArgs),
 
     /// Get network-wide consensus health overview (needs a read-only node)
-    NetworkConsensus(HttpNodeArgs),
+    NetworkConsensus(ReadOnlyHttpArgs),
 
     /// Get blocks by height range
     GetBlocksByHeight(GetBlocksByHeightArgs),
@@ -391,12 +427,25 @@ pub struct DeployArgs {
     pub deploy: DeployOptionsArgs,
 }
 
+/// A node's internal gRPC API, the only one that serves propose.
+pub const DEFAULT_INTERNAL_GRPC_URL: &str = "http://localhost:40402";
+
 /// Arguments for propose command. Propose is served on the node's internal
-/// gRPC API (port 40402 by default), not the external one deploys use.
+/// gRPC API, not the external one deploys use.
 #[derive(Parser)]
 pub struct ProposeArgs {
+    /// Node's internal gRPC endpoint, http:// or https://, with no path
+    #[arg(long = "grpc", default_value = DEFAULT_INTERNAL_GRPC_URL, value_parser = parse_endpoint)]
+    pub grpc: Endpoint,
+
     #[command(flatten)]
-    pub node: GrpcNodeArgs,
+    pub transport: TransportArgs,
+}
+
+impl ProposeArgs {
+    pub fn api(&self) -> CliResult<F1r3flyApi> {
+        Ok(F1r3flyApi::new(self.transport.apply(&self.grpc)?)?)
+    }
 }
 
 /// Arguments for is-finalized command
@@ -426,7 +475,7 @@ pub struct ExploratoryDeployArgs {
     pub file: PathBuf,
 
     #[command(flatten)]
-    pub node: GrpcNodeArgs,
+    pub node: ReadOnlyGrpcArgs,
 
     /// Block hash to use as reference (optional)
     #[arg(short, long)]
@@ -549,7 +598,7 @@ pub struct GetBlocksByHeightArgs {
 #[derive(Parser)]
 pub struct WalletBalanceArgs {
     #[command(flatten)]
-    pub node: GrpcNodeArgs,
+    pub node: ReadOnlyGrpcArgs,
 
     /// Wallet address to check balance for
     #[arg(short = 'a', long)]
@@ -698,7 +747,7 @@ pub struct LoadTestArgs {
     pub node: NodeArgs,
 
     /// gRPC endpoint of a read-only node, for balance queries
-    #[arg(long = "readonly-grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    #[arg(long = "readonly-grpc", value_parser = parse_endpoint)]
     pub readonly_grpc: Endpoint,
 
     /// Check interval in seconds for deploy status (fast mode)
@@ -733,7 +782,7 @@ pub struct ValidatorStatusArgs {
     pub public_key: String,
 
     #[command(flatten)]
-    pub node: HttpNodeArgs,
+    pub node: ReadOnlyHttpArgs,
 }
 
 /// Arguments for get-node-id command
@@ -806,7 +855,7 @@ pub struct BlockTransfersArgs {
     pub block_hash: String,
 
     #[command(flatten)]
-    pub node: HttpNodeArgs,
+    pub node: ReadOnlyHttpArgs,
 
     /// Show all deploys, not just those with transfers
     #[arg(long = "all-deploys", default_value_t = false)]
@@ -905,6 +954,61 @@ mod transport_tests {
         else {
             unreachable!("parsed the propose command")
         };
-        assert!(args.node.api().is_err());
+        assert!(args.api().is_err());
+    }
+
+    #[test]
+    fn propose_defaults_to_the_internal_api() {
+        let Commands::Propose(args) = Cli::try_parse_from(["node_cli", "propose"])
+            .unwrap()
+            .command
+        else {
+            unreachable!("parsed the propose command")
+        };
+        assert_eq!(args.grpc.to_string(), DEFAULT_INTERNAL_GRPC_URL);
+    }
+
+    #[test]
+    fn read_only_queries_need_an_explicit_endpoint() {
+        for args in [
+            &["node_cli", "bonds"][..],
+            &["node_cli", "epoch-info"],
+            &["node_cli", "wallet-balance", "-a", "1111x"],
+            &["node_cli", "exploratory-deploy", "-f", "q.rho"],
+            &["node_cli", "validator-status", "-k", "04ab"],
+            &["node_cli", "block-transfers", "abcd"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err(), "{args:?} was accepted");
+        }
+        assert!(
+            Cli::try_parse_from(["node_cli", "bonds", "--http", "http://observer:40453"]).is_ok()
+        );
+    }
+
+    #[test]
+    fn a_ca_with_a_plaintext_endpoint_is_refused() {
+        let ca = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let dir = std::env::temp_dir().join(format!("node-cli-ca-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ca.pem");
+        std::fs::write(&path, ca.cert.pem()).unwrap();
+
+        let args = status(&[
+            "--http",
+            "http://localhost:40403",
+            "--ca-cert",
+            path.to_str().unwrap(),
+        ])
+        .unwrap();
+        assert!(args.transport.apply(&args.http).is_err());
+        let args = status(&[
+            "--http",
+            "https://localhost:40403",
+            "--ca-cert",
+            path.to_str().unwrap(),
+        ])
+        .unwrap();
+        assert!(args.transport.apply(&args.http).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

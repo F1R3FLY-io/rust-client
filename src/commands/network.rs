@@ -191,7 +191,7 @@ pub async fn deploy_command(args: &DeployArgs) -> CliResult {
 }
 
 pub async fn propose_command(args: &ProposeArgs) -> CliResult {
-    let f1r3fly_api = args.node.api()?;
+    let f1r3fly_api = args.api()?;
     println!(" Connecting to F1r3fly node at {}", f1r3fly_api.endpoint());
 
     // Propose a block
@@ -281,7 +281,7 @@ pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
         propose_after(&manager).await;
     }
 
-    println!("Bonding complete. Verify with: node_cli bonds");
+    println!("Bonding complete. Verify with: node_cli bonds --http <read-only node>");
     Ok(())
 }
 
@@ -308,7 +308,9 @@ pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
     ensure_pos_call_succeeded("Withdrawal", &result)?;
 
     println!("Withdrawal requested. The validator leaves the bond set at the next epoch boundary.");
-    println!("Track progress with: node_cli validator-status -k {public_key}");
+    println!(
+        "Track progress with: node_cli validator-status -k {public_key} --http <read-only node>"
+    );
     Ok(())
 }
 
@@ -593,12 +595,7 @@ pub async fn deploy_status_command(args: &DeployStatusArgs) -> CliResult {
     let status = match node.deploy_finalization_status(sig_hex).await? {
         Some(s) => s,
         None => {
-            return Err(crate::Error::NodeTooOld {
-                endpoint: node.endpoint().to_string(),
-                feature: "/api/deploy-finalization-status",
-                requirement: "f1r3node-rust v0.4.15 or later",
-            }
-            .into());
+            return Err(node.finalization_status_unserved().await.into());
         }
     };
     let duration = start.elapsed();

@@ -1,6 +1,6 @@
 # Node Inspection Commands
 
-Commands for querying node state. HTTP commands take `--http <URL>` (default `http://localhost:40403`); gRPC commands take `--grpc <URL>` (default `http://localhost:40401`). An HTTP endpoint may carry a base path, such as `https://proxy.example/node1`, for a node served under a prefix behind a proxy; a gRPC endpoint takes no path. Every command also takes `--ca-cert <PEM file>`, the certificate authorities trusted for an `https://` endpoint in place of the bundled public roots, `--connect-timeout <SECS>` (default 10), the seconds a connection may take to establish, and `--timeout <SECS>` (default 30), the seconds a single request may take.
+Commands for querying node state. HTTP commands take `--http <URL>` (default `http://localhost:40403`); gRPC commands take `--grpc <URL>` (default `http://localhost:40401`). Commands that need a read-only node (`bonds`, `active-validators`, `wallet-balance`, `block-transfers`) have no default and require the flag. An HTTP endpoint may carry a base path, such as `https://proxy.example/node1`, for a node served under a prefix behind a proxy; a gRPC endpoint takes no path. Every command also takes `--ca-cert <PEM file>`, the certificate authorities trusted for an `https://` endpoint in place of the bundled public roots (an error with an `http://` endpoint), `--connect-timeout <SECS>` (default 10), the seconds a connection may take to establish, and `--timeout <SECS>` (default 30), the seconds a single request may take.
 
 On the system-integration single-host Docker shard, validator1's HTTP endpoint is `http://localhost:40413` and the read-only node's is `http://localhost:40453` (gRPC `http://localhost:40452`).
 
@@ -97,7 +97,7 @@ Last Finalized Block Summary:
 Validators bonded in the PoS contract. A bond is listed as soon as its deploy executes. Bonds outside the active set are marked `(not active)`: the active set is recomputed at each epoch boundary, up to the shard's `number-of-active-validators`, so such a bond may never activate. Must run against a read-only node.
 
 ```bash
-node_cli bonds [--http URL]
+node_cli bonds --http URL
 ```
 
 ```
@@ -116,7 +116,7 @@ Bonded Validators (4 total, 4000 total stake):
 Validators participating in consensus. The set is recomputed only at epoch boundaries, up to the shard's `number-of-active-validators`, so a new bond appears here no earlier than one boundary after it appears in `bonds`. Must run against a read-only node.
 
 ```bash
-node_cli active-validators [--http URL]
+node_cli active-validators --http URL
 ```
 
 ```
@@ -134,7 +134,7 @@ Active Validators (3 total, 3000 total stake):
 Must run against a read-only node.
 
 ```bash
-node_cli wallet-balance --address <ADDRESS> [--grpc URL]
+node_cli wallet-balance --address <ADDRESS> --grpc URL
 ```
 
 ```
@@ -225,13 +225,13 @@ Multiple blocks at the same height indicate parallel proposals from different va
 Extracts native token transfers from a block's deploys.
 
 ```bash
-node_cli block-transfers <BLOCK_HASH> [--http URL] [--all-deploys] [--max-wait SECONDS]
+node_cli block-transfers <BLOCK_HASH> --http URL [--all-deploys] [--max-wait SECONDS]
 ```
 
 Point it at a read-only node: a validator never attaches transfers, so against one the command waits out `--max-wait` and fails. The read-only node attaches transfers to a block's deploys once it has replayed the block. Until then the command re-reads the block every 2 seconds, up to `--max-wait` (default 60), and exits with an error if the report never arrives; it never reports a pending block as having no transfers.
 
 ```
-$ node_cli block-transfers 860a56e195ff08ad...
+$ node_cli block-transfers 860a56e195ff08ad... --http http://localhost:40453
 
 Block #587 (860a56e195ff08ad...)
 

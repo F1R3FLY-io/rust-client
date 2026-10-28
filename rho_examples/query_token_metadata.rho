@@ -2,7 +2,7 @@
 // Returns a tuple (name, symbol, decimals) on the return channel.
 //
 // Usage:
-//   node_cli exploratory-deploy -H localhost -p 40402 -f rho_examples/query_token_metadata.rho
+//   node_cli exploratory-deploy --grpc http://localhost:40452 -f rho_examples/query_token_metadata.rho
 //
 // Expected output on a default F1R3FLY chain:
 //   ("F1R3CAP", "F1R3", 8)

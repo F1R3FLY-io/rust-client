@@ -44,6 +44,31 @@ where
     }
 }
 
+/// Variables this crate no longer reads, with what replaced each.
+const REMOVED_VARIABLES: [(&str, &str); 6] = [
+    ("FIREFLY_HOST", "FIREFLY_GRPC_URL and FIREFLY_HTTP_URL"),
+    ("FIREFLY_GRPC_PORT", "FIREFLY_GRPC_URL"),
+    ("FIREFLY_HTTP_PORT", "FIREFLY_HTTP_URL"),
+    ("FIREFLY_OBSERVER_HOST", "FIREFLY_OBSERVER_URL"),
+    (
+        "FIREFLY_OBSERVER_GRPC_PORT",
+        "nothing: the observer is polled over HTTP only",
+    ),
+    ("FIREFLY_OBSERVER_HTTP_PORT", "FIREFLY_OBSERVER_URL"),
+];
+
+/// Refuse a set variable that is no longer read, which would otherwise leave
+/// the client quietly talking to the default endpoints.
+fn refuse_removed_variables(is_set: impl Fn(&str) -> bool) -> Result<()> {
+    match REMOVED_VARIABLES.iter().find(|(var, _)| is_set(var)) {
+        Some((var, replacement)) => Err(Error::invalid(
+            var,
+            format!("is no longer read; use {replacement}"),
+        )),
+        None => Ok(()),
+    }
+}
+
 /// A timeout of `var` whole seconds, or `default` when it is unset. Zero is
 /// refused: it would fail every request.
 fn env_timeout(var: &'static str, default: Duration) -> Result<Duration> {
@@ -90,6 +115,7 @@ impl ConnectionConfig {
     /// - `FIREFLY_FINALIZATION_TIMEOUT`: Max seconds to wait for a deploy to finalize (default: 90)
     /// - `FIREFLY_SHARD_ID`: Shard deploys are signed for (default: "root")
     pub fn from_env() -> Result<Self> {
+        refuse_removed_variables(|var| env::var_os(var).is_some())?;
         let signing_key = env_opt("FIREFLY_PRIVATE_KEY")?.ok_or(Error::MissingConfig {
             var: "FIREFLY_PRIVATE_KEY",
         })?;
@@ -427,11 +453,7 @@ impl F1r3flyConnectionManager {
                     return Ok((status, source));
                 }
                 PollOutcome::Unserved => {
-                    return Err(Error::NodeTooOld {
-                        endpoint: self.node.endpoint().to_string(),
-                        feature: "/api/deploy-finalization-status",
-                        requirement: "f1r3node-rust v0.4.15 or later",
-                    });
+                    return Err(self.node.finalization_status_unserved().await);
                 }
                 PollOutcome::Pending { included_by } => included_by,
             };
@@ -692,6 +714,17 @@ mod tests {
                 var: "FIREFLY_PRIVATE_KEY"
             })
         ));
+    }
+
+    #[test]
+    fn a_removed_variable_is_refused_with_its_replacement() {
+        assert!(refuse_removed_variables(|_| false).is_ok());
+        let error = refuse_removed_variables(|var| var == "FIREFLY_HTTP_PORT").unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidInput { what: "FIREFLY_HTTP_PORT", ref detail }
+                if detail.contains("FIREFLY_HTTP_URL")),
+            "{error}"
+        );
     }
 
     #[test]

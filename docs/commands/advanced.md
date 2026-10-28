@@ -5,7 +5,7 @@
 Run a load test by sending multiple transfers and tracking finalization and orphan rates.
 
 ```bash
-node_cli load-test --to-address <ADDR> --num-tests <N> --amount <AMT> [OPTIONS]
+node_cli load-test --to-address <ADDR> --readonly-grpc <URL> --num-tests <N> --amount <AMT> [OPTIONS]
 ```
 
 | Flag | Default | Description |
@@ -18,17 +18,19 @@ node_cli load-test --to-address <ADDR> --num-tests <N> --amount <AMT> [OPTIONS]
 | `--interval` | `10` | Seconds between deploys |
 | `--grpc` | `http://localhost:40401` | Node gRPC endpoint, with no path; deploys go here |
 | `--http` | `http://localhost:40403` | Node HTTP endpoint, optionally with a base path, for status queries |
-| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--inclusion-timeout` | `120` | Max seconds for block inclusion |
 | `--finalization-timeout` | `120` | Max seconds for finalization |
 | `--check-interval` | `1` | Seconds between polls |
 | `--chain-depth` | `200` | Depth to check for orphaned blocks |
-| `--readonly-grpc` | `http://localhost:40401` | gRPC endpoint of a read-only node, with no path, for balance queries |
+| `--readonly-grpc` | required | gRPC endpoint of a read-only node, with no path, for balance queries |
 
 ```
-$ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000
+$ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000 \
+    --grpc http://localhost:40412 --http http://localhost:40413 \
+    --readonly-grpc http://localhost:40452
 
 F1R3FLY Load Test
 Tests: 3
@@ -67,7 +69,7 @@ node_cli watch-events [--http URL] [--filter TYPE] [--retry-forever]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--http` | `http://localhost:40403` | Node HTTP endpoint, optionally with a base path; `https://` connects over `wss` |
-| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--filter` | all | `created`, `added`, `finalized`, `transfers`, `genesis`, or `lifecycle` |
@@ -166,7 +168,7 @@ node_cli bond-validator --stake <AMOUNT> --private-key <KEY> [OPTIONS]
 | `--private-key` | required | Validator's signing key |
 | `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
 | `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
-| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--propose` | false | Propose block after bonding; `--grpc` must then be the node's internal API |
@@ -197,7 +199,7 @@ Bonding validator with stake: 1000
 Deploy ID:    3045022100...
 Block hash:   a1b2c3d4...
 Total time:   25.30s
-Bonding complete. Verify with: node_cli bonds
+Bonding complete. Verify with: node_cli bonds --http <read-only node>
 ```
 
 The command exits non-zero when the PoS contract rejects the bond:
@@ -231,7 +233,7 @@ node_cli unbond-validator --private-key <KEY> [OPTIONS]
 | `--private-key` | required | Signing key of the validator to unbond |
 | `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
 | `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
-| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
@@ -259,7 +261,7 @@ Deploy ID: 3044022065871c6d...
 Block hash: b0737488...
 Total time: 23.32s
 Withdrawal requested. The validator leaves the bond set at the next epoch boundary.
-Track progress with: node_cli validator-status -k 0429af984ed4da1a...455f1727
+Track progress with: node_cli validator-status -k 0429af984ed4da1a...455f1727 --http <read-only node>
 ```
 
 The command exits non-zero when the PoS contract rejects the call, for example `PoS rejected the call: User is not bonded`, and when the verdict could not be read.
@@ -275,7 +277,7 @@ node_cli network-health [--http URL]...
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--http` | single-host Docker shard | HTTP endpoint of a node to check, optionally with a base path; repeat it for each node. With none, checks `http://localhost:` 40403 (Bootstrap), 40413 (Validator1), 40423 (Validator2), 40433 (Validator3) and 40453 (Observer) |
-| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--verbose`, `-v` | false | Print more details |
@@ -305,19 +307,20 @@ The read-only node exposes both a gRPC and an HTTP API, and these commands do
 not all use the same one. Passing the gRPC endpoint to an HTTP command fails with
 `error sending request for url (…/api/explore-deploy)`, which does not name the
 real problem. An HTTP endpoint may carry a base path; a gRPC endpoint takes
-none. Every command defaults to a node's own ports on localhost; on the
+none. These commands have no default endpoint, since a node's default ports are
+a validator's, which refuses them; the flag is required. On the
 system-integration single-host Docker shard the read-only node is HTTP
 `http://localhost:40453` and gRPC `http://localhost:40452`.
 
 | Command | Transport | Flag | Default |
 |---|---|---|---|
-| `bonds` | HTTP | `--http` | `http://localhost:40403` |
-| `active-validators` | HTTP | `--http` | `http://localhost:40403` |
-| `validator-status` | HTTP | `--http` | `http://localhost:40403` |
-| `network-consensus` | HTTP | `--http` | `http://localhost:40403` |
-| `epoch-rewards` | HTTP | `--http` | `http://localhost:40403` |
-| `epoch-info` | gRPC | `--grpc` | `http://localhost:40401` |
-| `wallet-balance` | gRPC | `--grpc` | `http://localhost:40401` |
+| `bonds` | HTTP | `--http` | required |
+| `active-validators` | HTTP | `--http` | required |
+| `validator-status` | HTTP | `--http` | required |
+| `network-consensus` | HTTP | `--http` | required |
+| `epoch-rewards` | HTTP | `--http` | required |
+| `epoch-info` | gRPC | `--grpc` | required |
+| `wallet-balance` | gRPC | `--grpc` | required |
 
 Each also takes `--ca-cert` for `https://` endpoints, and `--connect-timeout`
 (default 10) and `--timeout` (default 30) in seconds.
@@ -325,7 +328,7 @@ Each also takes `--ca-cert` for `https://` endpoints, and `--connect-timeout`
 ### epoch-info
 
 ```bash
-node_cli epoch-info [--grpc URL]
+node_cli epoch-info --grpc URL
 ```
 
 ```
@@ -347,7 +350,7 @@ Current Epoch Status:
 ### epoch-rewards
 
 ```bash
-node_cli epoch-rewards [--http URL]
+node_cli epoch-rewards --http URL
 ```
 
 ```
@@ -365,7 +368,7 @@ Current Epoch Rewards (3 validators):
 ### validator-status
 
 ```bash
-node_cli validator-status -k <PUBLIC_KEY> [--http URL]
+node_cli validator-status -k <PUBLIC_KEY> --http URL
 ```
 
 Reports the validator's state as of the last finalized block:
@@ -386,7 +389,7 @@ As of block: 573 (last finalized)
 ### network-consensus
 
 ```bash
-node_cli network-consensus [--http URL]
+node_cli network-consensus --http URL
 ```
 
 ```

@@ -8,7 +8,7 @@ This is the primary command for deploying contracts. It handles the full lifecyc
 3. Read the `deployId` channel data from the finalized block (using `latest_block_hash` from the status response)
 4. Get deploy execution details (cost, errored) from the node whose status was the verdict
 
-**Note:** Step 2 queries the deploy node, and the observer when `--observer` is given, on every poll, and stops at the first terminal state either reports; a node never changes a verdict once written. The status reports whether the deploy's effects are in canonical state, so a deploy dropped during merge of a finalized block is not reported as finalized. The command requires a deploy node that serves the endpoint (f1r3node-rust v0.4.15 or later) and fails immediately otherwise, unless the observer answers.
+**Note:** Step 2 queries the deploy node, and the observer when `--observer` is given, on every poll, and stops at the first terminal state either reports; a node never changes a verdict once written. The status reports whether the deploy's effects are in canonical state, so a deploy dropped during merge of a finalized block is not reported as finalized. The command requires a deploy node that serves the endpoint (f1r3node-rust v0.4.15 or later) and fails immediately otherwise, unless the observer answers. A 404 for that endpoint is reported as an old node only when the same endpoint answers `/api/status`; otherwise the error is that endpoint's HTTP error, such as from a mistyped base path.
 
 ## Usage
 
@@ -24,7 +24,7 @@ node_cli deploy-and-wait -f <FILE> [OPTIONS]
 | `--private-key` | `-k` | dev key | Signing key (64 hex chars) |
 | `--grpc` | | `http://localhost:40401` | Deploy node's gRPC endpoint, with no path |
 | `--http` | | `http://localhost:40403` | Deploy node's HTTP endpoint, optionally with a base path, polled for finalization status |
-| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `50000` | Most phlo the deploy may spend |
@@ -105,6 +105,6 @@ node_cli deploy-and-wait -f contract.rho \
 
 ## TLS
 
-An `https://` endpoint connects over TLS, trusting the bundled public roots, or only the certificate authorities in `--ca-cert` when given. `http://` endpoints ignore `--ca-cert`.
+An `https://` endpoint connects over TLS, trusting the bundled public roots, or only the certificate authorities in `--ca-cert` when given. `--ca-cert` together with any `http://` endpoint of the command, including `--observer`, is an error naming that endpoint.
 
 `--http` and `--observer` may carry a base path, such as `https://proxy.example/node1`, for a node served under a prefix behind a proxy; `--grpc` takes no path and is refused with one. `--connect-timeout` and `--timeout` apply to all three endpoints.

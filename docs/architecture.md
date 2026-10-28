@@ -10,7 +10,7 @@
 - Retry/polling with configurable timeouts
 - Transfer operations with address validation
 
-Every endpoint is a URL: `http://` is plaintext, `https://` is TLS, trusting the bundled public roots or the CA bundle set with `Endpoint::with_ca_certificates`. gRPC, HTTP and WebSocket all honor it, along with the endpoint's connect timeout (default 10 s) and request timeout (default 30 s); an open WebSocket stream is bounded only by the connect timeout. An HTTP endpoint may carry a base path, under which requests and `/ws/events` go; a gRPC endpoint takes none, and `F1r3flyApi::new` refuses one.
+Every endpoint is a URL: `http://` is plaintext, `https://` is TLS, trusting the bundled public roots or the CA bundle set with `Endpoint::with_ca_certificates`, which refuses an `http://` endpoint. gRPC, HTTP and WebSocket all honor it, along with the endpoint's connect timeout (default 10 s) and request timeout (default 30 s); an open WebSocket stream is bounded only by the connect timeout. An HTTP endpoint may carry a base path, under which requests and `/ws/events` go; a gRPC endpoint takes none, and `F1r3flyApi::new` refuses one.
 
 Use `F1r3flyApi` directly when you need a single operation (exploratory deploy, one-shot deploy, propose). Use `F1r3flyConnectionManager` when you need a complete workflow that waits for results.
 
@@ -37,7 +37,9 @@ removed, along with `deploy-and-wait --finalization-timeout`,
 `ConnectionConfig.deploy_timeout_secs` and `FIREFLY_DEPLOY_TIMEOUT`.
 `--max-wait` is now the whole finalization budget. A deploy node that does not
 serve `/api/deploy-finalization-status`, with no answer from the observer,
-errors immediately with a message naming f1r3node-rust v0.4.15 as the minimum.
+errors immediately with a message naming f1r3node-rust v0.4.15 as the minimum,
+provided the same endpoint answers `/api/status`; if it does not, the error is
+that endpoint's HTTP error (a mistyped base path, for instance).
 
 The status is a canonical-state verdict, not a block-level one: a block can
 finalize while some of its deploys' effects are dropped during merge, so the

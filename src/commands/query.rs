@@ -81,7 +81,7 @@ pub async fn blocks_command(args: &BlocksArgs) -> CliResult {
     Ok(())
 }
 
-pub async fn bonds_command(args: &HttpNodeArgs) -> CliResult {
+pub async fn bonds_command(args: &ReadOnlyHttpArgs) -> CliResult {
     let node = args.node()?;
     println!(" Getting validator bonds from {}", node.endpoint());
 
@@ -115,7 +115,7 @@ pub async fn bonds_command(args: &HttpNodeArgs) -> CliResult {
     Ok(())
 }
 
-pub async fn active_validators_command(args: &HttpNodeArgs) -> CliResult {
+pub async fn active_validators_command(args: &ReadOnlyHttpArgs) -> CliResult {
     let node = args.node()?;
     println!(" Getting active validators from {}", node.endpoint());
 
@@ -220,7 +220,7 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> CliResult {
         println!(" Validator is NOT BONDED");
     }
     println!(
-        " Activation and withdrawal progress: node_cli validator-status -k {}",
+        " Activation and withdrawal progress: node_cli validator-status -k {} --http <read-only node>",
         args.public_key
     );
 
@@ -649,7 +649,7 @@ pub async fn validator_status_command(args: &ValidatorStatusArgs) -> CliResult {
     Ok(())
 }
 
-pub async fn epoch_info_command(args: &GrpcNodeArgs) -> CliResult {
+pub async fn epoch_info_command(args: &ReadOnlyGrpcArgs) -> CliResult {
     let f1r3fly_api = args.api()?;
     println!(
         " Getting current epoch information from {}",
@@ -771,7 +771,7 @@ pub async fn epoch_info_command(args: &GrpcNodeArgs) -> CliResult {
     Ok(())
 }
 
-pub async fn epoch_rewards_command(args: &HttpNodeArgs) -> CliResult {
+pub async fn epoch_rewards_command(args: &ReadOnlyHttpArgs) -> CliResult {
     let node = args.node()?;
     println!(" Getting current epoch rewards from {}", node.endpoint());
 
@@ -859,7 +859,7 @@ fn abbreviate_key(key: &str) -> String {
     }
 }
 
-pub async fn network_consensus_command(args: &HttpNodeArgs) -> CliResult {
+pub async fn network_consensus_command(args: &ReadOnlyHttpArgs) -> CliResult {
     let node = args.node()?;
     println!(
         " Getting network-wide consensus overview from {}",

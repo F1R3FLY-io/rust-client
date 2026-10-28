@@ -17,7 +17,7 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--private-key` | | dev key | Sender's signing key |
 | `--grpc` | | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit to — must be a **bonded validator** |
 | `--http` | | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
-| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `500000` | Most phlo the transfer deploy may spend |

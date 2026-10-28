@@ -4,7 +4,7 @@ Rust crate for interacting with F1r3fly blockchain nodes. Usable as a **library*
 
 ## Quick Start
 
-Node endpoints are URLs: `http://` is plaintext, `https://` is TLS (add `--ca-cert <PEM>` to trust a private CA). An HTTP endpoint may carry a base path, such as `https://proxy.example/node1`; a gRPC endpoint may not. `--connect-timeout` (default 10) and `--timeout` (default 30) bound, in seconds, connecting and each request. Every command defaults to a node's own ports, gRPC `http://localhost:40401` and HTTP `http://localhost:40403`; the examples below target the system-integration single-host Docker shard.
+Node endpoints are URLs: `http://` is plaintext, `https://` is TLS (add `--ca-cert <PEM>` to trust a private CA; it is refused if any endpoint of the command is `http://`). An HTTP endpoint may carry a base path, such as `https://proxy.example/node1`; a gRPC endpoint may not. `--connect-timeout` (default 10) and `--timeout` (default 30) bound, in seconds, connecting and each request. Commands default to a node's own ports, gRPC `http://localhost:40401` and HTTP `http://localhost:40403`, except `propose` (internal gRPC, `http://localhost:40402`) and commands that need a read-only node, which require the endpoint flag; the examples below target the system-integration single-host Docker shard.
 
 ```bash
 # Build
@@ -82,4 +82,4 @@ from here. Never reuse a key from a README against anything real.
 
 These are read by the library's `ConnectionConfig::from_env`. The CLI reads only `FIREFLY_PRIVATE_KEY` and `FIREFLY_SHARD_ID`; its endpoints come from `--grpc`, `--http`, `--observer` and `--ca-cert`.
 
-An unset variable takes its default; a set but malformed one, such as a URL without an `http` or `https` scheme, is an error.
+An unset variable takes its default; a set but malformed one, such as a URL without an `http` or `https` scheme, is an error. So is `FIREFLY_CA_CERT` with any `http://` endpoint, and any removed variable (`FIREFLY_HOST`, `FIREFLY_GRPC_PORT`, `FIREFLY_HTTP_PORT`, `FIREFLY_OBSERVER_HOST`, `FIREFLY_OBSERVER_GRPC_PORT`, `FIREFLY_OBSERVER_HTTP_PORT`); the error names its replacement.

@@ -17,7 +17,7 @@ node_cli deploy -f <FILE> [OPTIONS]
 | `--file` | `-f` | required | Rholang file to deploy |
 | `--private-key` | `-k` | dev key | Signing key (64 hex chars) |
 | `--grpc` | | `http://localhost:40401` | Node gRPC endpoint, `http://` or `https://`, with no path |
-| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `50000` | Most phlo the deploy may spend |

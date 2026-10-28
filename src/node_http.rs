@@ -109,6 +109,30 @@ impl NodeHttp {
             .map(Some)
     }
 
+    /// The error for an endpoint `feature` that answered 404. A node that
+    /// answers `/api/status` is too old to serve `feature`; one that does not
+    /// is the wrong endpoint, such as a mistyped base path, and that failure is
+    /// returned instead.
+    pub(crate) async fn unserved(&self, feature: &'static str, requirement: &'static str) -> Error {
+        match self.get_json("/api/status").await {
+            Ok(_) => Error::NodeTooOld {
+                endpoint: self.endpoint.to_string(),
+                feature,
+                requirement,
+            },
+            Err(error) => error,
+        }
+    }
+
+    /// [`unserved`](Self::unserved) for `/api/deploy-finalization-status`.
+    pub(crate) async fn finalization_status_unserved(&self) -> Error {
+        self.unserved(
+            "/api/deploy-finalization-status",
+            "f1r3node-rust v0.4.15 or later",
+        )
+        .await
+    }
+
     /// Estimate phlogiston cost via `POST /api/estimate-cost`.
     ///
     /// When `deployer` is `Some`, the node executes the term under that identity,
@@ -171,4 +195,56 @@ struct EstimateCostRequest<'a> {
 #[derive(Debug, Deserialize)]
 struct EstimateCostResponse {
     cost: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// An HTTP server answering `/api/status` with `status_code` and every
+    /// other path with 404.
+    async fn server(status_code: u16) -> NodeHttp {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut request = [0u8; 1024];
+                let read = socket.read(&mut request).await.unwrap();
+                let request = String::from_utf8_lossy(&request[..read]);
+                let (code, body) = if request.starts_with("GET /api/status ") {
+                    (status_code, "{}")
+                } else {
+                    (404, "")
+                };
+                let response = format!(
+                    "HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        NodeHttp::new(Endpoint::parse(&format!("http://127.0.0.1:{port}")).unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_404_from_a_live_node_means_it_is_too_old() {
+        let node = server(200).await;
+        assert!(matches!(
+            node.unserved("/api/x", "v1").await,
+            Error::NodeTooOld {
+                feature: "/api/x",
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_404_from_something_that_is_not_a_node_names_the_endpoint() {
+        let node = server(404).await;
+        assert!(matches!(
+            node.unserved("/api/x", "v1").await,
+            Error::Http { status: 404, ref url, .. } if url.ends_with("/api/status")
+        ));
+    }
 }
