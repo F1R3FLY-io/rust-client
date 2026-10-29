@@ -282,7 +282,93 @@ mod tests {
         (dir, file)
     }
 
+    /// Clear the variables that would otherwise outrank a profile, so an
+    /// exported one in the shell running the tests cannot change them.
+    fn isolate() {
+        for var in [
+            "FIREFLY_CONFIG",
+            "FIREFLY_PROFILE",
+            "FIREFLY_GRPC_URL",
+            "FIREFLY_HTTP_URL",
+            "FIREFLY_OBSERVER_URL",
+            "FIREFLY_INTERNAL_GRPC_URL",
+            "FIREFLY_READONLY_GRPC_URL",
+            "FIREFLY_READONLY_HTTP_URL",
+            "FIREFLY_CA_CERT",
+            "FIREFLY_CONNECT_TIMEOUT",
+            "FIREFLY_REQUEST_TIMEOUT",
+            "FIREFLY_SHARD_ID",
+            "FIREFLY_PRIVATE_KEY_FILE",
+        ] {
+            std::env::remove_var(var);
+        }
+    }
+
+    #[test]
+    fn every_profile_field_names_an_argument_resolved_the_same_everywhere() {
+        let profile = Profile {
+            grpc: Some("http://a:1".into()),
+            http: Some("http://a:2".into()),
+            internal_grpc: Some("http://a:3".into()),
+            observer: Some("http://a:4".into()),
+            readonly_grpc: Some("http://a:5".into()),
+            readonly_http: Some("http://a:6".into()),
+            ca_cert: Some("ca.pem".into()),
+            connect_timeout: Some(1),
+            timeout: Some(2),
+            shard_id: Some("s".into()),
+            private_key_file: Some("key.hex".into()),
+        };
+        let ids: Vec<&str> = profile_defaults(&profile, Path::new("/config/node_cli.toml"))
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(
+            ids.len(),
+            11,
+            "a profile field is not turned into a default"
+        );
+
+        type Resolution = (Option<String>, Vec<String>);
+        fn walk(command: &clap::Command, found: &mut HashMap<String, Vec<(String, Resolution)>>) {
+            for arg in command.get_arguments() {
+                let resolution = (
+                    arg.get_env().map(|env| env.to_string_lossy().into_owned()),
+                    arg.get_default_values()
+                        .iter()
+                        .map(|value| value.to_string_lossy().into_owned())
+                        .collect(),
+                );
+                found
+                    .entry(arg.get_id().to_string())
+                    .or_default()
+                    .push((command.get_name().to_string(), resolution));
+            }
+            for sub in command.get_subcommands() {
+                walk(sub, found);
+            }
+        }
+        let mut found = HashMap::new();
+        walk(&Cli::command(), &mut found);
+
+        for id in ids {
+            let occurrences = found
+                .get(id)
+                .unwrap_or_else(|| panic!("profile field {id} matches no argument"));
+            let (_, first) = &occurrences[0];
+            for (command, resolution) in occurrences {
+                assert_eq!(
+                    resolution, first,
+                    "{id} resolves differently in {command} than in {}",
+                    occurrences[0].0
+                );
+            }
+        }
+    }
+
     fn parse_with(file: &Path, args: &[&str]) -> Result<Parsed, ParseError> {
+        isolate();
         let mut argv: Vec<OsString> = vec!["node_cli".into(), "--config".into(), file.into()];
         argv.extend(args.iter().map(OsString::from));
         parse(argv)

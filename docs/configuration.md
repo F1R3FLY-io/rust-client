@@ -9,6 +9,10 @@ resolved in this order:
 3. the selected profile
 4. the built-in default
 
+The signing key is the exception: a key file, from any of these, together
+with `FIREFLY_PRIVATE_KEY` is an error rather than one overriding the other,
+so a command never signs with a key you did not mean.
+
 ## Config file
 
 TOML at `$XDG_CONFIG_HOME/f1r3fly/node_cli.toml`, else

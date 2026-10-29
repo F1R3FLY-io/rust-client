@@ -51,6 +51,8 @@ pub static RESEND_EXPIRED: Role = Role::new(Key::generate);
 /// Deploys through the TLS proxy.
 pub static TLS_DEPLOY: Role = Role::new(Key::generate);
 pub static LOAD_TEST: Role = Role::new(Key::generate);
+/// Signs through a config profile's key file.
+pub static PROFILE_DEPLOY: Role = Role::new(Key::generate);
 pub static SPARE: Role = Role::new(Key::generate);
 /// Nothing deploys from this address and nothing else credits it, so a test
 /// can assert that its balance did not move.
@@ -75,8 +77,9 @@ const FUNDED: &str = "50000000000000000";
 const SCARCELY_FUNDED: &str = "1000000";
 
 /// Each vault funded at genesis: its role's name, key and balance.
-pub fn genesis_wallets() -> [(&'static str, &'static Key, &'static str); 16] {
+pub fn genesis_wallets() -> [(&'static str, &'static Key, &'static str); 17] {
     [
+        ("profile-deploy", &PROFILE_DEPLOY, FUNDED),
         ("deploy-a", &DEPLOY_A, FUNDED),
         ("deploy-b", &DEPLOY_B, FUNDED),
         ("deploy-c", &DEPLOY_C, FUNDED),

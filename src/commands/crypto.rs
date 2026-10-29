@@ -70,13 +70,17 @@ pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> CliResult {
 
 pub fn generate_vault_address_command(args: &GenerateVaultAddressArgs) -> CliResult {
     // Determine the public key to use
-    let public_key_hex = match (&args.public_key, args.key.load_optional()?) {
-        (Some(public_key_hex), _) => public_key_hex.clone(),
-        (None, Some(key)) => CryptoUtils::serialize_public_key(&key.public_key(), false),
-        (None, None) => return Err(
-            "pass --public-key, or a signing key with --private-key-file or FIREFLY_PRIVATE_KEY"
-                .into(),
-        ),
+    let public_key_hex = match &args.public_key {
+        Some(public_key_hex) => public_key_hex.clone(),
+        None => match args.key.load_optional()? {
+            Some(key) => CryptoUtils::serialize_public_key(&key.public_key(), false),
+            None => {
+                return Err(
+                    "pass --public-key, or a signing key with --private-key-file or FIREFLY_PRIVATE_KEY"
+                        .into(),
+                )
+            }
+        },
     };
 
     if !CryptoUtils::is_valid_public_key(&public_key_hex) {

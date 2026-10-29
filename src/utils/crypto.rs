@@ -61,8 +61,10 @@ impl CryptoUtils {
             .ok_or_else(|| Error::invalid("public key", "no vault address derives from it"))
     }
 
-    /// Write key pair to files. On Unix the private key file is readable by
-    /// its owner only, as `SigningKey::from_file` requires.
+    /// Write key pair to files. An existing private key file is never
+    /// overwritten, since it may be the only copy of a funded key. On Unix the
+    /// new file is readable by its owner only, as `SigningKey::from_file`
+    /// requires.
     pub fn write_key_pair_to_files(
         private_key: &SecretKey,
         public_key: &Secp256k1PublicKey,
@@ -76,20 +78,27 @@ impl CryptoUtils {
         };
 
         let mut options = fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
+        options.write(true).create_new(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
-            if private_key_file.exists() {
-                fs::set_permissions(private_key_file, fs::Permissions::from_mode(0o600))
-                    .map_err(io_error(private_key_file))?;
-            }
         }
+        let file = options.open(private_key_file).map_err(|cause| {
+            if cause.kind() == std::io::ErrorKind::AlreadyExists {
+                Error::invalid(
+                    "private key file",
+                    format!(
+                        "{} already exists; move it or choose another --output-dir",
+                        private_key_file.display()
+                    ),
+                )
+            } else {
+                io_error(private_key_file)(cause)
+            }
+        })?;
         std::io::Write::write_all(
-            &mut options
-                .open(private_key_file)
-                .map_err(io_error(private_key_file))?,
+            &mut &file,
             Self::serialize_private_key(private_key).as_bytes(),
         )
         .map_err(io_error(private_key_file))?;

@@ -155,8 +155,9 @@ pub fn ca_certificate() -> PathBuf {
     shard_dir().join("tls/ca.pem")
 }
 
-/// Where the harness writes everything the topology reads per run.
-fn shard_dir() -> PathBuf {
+/// Where the harness writes everything the topology reads per run, and each
+/// funded key under `keys/<role>.hex`.
+pub fn shard_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("target/integration-shard")
 }
 
