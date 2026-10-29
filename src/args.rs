@@ -702,7 +702,7 @@ pub struct GetBlocksByHeightArgs {
 #[derive(Parser)]
 pub struct WalletBalanceArgs {
     #[command(flatten)]
-    pub node: ReadOnlyGrpcArgs,
+    pub node: ReadOnlyHttpArgs,
 
     /// Wallet address to check balance for
     #[arg(short = 'a', long)]
@@ -846,9 +846,9 @@ pub struct LoadTestArgs {
     #[command(flatten)]
     pub node: NodeArgs,
 
-    /// gRPC endpoint of a read-only node, for balance queries
-    #[arg(long = "readonly-grpc", env = "FIREFLY_READONLY_GRPC_URL", value_parser = parse_endpoint)]
-    pub readonly_grpc: Endpoint,
+    /// HTTP endpoint of a read-only node, for balance queries
+    #[arg(long = "readonly-http", env = "FIREFLY_READONLY_HTTP_URL", value_parser = parse_endpoint)]
+    pub readonly_http: Endpoint,
 
     /// Check interval in seconds for deploy status (fast mode)
     #[arg(long = "check-interval", default_value_t = 1)]

@@ -23,12 +23,7 @@ ignore = [
   # Track upstream remediation; revisit when bumping the f1r3node-rust pin.
   "RUSTSEC-2021-0141", # dotenv (transitive via openai-api-rs)
   "RUSTSEC-2024-0436", # paste proc-macro (transitive via node crates)
-  "RUSTSEC-2025-0134", # rustls-pemfile (transitive via reqwest/tonic)
   "RUSTSEC-2025-0141", # bincode 1.x (transitive via node crates; bincode 2.0 is breaking)
-  # crypto-bigint 0.5 timing side channels: reached only through the node crates'
-  # k256/p256 0.13, and the fix (>= 0.7.6) needs elliptic-curve 0.14. This crate
-  # signs with libsecp256k1, so no secret it holds reaches crypto-bigint.
-  "RUSTSEC-2026-0387",
 ]
 
 # ---------------------------------------------------------------------------

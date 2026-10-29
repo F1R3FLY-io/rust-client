@@ -2,7 +2,9 @@
 
 Execute Rholang code without committing to the blockchain. Read-only.
 
-The code runs against the last finalized block's state (or a specified block). Nothing is persisted. Useful for querying contract state, checking balances, or testing code.
+The code runs against the last finalized block's state (or a specified block). Nothing is persisted. Useful for querying contract state or testing code.
+
+Each value the term sends to the first name it declares (`new return in { return!(...) }`) prints as Rholang source: `5n` is a BigInt, `5u64` a u64, `1/2r` a rational, `"s"` a string, `` `rho:id:x` `` a URI. Anything that is not a value, such as a process, prints as the reason in angle brackets.
 
 ## Usage
 
@@ -31,8 +33,7 @@ Execution successful!
 Cost:    317 phlogiston
 Time:    70.37ms
 Block hash: 0ffe5c93..., Block number: 48
-Result:
-No data returned
+Result: (none)
 ```
 
 The response now includes the phlogiston cost of execution. For cost-only output, use [estimate-cost](estimate-cost.md).

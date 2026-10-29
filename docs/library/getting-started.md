@@ -155,8 +155,16 @@ identical deploys sent at once get different IDs.
 ### Read-only query
 
 ```rust
-let result = manager.query(r#"new x in { x!(1 + 1) }"#).await?;
+let result = manager.query(r#"new x in { x!(1 + 1) }"#).await?;   // ExploratoryResult
+let two = result.value()?.as_i64();                               // Some(2)
 ```
+
+Results are values, not text. `value()` decodes the single datum a term
+returned, `values()` all of them, into a `RhoValue`: an enum with one variant
+per Rholang value kind, accessors such as `as_i64`, `as_str`, `as_amount`
+(uint256), `elements` and `get` (a map entry by string key), and a `Display`
+that prints Rholang source. A process or an unevaluated expression is an error,
+not a value.
 
 ### Estimate cost
 
@@ -195,8 +203,9 @@ let api = F1r3flyApi::new(Endpoint::parse("http://localhost:40401")?)?
 // Deploy only (no waiting)
 let deploy_id = api.deploy("new x in { x!(1) }", &DeployOptions::default()).await?;
 
-// Exploratory deploy (read-only)
-let (data, block_info) = api.exploratory_deploy("new x in { x!(1) }", None, false).await?;
+// Exploratory deploy (read-only): the returned Pars, the block read, the cost
+let result = api.exploratory_deploy("new x in { x!(1) }", None, false).await?;
+let values = result.values()?;
 
 // Read data at deploy ID
 let pars = api.get_data_at_deploy_id(&deploy_id, &block_hash).await?;
@@ -215,9 +224,21 @@ let http = NodeHttp::new(Endpoint::parse("http://localhost:40403")?)?;
 let detail = http.get_deploy_detail(&deploy_id).await?;        // Option<DeployDetail>
 let status = http.deploy_finalization_status(&deploy_id).await?;
 let cost = http.estimate_cost(term, Some(&deployer_pubkey_hex), None).await?;
-let result = http.explore_deploy(term).await?;                 // retries 503 capacity rejections
+let result = http.explore_deploy(term).await?;                 // ExploratoryValues; retries 503 capacity rejections
+let balance = http.balance("1111...", None).await?;            // Balance { address, dust, block }
 let status_json = http.get_json("/api/status").await?;
 ```
+
+Over HTTP the node encodes values itself and loses information:
+
+- map keys arrive as strings;
+- `Nil` is dropped as a result, as a collection element, and as either side of
+  a map entry, which drops the entry;
+- a PathMap arrives as a list, and a zipper as a tuple;
+- a `Par` holding data alongside processes arrives as its data alone, where
+  gRPC refuses it as not a value.
+
+Read values over gRPC when that matters.
 
 It also has `get_deploy`, `get_deploy_block_hash` and `get_text`.
 

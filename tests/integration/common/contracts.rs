@@ -7,6 +7,10 @@ pub const STDOUT_TERM: &str = include_str!("../contracts/stdout.rho");
 /// Writes nothing to `deployId`.
 pub const SILENT_TERM: &str = include_str!("../contracts/silent.rho");
 
+/// Returns one value of each kind that both of the node's encodings carry
+/// without loss.
+pub const VALUES_TERM: &str = include_str!("../contracts/values.rho");
+
 /// Path to a fixture, for commands taking `--file`.
 pub fn path(name: &str) -> &'static str {
     match name {

@@ -1,14 +1,13 @@
 //! Group E - the rest of the CLI, against the running shard.
-//!
-//! Each command's port flags differ: `-p` is the HTTP port for some and the
-//! gRPC port for others, which is why the helper differs per test.
 
 use libtest_mimic::Trial;
+use node_cli::{Endpoint, F1r3flyApi, NodeHttp};
 
 use crate::common::cli::Cli;
 use crate::common::contracts;
 use crate::common::keys;
 use crate::common::node::Node;
+use crate::common::rt;
 
 pub fn trials() -> Vec<Trial> {
     vec![
@@ -18,7 +17,11 @@ pub fn trials() -> Vec<Trial> {
                 .grpc_at(Node::ReadOnly)
                 .run()
                 .expect_success("BigInt exploratory-deploy")
-                .expect_contains("(18446744073709551617, -18446744073709551617)");
+                .expect_contains("(18446744073709551617n, -18446744073709551617n)");
+            Ok(())
+        }),
+        Trial::test("surface::grpc_and_http_return_the_same_values", || {
+            grpc_and_http_return_the_same_values();
             Ok(())
         }),
         Trial::test("surface::status_describes_the_shard", || {
@@ -120,4 +123,30 @@ pub fn trials() -> Vec<Trial> {
             Ok(())
         }),
     ]
+}
+
+/// The node encodes a query's result differently on each transport, and the
+/// client decodes each separately; both must give the value the term returned.
+fn grpc_and_http_return_the_same_values() {
+    let endpoint = |url: String| Endpoint::parse(&url).expect("a shard endpoint");
+    let grpc = F1r3flyApi::new(endpoint(Node::ReadOnly.grpc_endpoint())).expect("gRPC client");
+    let http = NodeHttp::new(endpoint(Node::ReadOnly.http_endpoint())).expect("HTTP client");
+
+    let over_grpc = rt()
+        .block_on(grpc.exploratory_deploy(contracts::VALUES_TERM, None, false))
+        .expect("exploratory deploy over gRPC")
+        .value()
+        .expect("one value over gRPC");
+    let over_http = rt()
+        .block_on(http.explore_deploy(contracts::VALUES_TERM))
+        .expect("exploratory deploy over HTTP")
+        .value()
+        .expect("one value over HTTP")
+        .clone();
+
+    assert_eq!(over_grpc, over_http);
+    assert_eq!(
+        over_grpc.to_string(),
+        r#"(-1, 2n, 3u64, -4i32, 5u8, 1.5f64, 7/1r, 12.50p2, "s", `rho:id:x`, [true, false], Set(1), {"k": 7u16})"#
+    );
 }

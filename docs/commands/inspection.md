@@ -134,11 +134,14 @@ Active Validators (3 total, 3000 total stake):
 Must run against a read-only node.
 
 ```bash
-node_cli wallet-balance --address <ADDRESS> --grpc URL
+node_cli wallet-balance --address <ADDRESS> --http URL
 ```
 
+Reads the balance, in dust, at the last finalized block. An address the vault
+cannot look up is an error.
+
 ```
-$ node_cli wallet-balance -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g --grpc http://localhost:40452
+$ node_cli wallet-balance -a 1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g --http http://localhost:40453
 
 Balance for 1111AtahZe...Bk5r3g: 49999999598463260
 Block hash: 79574d57..., Block number: 400

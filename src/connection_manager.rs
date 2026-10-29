@@ -5,7 +5,9 @@
 use crate::deploy::{DeployOptions, SignedDeploy, DEFAULT_SHARD_ID};
 use crate::endpoint::Endpoint;
 use crate::error::{Error, Result};
-use crate::f1r3fly_api::{DeployDetail, DeployFinalizationStatus, DeployResult, F1r3flyApi};
+use crate::f1r3fly_api::{
+    DeployDetail, DeployFinalizationStatus, DeployResult, ExploratoryResult, F1r3flyApi,
+};
 use crate::node_http::NodeHttp;
 use crate::signing_key::SigningKey;
 use crate::utils::CryptoUtils;
@@ -382,13 +384,10 @@ impl F1r3flyConnectionManager {
         self.http_of(source).get_deploy_detail(deploy_id).await
     }
 
-    /// Execute an exploratory deploy (read-only query)
-    pub async fn query(&self, rholang_code: &str) -> Result<String> {
-        let (result, _block_info, _cost) = self
-            .api
-            .exploratory_deploy(rholang_code, None, false)
-            .await?;
-        Ok(result)
+    /// Run `rholang_code` read-only against the last finalized block. Only a
+    /// read-only node serves it.
+    pub async fn query(&self, rholang_code: &str) -> Result<ExploratoryResult> {
+        self.api.exploratory_deploy(rholang_code, None, false).await
     }
 
     /// Estimate phlogiston cost of Rholang code via the HTTP

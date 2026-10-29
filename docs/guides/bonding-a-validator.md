@@ -35,9 +35,9 @@ Three rules hold throughout:
   exploratory deploys that `bonds`, `active-validators`, `validator-status`
   and `epoch-info` are built on.
 - **Queries are split across two transports.** `bonds`, `active-validators`,
-  `validator-status` and `network-consensus` read over HTTP, so they take the
-  observer's **HTTP** endpoint (`--http`); `epoch-info` and `wallet-balance`
-  use gRPC and take its **gRPC** endpoint (`--grpc`). Passing the wrong one
+  `validator-status`, `network-consensus` and `wallet-balance` read over HTTP,
+  so they take the observer's **HTTP** endpoint (`--http`); `epoch-info` uses
+  gRPC and takes its **gRPC** endpoint (`--grpc`). Passing the wrong one
   fails with a connection error naming `/api/explore-deploy`. See
   [the endpoint and transport table](../commands/advanced.md#endpoint-and-transport).
 
@@ -100,11 +100,11 @@ node_cli transfer \
   --observer http://localhost:40453
 ```
 
-Confirm it landed before bonding — `wallet-balance` takes the observer's gRPC
+Confirm it landed before bonding — `wallet-balance` takes the observer's HTTP
 endpoint:
 
 ```bash
-node_cli wallet-balance --address <joiner vault address> --grpc http://localhost:40452
+node_cli wallet-balance --address <joiner vault address> --http http://localhost:40453
 ```
 
 ## 4. Bond
@@ -185,7 +185,7 @@ Stake plus accumulated rewards is returned at the first epoch boundary at or
 after the quarantine end. Check the vault:
 
 ```bash
-node_cli wallet-balance --address <joiner vault address> --grpc http://localhost:40452
+node_cli wallet-balance --address <joiner vault address> --http http://localhost:40453
 ```
 
 The balance rises by more than the stake, because committed rewards are paid
@@ -222,8 +222,8 @@ the cap is already met, the bond will not activate until a slot frees.
 **A query fails with `Exploratory deploy can only be executed on read-only
 node`.** The query ran against a validator. Point it at the read-only node —
 `--http http://localhost:40453` for `bonds`, `active-validators`,
-`validator-status` and `network-consensus`, `--grpc http://localhost:40452`
-for `epoch-info` and `wallet-balance`.
+`validator-status`, `network-consensus` and `wallet-balance`,
+`--grpc http://localhost:40452` for `epoch-info`.
 
 **A query fails with `error sending request for url (…/api/explore-deploy)`.**
 The command reads over HTTP but was given a gRPC endpoint. Use

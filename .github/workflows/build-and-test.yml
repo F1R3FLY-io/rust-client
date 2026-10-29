@@ -38,7 +38,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
           components: rustfmt, clippy
 
       - name: Install protobuf compiler
@@ -124,7 +124,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -187,7 +187,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -245,7 +245,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -308,7 +308,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2

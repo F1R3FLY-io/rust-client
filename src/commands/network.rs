@@ -84,14 +84,23 @@ pub async fn exploratory_deploy_command(args: &ExploratoryDeployArgs) -> CliResu
         )
         .await
     {
-        Ok((result, block_info, cost)) => {
+        Ok(result) => {
             let duration = start_time.elapsed();
             println!("Execution successful!");
-            println!("Cost:    {cost} phlogiston");
+            println!("Cost:    {} phlogiston", result.cost);
             println!("Time:    {duration:.2?}");
-            println!("{block_info}");
-            println!("Result:");
-            println!("{result}");
+            println!(
+                "Block hash: {}, Block number: {}",
+                result.block.hash, result.block.number
+            );
+            if result.data.is_empty() {
+                println!("Result: (none)");
+            } else {
+                println!("Result:");
+                for par in &result.data {
+                    println!("{}", super::show(par));
+                }
+            }
         }
         Err(e) => {
             println!("Execution failed!");
@@ -395,9 +404,7 @@ pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
         Ok(data) if data.is_empty() => println!("Data: (none)"),
         Ok(data) => {
             for (i, par) in data.iter().enumerate() {
-                let simplified =
-                    crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
-                println!("Data[{i}]: {simplified}");
+                println!("Data[{i}]: {}", super::show(par));
             }
         }
         Err(err) => println!("Data: unreadable ({err})"),
@@ -543,9 +550,7 @@ pub async fn get_data_command(args: &GetDataArgs) -> CliResult {
         );
     } else {
         for (i, par) in pars.iter().enumerate() {
-            let simplified =
-                crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
-            println!("{simplified}");
+            println!("{}", super::show(par));
             if i < pars.len() - 1 {
                 println!("---");
             }

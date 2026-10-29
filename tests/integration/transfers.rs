@@ -20,7 +20,36 @@ pub fn trials() -> Vec<Trial> {
             the_block_report_describes_the_transfer();
             Ok(())
         }),
+        Trial::test("transfers::a_balance_is_the_exact_genesis_amount", || {
+            assert_eq!(
+                balance(&keys::IDLE_RECIPIENT.address),
+                keys::FUNDED.parse::<i128>().expect("a genesis amount")
+            );
+            Ok(())
+        }),
+        Trial::test(
+            "transfers::a_vault_the_node_cannot_look_up_is_an_error",
+            || {
+                a_vault_the_node_cannot_look_up_is_an_error();
+                Ok(())
+            },
+        ),
     ]
+}
+
+/// An address with a broken checksum passes the client's format check and
+/// fails the vault's lookup, which must surface as an error, never a number.
+fn a_vault_the_node_cannot_look_up_is_an_error() {
+    let address = &keys::IDLE_RECIPIENT.address;
+    let (body, last) = address.split_at(address.len() - 1);
+    let corrupted = format!("{body}{}", if last == "2" { "3" } else { "2" });
+
+    Cli::new("wallet-balance")
+        .args(["--address", &corrupted])
+        .http_at(Node::ReadOnly)
+        .run()
+        .expect_failure("wallet-balance of an address the vault rejects")
+        .expect_not_contains("Balance for");
 }
 
 const AMOUNT: u64 = 1_000_000;
@@ -101,7 +130,7 @@ fn transfer(from: &Key, to: &str, amount: u64) -> crate::common::cli::Output {
 fn balance(address: &str) -> i128 {
     let output = Cli::new("wallet-balance")
         .args(["--address", address])
-        .grpc_at(Node::ReadOnly)
+        .http_at(Node::ReadOnly)
         .run()
         .expect_success("wallet-balance");
 

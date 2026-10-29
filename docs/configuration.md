@@ -53,8 +53,8 @@ readonly_http = "http://localhost:40453"
 | `http` | `--http` | commands that query a node over HTTP |
 | `internal_grpc` | `propose --grpc` | `propose` |
 | `observer` | `--observer` | deploy-and-wait, transfer, bond-validator, unbond-validator |
-| `readonly_grpc` | `--grpc` of read-only commands, load-test `--readonly-grpc` | exploratory-deploy, wallet-balance, epoch-info, load-test |
-| `readonly_http` | `--http` of read-only commands | bonds, active-validators, validator-status, epoch-rewards, network-consensus, block-transfers |
+| `readonly_grpc` | `--grpc` of read-only commands | exploratory-deploy, epoch-info |
+| `readonly_http` | `--http` of read-only commands, load-test `--readonly-http` | wallet-balance, bonds, active-validators, validator-status, epoch-rewards, network-consensus, block-transfers, load-test |
 | `ca_cert` | `--ca-cert` | every command with an endpoint |
 | `connect_timeout`, `timeout` | `--connect-timeout`, `--timeout` | every command with an endpoint |
 | `shard_id` | `--shard-id` | deploying commands |
@@ -79,8 +79,8 @@ Profiles are a CLI feature. The library reads only the environment, through
 | `FIREFLY_HTTP_URL` | `--http` (deploy node) |
 | `FIREFLY_OBSERVER_URL` | `--observer` |
 | `FIREFLY_INTERNAL_GRPC_URL` | `propose --grpc` |
-| `FIREFLY_READONLY_GRPC_URL` | `--grpc` of read-only commands, load-test `--readonly-grpc` |
-| `FIREFLY_READONLY_HTTP_URL` | `--http` of read-only commands |
+| `FIREFLY_READONLY_GRPC_URL` | `--grpc` of read-only commands |
+| `FIREFLY_READONLY_HTTP_URL` | `--http` of read-only commands, load-test `--readonly-http` |
 | `FIREFLY_CA_CERT` | `--ca-cert` |
 | `FIREFLY_CONNECT_TIMEOUT` | `--connect-timeout` |
 | `FIREFLY_REQUEST_TIMEOUT` | `--timeout` |
