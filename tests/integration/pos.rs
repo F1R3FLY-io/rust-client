@@ -73,9 +73,10 @@ fn genesis_reports_three_bonded_validators() {
 /// Start the joiner, bond it, and watch it enter the active set at the next
 /// epoch boundary. A second bond of the same key must be refused.
 fn a_joiner_bonds_and_becomes_active() {
-    bond(&keys::VALIDATOR4)
+    let bonded = bond(&keys::VALIDATOR4)
         .expect_success("bond-validator")
         .expect_contains("Bond");
+    chain::finalized_on_read_only(&bonded);
 
     bonds().expect_success("bonds").expect_contains("4 total");
 
@@ -104,7 +105,8 @@ fn a_joiner_bonds_and_becomes_active() {
 /// Unbonding takes the joiner out of the bond set and puts its stake into
 /// quarantine; the chain must keep finalizing without it.
 fn unbonding_quarantines_the_stake() {
-    unbond(&keys::VALIDATOR4).expect_success("unbond-validator");
+    let unbonded = unbond(&keys::VALIDATOR4).expect_success("unbond-validator");
+    chain::finalized_on_read_only(&unbonded);
 
     validator_status(&keys::VALIDATOR4.public)
         .expect_success("validator-status after unbonding")
