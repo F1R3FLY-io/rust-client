@@ -1,11 +1,17 @@
-# Auto-release — bumps the patch version on merge to main
+# Auto-release on merge to main
 #
-# - main: bumps patch (0.2.1 -> 0.2.2)
+# The version is the one Cargo.toml declares when it is ahead of every
+# released version (a minor or major release is declared on dev), and the
+# next patch otherwise. scripts/version.sh has the rule; no version is ever
+# released twice.
 #
-# Determines the next version from the latest v* tag, bumps Cargo.toml,
-# generates CHANGELOG.md via git-cliff, commits, and pushes. The tag is
-# created via the GitHub API with a PAT so it triggers the existing CI
-# workflow for testing and package publishing.
+# Bumps Cargo.toml, generates CHANGELOG.md via git-cliff, commits, and pushes.
+# The tag is created via the GitHub API with a PAT so it triggers the existing
+# CI workflow for testing and package publishing.
+#
+# Release tags are immutable: a ruleset blocks deleting or moving v* tags. If
+# the tag's CI fails, its version stays without a release and the fix ships as
+# the next version.
 #
 # Commit push uses GITHUB_TOKEN (no workflow triggers).
 # Tag creation uses RELEASE_PAT (triggers on:push:tags workflows).
@@ -22,9 +28,13 @@ jobs:
   release:
     name: Bump Version & Tag
     runs-on: ubuntu-latest
+    # Only main releases: version.sh reads released versions from the branch's
+    # own history, so a dispatch on another branch could re-cut a version.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      !startsWith(github.event.head_commit.message, 'chore(release)')
+      github.ref == 'refs/heads/main' && (
+        github.event_name == 'workflow_dispatch' ||
+        !startsWith(github.event.head_commit.message, 'chore(release)')
+      )
     permissions:
       contents: write
     steps:
@@ -52,7 +62,11 @@ jobs:
         run: |
           source scripts/version.sh
           BRANCH="${GITHUB_REF#refs/heads/}"
-          bump_version patch
+          release_version
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG_NAME" >/dev/null; then
+            echo "::error::$TAG_NAME already exists; a released version is never re-cut"
+            exit 1
+          fi
           echo "NEXT_VERSION=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "BRANCH=$BRANCH" >> "$GITHUB_OUTPUT"

@@ -44,7 +44,9 @@ CI runs these on every PR. Failing CI blocks merge.
 
 ## Versioning & releases
 
-Versions bump automatically (patch) on merge to `main` via the Release workflow — `dev` does not release. Do not manually edit `Cargo.toml` version or `CHANGELOG.md` — those are managed by the release pipeline.
+A merge to `main` releases through the Release workflow — `dev` does not release. The workflow releases the next patch version unless `Cargo.toml` on the branch declares a higher version, which is how a minor or major release is chosen: a reviewed commit on `dev` setting `version`. Do not edit `CHANGELOG.md`; the release pipeline writes it.
+
+Release tags are immutable, and a ruleset blocks deleting or moving a `v*` tag. A version that was ever released is never released again, even when its tag build failed: that version stays without a release, and the fix ships as the next one.
 
 ## Code style
 
