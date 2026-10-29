@@ -116,47 +116,30 @@ fn compute_crc14(data: &[u8]) -> [u8; 2] {
 mod tests {
     use super::*;
 
+    fn public_key(byte: u8) -> secp256k1::PublicKey {
+        SecretKey::from_byte_array([byte; 32])
+            .unwrap()
+            .public_key(&Secp256k1::new())
+    }
+
     #[test]
     fn test_uri_is_deterministic() {
-        let secp = Secp256k1::new();
-        let private_key_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-        let secret_key_bytes = hex::decode(private_key_hex).unwrap();
-        let secret_key = SecretKey::from_byte_array(secret_key_bytes.try_into().unwrap()).unwrap();
-        let public_key = secret_key.public_key(&secp);
-
-        let uri1 = public_key_to_uri(&public_key);
-        let uri2 = public_key_to_uri(&public_key);
-        assert_eq!(uri1, uri2);
+        assert_eq!(
+            public_key_to_uri(&public_key(1)),
+            public_key_to_uri(&public_key(1))
+        );
     }
 
     #[test]
     fn test_uri_format() {
-        let secp = Secp256k1::new();
-        let private_key_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-        let secret_key_bytes = hex::decode(private_key_hex).unwrap();
-        let secret_key = SecretKey::from_byte_array(secret_key_bytes.try_into().unwrap()).unwrap();
-        let public_key = secret_key.public_key(&secp);
-
-        let uri = public_key_to_uri(&public_key);
-        assert!(uri.starts_with("rho:id:"));
+        assert!(public_key_to_uri(&public_key(1)).starts_with("rho:id:"));
     }
 
     #[test]
     fn test_different_keys_produce_different_uris() {
-        let secp = Secp256k1::new();
-
-        let key1_hex = "5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657";
-        let key1_bytes: [u8; 32] = hex::decode(key1_hex).unwrap().try_into().unwrap();
-        let secret_key1 = SecretKey::from_byte_array(key1_bytes).unwrap();
-        let public_key1 = secret_key1.public_key(&secp);
-
-        let key2_hex = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
-        let key2_bytes: [u8; 32] = hex::decode(key2_hex).unwrap().try_into().unwrap();
-        let secret_key2 = SecretKey::from_byte_array(key2_bytes).unwrap();
-        let public_key2 = secret_key2.public_key(&secp);
-
-        let uri1 = public_key_to_uri(&public_key1);
-        let uri2 = public_key_to_uri(&public_key2);
-        assert_ne!(uri1, uri2);
+        assert_ne!(
+            public_key_to_uri(&public_key(1)),
+            public_key_to_uri(&public_key(2))
+        );
     }
 }

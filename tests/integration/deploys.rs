@@ -106,8 +106,8 @@ fn a_deploy_writing_nothing_returns_no_data() {
 /// command must name the execution failure rather than time out silently.
 fn an_errored_deploy_reports_its_execution_failure() {
     let term = vault::build_transfer_rholang(
-        keys::OVERDRAFT.address,
-        keys::TRANSFER_RECIPIENT.address,
+        &keys::OVERDRAFT.address,
+        &keys::TRANSFER_RECIPIENT.address,
         &1u32.into(),
     )
     .unwrap();

@@ -350,10 +350,9 @@ jobs:
       - name: Tear the shard down
         if: always()
         shell: bash {0}
-        env:
-          IT_TLS_DIR: ${{ github.workspace }}/target/integration-tls
         run: |
           docker compose -p rust-client-it \
+            --env-file target/integration-shard/shard.env \
             -f tests/integration/topology/compose.yml \
             --profile joiner down -v --remove-orphans || true
 
