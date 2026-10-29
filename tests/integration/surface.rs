@@ -85,7 +85,7 @@ pub fn trials() -> Vec<Trial> {
                 // node, and an identity-dependent term needs the deployer.
                 let estimate = Cli::new("estimate-cost")
                     .args(["-f", contracts::path("stdout.rho")])
-                    .args(["--deployer", keys::ESTIMATE_COST.public])
+                    .args(["--deployer", &keys::ESTIMATE_COST.public])
                     .http_at(Node::ReadOnly)
                     .run()
                     .expect_success("estimate-cost");
@@ -97,7 +97,7 @@ pub fn trials() -> Vec<Trial> {
 
                 Cli::new("estimate-cost")
                     .args(["-f", contracts::path("broken.rho")])
-                    .args(["--deployer", keys::ESTIMATE_COST.public])
+                    .args(["--deployer", &keys::ESTIMATE_COST.public])
                     .http_at(Node::ReadOnly)
                     .run()
                     .expect_failure("estimate-cost on a term that does not parse")

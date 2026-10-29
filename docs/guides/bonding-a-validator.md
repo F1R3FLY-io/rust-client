@@ -10,6 +10,14 @@ The shard used below is the one this repository owns,
 profile and calls it validator4. The ports are the standard shard layout, so
 the commands apply unchanged to any shard you are adding a validator to.
 
+Its keys, genesis and node configs are generated per run into
+`target/integration-shard/` by the integration harness, so the compose commands
+below need a harness run first (see [Testing](../testing.md)). The key files
+passed to `--private-key-file` each hold a key's 64 hex characters and must not
+be readable by group or others (`chmod 600`). On that shard, `funded.hex` is any
+funded account, such as `target/integration-shard/keys/spare.hex`, and
+`joiner.hex` is `target/integration-shard/keys/validator4.hex`.
+
 | Node | gRPC | HTTP |
 |---|---|---|
 | validator1 | 40412 | 40413 |
@@ -49,7 +57,8 @@ between boundaries takes effect until the next one.
 ## 2. Start the joiner
 
 ```bash
-docker compose -f tests/integration/topology/compose.yml --profile joiner up -d
+docker compose --env-file target/integration-shard/shard.env \
+  -f tests/integration/topology/compose.yml --profile joiner up -d
 ```
 
 Wait until it answers and has caught up:
@@ -86,7 +95,7 @@ node_cli generate-vault-address --public-key <joiner public key>
 node_cli transfer \
   --to-address <joiner vault address> \
   --amount 100000000000 \
-  --private-key <funded key> \
+  --private-key-file funded.hex \
   --grpc http://localhost:40412 --http http://localhost:40413 \
   --observer http://localhost:40453
 ```
@@ -103,7 +112,7 @@ node_cli wallet-balance --address <joiner vault address> --grpc http://localhost
 ```bash
 node_cli bond-validator \
   --stake 100 \
-  --private-key <joiner private key> \
+  --private-key-file joiner.hex \
   --grpc http://localhost:40412 --http http://localhost:40413 \
   --observer http://localhost:40453 \
   --max-wait 180
@@ -148,7 +157,7 @@ node_cli blocks --http http://localhost:40413
 
 ```bash
 node_cli unbond-validator \
-  --private-key <joiner private key> \
+  --private-key-file joiner.hex \
   --grpc http://localhost:40412 --http http://localhost:40413 \
   --observer http://localhost:40453 \
   --max-wait 180

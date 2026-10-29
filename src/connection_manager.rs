@@ -7,6 +7,7 @@ use crate::endpoint::Endpoint;
 use crate::error::{Error, Result};
 use crate::f1r3fly_api::{DeployDetail, DeployFinalizationStatus, DeployResult, F1r3flyApi};
 use crate::node_http::NodeHttp;
+use crate::signing_key::SigningKey;
 use crate::utils::CryptoUtils;
 use crate::vault::{build_transfer_rholang, TransferResult};
 use log;
@@ -88,7 +89,7 @@ pub struct ConnectionConfig {
     /// A second node's HTTP API, polled alongside the deploy node for a
     /// deploy's verdict. Without one, only the deploy node is polled.
     pub observer: Option<Endpoint>,
-    pub signing_key: String,
+    pub signing_key: SigningKey,
     /// Maximum seconds to wait for a deploy to finalize (default: 90)
     pub finalization_timeout_secs: u32,
     /// Seconds between finalization status polls (default: 2)
@@ -102,7 +103,8 @@ impl ConnectionConfig {
     ///
     /// # Environment Variables
     ///
-    /// - `FIREFLY_PRIVATE_KEY`: Private key for signing (REQUIRED)
+    /// - `FIREFLY_PRIVATE_KEY_FILE` or `FIREFLY_PRIVATE_KEY`: File holding the
+    ///   signing key's hex, or the hex itself (REQUIRED; exactly one)
     /// - `FIREFLY_GRPC_URL`: Deploy node's gRPC endpoint (default: [`DEFAULT_GRPC_URL`])
     /// - `FIREFLY_HTTP_URL`: Deploy node's HTTP endpoint (default: [`DEFAULT_HTTP_URL`])
     /// - `FIREFLY_OBSERVER_URL`: Observer's HTTP endpoint (default: none)
@@ -116,9 +118,26 @@ impl ConnectionConfig {
     /// - `FIREFLY_SHARD_ID`: Shard deploys are signed for (default: "root")
     pub fn from_env() -> Result<Self> {
         refuse_removed_variables(|var| env::var_os(var).is_some())?;
-        let signing_key = env_opt("FIREFLY_PRIVATE_KEY")?.ok_or(Error::MissingConfig {
-            var: "FIREFLY_PRIVATE_KEY",
-        })?;
+        let signing_key = match (
+            env_opt("FIREFLY_PRIVATE_KEY_FILE")?,
+            env_opt("FIREFLY_PRIVATE_KEY")?,
+        ) {
+            (Some(path), None) => SigningKey::from_file(path.as_ref())?,
+            (None, Some(hex)) => {
+                SigningKey::from_hex(&hex).map_err(|e| Error::invalid("FIREFLY_PRIVATE_KEY", e))?
+            }
+            (Some(_), Some(_)) => {
+                return Err(Error::invalid(
+                    "FIREFLY_PRIVATE_KEY_FILE",
+                    "both it and FIREFLY_PRIVATE_KEY are set; set one",
+                ))
+            }
+            (None, None) => {
+                return Err(Error::MissingConfig {
+                    var: "FIREFLY_PRIVATE_KEY_FILE or FIREFLY_PRIVATE_KEY",
+                })
+            }
+        };
         let ca_pem = env_opt("FIREFLY_CA_CERT")?
             .map(|path| {
                 std::fs::read(&path).map_err(|cause| Error::Io {
@@ -166,7 +185,7 @@ impl ConnectionConfig {
     }
 
     /// A configuration for the deploy node at `grpc` and `http`, with no observer.
-    pub fn new(grpc: Endpoint, http: Endpoint, signing_key: String) -> Self {
+    pub fn new(grpc: Endpoint, http: Endpoint, signing_key: SigningKey) -> Self {
         Self {
             grpc,
             http,
@@ -326,7 +345,7 @@ impl F1r3flyConnectionManager {
     /// Create a new connection manager with explicit configuration
     pub fn new(config: ConnectionConfig) -> Result<Self> {
         let api = F1r3flyApi::new(config.grpc.clone())?
-            .with_signing_key(&config.signing_key)?
+            .with_signing_key(&config.signing_key)
             .with_shard_id(&config.shard_id);
         let node = NodeHttp::new(config.http.clone())?;
         let observer = config.observer.clone().map(NodeHttp::new).transpose()?;
@@ -682,21 +701,17 @@ impl F1r3flyConnectionManager {
 
     /// Get the vault address for this connection's signing key
     pub fn get_address(&self) -> Result<String> {
-        let public_key = self.get_public_key()?;
-        let pubkey_hex = hex::encode(public_key.serialize_uncompressed());
-        CryptoUtils::generate_vault_address(&pubkey_hex)
+        CryptoUtils::generate_vault_address(&self.get_public_key_hex())
     }
 
     /// Get the public key for this connection's signing key
-    pub fn get_public_key(&self) -> Result<PublicKey> {
-        let secret_key = CryptoUtils::decode_private_key(&self.config.signing_key)?;
-        Ok(CryptoUtils::derive_public_key(&secret_key))
+    pub fn get_public_key(&self) -> PublicKey {
+        self.config.signing_key.public_key()
     }
 
     /// Get the public key as hex string (uncompressed format)
-    pub fn get_public_key_hex(&self) -> Result<String> {
-        let public_key = self.get_public_key()?;
-        Ok(hex::encode(public_key.serialize_uncompressed()))
+    pub fn get_public_key_hex(&self) -> String {
+        hex::encode(self.get_public_key().serialize_uncompressed())
     }
 }
 
@@ -708,10 +723,11 @@ mod tests {
     #[test]
     fn test_config_from_env_missing_key() {
         env::remove_var("FIREFLY_PRIVATE_KEY");
+        env::remove_var("FIREFLY_PRIVATE_KEY_FILE");
         assert!(matches!(
             ConnectionConfig::from_env(),
             Err(Error::MissingConfig {
-                var: "FIREFLY_PRIVATE_KEY"
+                var: "FIREFLY_PRIVATE_KEY_FILE or FIREFLY_PRIVATE_KEY"
             })
         ));
     }
@@ -745,12 +761,16 @@ mod tests {
         Endpoint::parse(url).unwrap()
     }
 
+    fn key() -> SigningKey {
+        SigningKey::from_hex(&"01".repeat(32)).unwrap()
+    }
+
     #[test]
     fn public_futures_are_send() {
         let manager = F1r3flyConnectionManager::new(ConnectionConfig::new(
             endpoint(DEFAULT_GRPC_URL),
             endpoint(DEFAULT_HTTP_URL),
-            "01".repeat(32),
+            key(),
         ))
         .unwrap();
         assert_send(&manager.transfer("1111", 1u8.into()));
@@ -769,21 +789,12 @@ mod tests {
         let config = ConnectionConfig::new(
             endpoint("https://node.example:40401"),
             endpoint("https://node.example:40403"),
-            "my_key".to_string(),
+            key(),
         );
         assert_eq!(config.observer, None);
         let observed = config.with_observer(endpoint("http://observer:40453"));
         assert_eq!(observed.observer, Some(endpoint("http://observer:40453")));
-    }
-
-    #[test]
-    fn a_manager_refuses_a_malformed_signing_key() {
-        let config = ConnectionConfig::new(
-            endpoint(DEFAULT_GRPC_URL),
-            endpoint(DEFAULT_HTTP_URL),
-            "not hex".to_string(),
-        );
-        assert!(F1r3flyConnectionManager::new(config).is_err());
+        assert!(!format!("{observed:?}").contains(&"01".repeat(32)));
     }
 
     fn status(state: &str, block: Option<&str>) -> StatusAnswer {

@@ -43,8 +43,8 @@ fn genesis_reports_three_bonded_validators() {
     // The client abbreviates keys as <first 8>...<last 8>.
     let validator1 = format!(
         "{}...{}",
-        &keys::VALIDATOR1_PUBLIC[..8],
-        &keys::VALIDATOR1_PUBLIC[keys::VALIDATOR1_PUBLIC.len() - 8..]
+        &keys::VALIDATOR1.public[..8],
+        &keys::VALIDATOR1.public[keys::VALIDATOR1.public.len() - 8..]
     );
 
     bonds()
@@ -59,7 +59,7 @@ fn genesis_reports_three_bonded_validators() {
         .expect_contains("3 total")
         .expect_contains(&validator1);
 
-    validator_status(keys::VALIDATOR1_PUBLIC)
+    validator_status(&keys::VALIDATOR1.public)
         .expect_success("validator-status for a genesis validator")
         .expect_contains("BONDED");
 
@@ -83,7 +83,7 @@ fn a_joiner_bonds_and_becomes_active() {
 
     chain::next_epoch_boundary(Node::ReadOnly, EPOCH_LENGTH, Duration::from_secs(180));
 
-    validator_status(keys::VALIDATOR4.public)
+    validator_status(&keys::VALIDATOR4.public)
         .expect_success("validator-status for the joiner")
         .expect_contains("ACTIVE");
 }
@@ -93,7 +93,7 @@ fn a_joiner_bonds_and_becomes_active() {
 fn unbonding_quarantines_the_stake() {
     unbond(&keys::VALIDATOR4).expect_success("unbond-validator");
 
-    validator_status(keys::VALIDATOR4.public)
+    validator_status(&keys::VALIDATOR4.public)
         .expect_success("validator-status after unbonding")
         .expect_contains("WITHDRAW");
 

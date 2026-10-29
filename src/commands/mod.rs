@@ -3,6 +3,7 @@
 pub type CliError = Box<dyn std::error::Error + Send + Sync>;
 pub type CliResult<T = ()> = std::result::Result<T, CliError>;
 
+pub mod config;
 pub mod crypto;
 pub mod dag;
 pub mod events;
@@ -11,6 +12,7 @@ pub mod network;
 pub mod query;
 
 // Re-export all command functions for convenience
+pub use config::*;
 pub use crypto::*;
 pub use dag::*;
 pub use events::*;

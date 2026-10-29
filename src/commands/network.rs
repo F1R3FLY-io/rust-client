@@ -3,19 +3,20 @@ use crate::commands::CliResult;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use crate::f1r3fly_api::{DeployResult, ProposeResult};
 use crate::pos::{build_bond_rholang, parse_pos_call_result, WITHDRAW_RHOLANG};
+use crate::signing_key::SigningKey;
 use std::fs;
 use std::time::Instant;
 
 fn build_config(
     wait: &DeployWaitArgs,
-    private_key: &str,
+    key: SigningKey,
     check_interval: u64,
 ) -> CliResult<ConnectionConfig> {
     let transport = &wait.node.transport;
     let mut config = ConnectionConfig::new(
         transport.apply(&wait.node.grpc)?,
         transport.apply(&wait.node.http)?,
-        private_key.to_string(),
+        key,
     );
     if let Some(observer) = &wait.observer {
         config = config.with_observer(transport.apply(observer)?);
@@ -28,12 +29,12 @@ fn build_config(
 
 fn connect(
     wait: &DeployWaitArgs,
-    private_key: &str,
+    key: &KeyArgs,
     check_interval: u64,
 ) -> CliResult<F1r3flyConnectionManager> {
     Ok(F1r3flyConnectionManager::new(build_config(
         wait,
-        private_key,
+        key.load()?,
         check_interval,
     )?)?)
 }
@@ -106,13 +107,20 @@ pub async fn estimate_cost_command(args: &EstimateCostArgs) -> CliResult {
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
-    let deployer_hex = resolve_deployer(&args.deployer, &args.private_key)?;
+    let deployer_hex = match &args.deployer {
+        Some(deployer) => Some(deployer.clone()),
+        None => args
+            .key
+            .load_optional()?
+            .map(|key| hex::encode(key.public_key().serialize_uncompressed())),
+    };
 
     if deployer_hex.is_none() {
         eprintln!(
             " Warning: no deployer identity supplied. The estimate may be significantly \
              lower than the real cost for identity-dependent terms (e.g. vault transfers). \
-             Pass --deployer <PUBKEY> or --private-key <PRIVKEY> to fix this."
+             Pass --deployer <PUBKEY>, or a signing key with --private-key-file or \
+             FIREFLY_PRIVATE_KEY, to fix this."
         );
     }
 
@@ -131,25 +139,6 @@ pub async fn estimate_cost_command(args: &EstimateCostArgs) -> CliResult {
     Ok(())
 }
 
-/// Resolve the deployer public key hex from CLI arguments.
-///
-/// Priority: `--deployer` directly, or derive from `--private-key`, or `None`.
-fn resolve_deployer(
-    deployer: &Option<String>,
-    private_key: &Option<String>,
-) -> CliResult<Option<String>> {
-    if let Some(pk) = deployer {
-        return Ok(Some(pk.clone()));
-    }
-    if let Some(sk_hex) = private_key {
-        let secret_key = crate::utils::CryptoUtils::decode_private_key(sk_hex)?;
-        let public_key = crate::utils::CryptoUtils::derive_public_key(&secret_key);
-        let pub_hex = crate::utils::CryptoUtils::serialize_public_key(&public_key, false);
-        return Ok(Some(pub_hex));
-    }
-    Ok(None)
-}
-
 pub async fn deploy_command(args: &DeployArgs) -> CliResult {
     // Read the Rholang code from file
     println!("Reading Rholang from: {}", args.file.display());
@@ -160,7 +149,7 @@ pub async fn deploy_command(args: &DeployArgs) -> CliResult {
     let f1r3fly_api = args
         .node
         .api()?
-        .with_signing_key(&args.private_key)?
+        .with_signing_key(&args.key.load()?)
         .with_shard_id(&args.deploy.shard_id);
     println!("Connecting to F1r3fly node at {}", f1r3fly_api.endpoint());
     let options = args.deploy.options(args.phlo_limit);
@@ -261,7 +250,7 @@ pub async fn is_finalized_command(args: &IsFinalizedArgs) -> CliResult {
 pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
     println!("Bonding validator with stake: {}", args.stake);
 
-    let manager = connect(&args.wait, &args.private_key, args.check_interval)?;
+    let manager = connect(&args.wait, &args.key, args.check_interval)?;
     let start = Instant::now();
 
     let result = manager
@@ -286,15 +275,9 @@ pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
 }
 
 pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
-    use crate::utils::CryptoUtils;
-
-    let public_key = {
-        let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
-        CryptoUtils::serialize_public_key(&CryptoUtils::derive_public_key(&secret_key), false)
-    };
+    let manager = connect(&args.wait, &args.key, args.check_interval)?;
+    let public_key = manager.get_public_key_hex();
     println!("Requesting withdrawal for validator: {public_key}");
-
-    let manager = connect(&args.wait, &args.private_key, args.check_interval)?;
     let start = Instant::now();
 
     let result = manager
@@ -332,20 +315,11 @@ fn ensure_pos_call_succeeded(action: &str, result: &DeployResult) -> CliResult {
 }
 
 pub async fn transfer_command(args: &TransferArgs) -> CliResult {
-    use crate::utils::CryptoUtils;
-
-    // Derive sender address
-    let from_address = {
-        let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
-        let public_key = CryptoUtils::derive_public_key(&secret_key);
-        let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-        CryptoUtils::generate_vault_address(&public_key_hex)?
-    };
+    let manager = connect(&args.wait, &args.key, args.check_interval)?;
+    let from_address = manager.get_address()?;
 
     validate_vault_address(&from_address)?;
     validate_vault_address(&args.to_address)?;
-
-    let manager = connect(&args.wait, &args.private_key, args.check_interval)?;
 
     let amount_dust = if args.whole_tokens {
         // Whole-token mode: ask the node how many decimals the native token has.
@@ -395,7 +369,7 @@ pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
-    let manager = connect(&args.wait, &args.private_key, args.check_interval)?;
+    let manager = connect(&args.wait, &args.key, args.check_interval)?;
 
     println!("Deploying and waiting for finalization...");
     let start = Instant::now();
@@ -675,6 +649,10 @@ mod tests {
         crate::Endpoint::parse(url).unwrap()
     }
 
+    fn key() -> SigningKey {
+        SigningKey::from_hex(&"01".repeat(32)).unwrap()
+    }
+
     #[test]
     fn endpoint_flags_reach_the_connection_config() {
         use clap::Parser;
@@ -683,8 +661,6 @@ mod tests {
             "deploy-and-wait",
             "-f",
             "contract.rho",
-            "-k",
-            "00",
             "--grpc",
             "https://node.example:443",
             "--http",
@@ -693,7 +669,7 @@ mod tests {
             "http://observer.example:40403",
         ])
         .unwrap();
-        let config = build_config(&args.wait, &args.private_key, args.check_interval).unwrap();
+        let config = build_config(&args.wait, key(), args.check_interval).unwrap();
         assert_eq!(config.grpc, endpoint("https://node.example:443"));
         assert_eq!(config.http, endpoint("https://node.example:8443"));
         assert_eq!(
@@ -706,10 +682,8 @@ mod tests {
     fn without_observer_flag_no_observer_is_polled() {
         use clap::Parser;
 
-        let args =
-            DeployAndWaitArgs::try_parse_from(["deploy-and-wait", "-f", "c.rho", "-k", "00"])
-                .unwrap();
-        let config = build_config(&args.wait, &args.private_key, args.check_interval).unwrap();
+        let args = DeployAndWaitArgs::try_parse_from(["deploy-and-wait", "-f", "c.rho"]).unwrap();
+        let config = build_config(&args.wait, key(), args.check_interval).unwrap();
         assert_eq!(config.grpc, endpoint("http://localhost:40401"));
         assert_eq!(config.http, endpoint("http://localhost:40403"));
         assert_eq!(config.observer, None);
@@ -720,34 +694,18 @@ mod tests {
         use clap::Parser;
 
         for args in [
-            &["deploy-and-wait", "-f", "c.rho", "-k", "00", "-p", "40401"][..],
+            &["deploy-and-wait", "-f", "c.rho", "-p", "40401"][..],
+            &["deploy-and-wait", "-f", "c.rho", "--http-port", "40403"],
+            &["deploy-and-wait", "-f", "c.rho", "--observer-port", "1"],
             &[
                 "deploy-and-wait",
                 "-f",
                 "c.rho",
-                "-k",
-                "00",
-                "--http-port",
-                "40403",
-            ],
-            &[
-                "deploy-and-wait",
-                "-f",
-                "c.rho",
-                "-k",
-                "00",
-                "--observer-port",
-                "1",
-            ],
-            &[
-                "deploy-and-wait",
-                "-f",
-                "c.rho",
-                "-k",
-                "00",
                 "--grpc",
                 "localhost:40401",
             ],
+            &["deploy-and-wait", "-f", "c.rho", "--private-key", "00"],
+            &["deploy-and-wait", "-f", "c.rho", "-k", "00"],
         ] {
             assert!(
                 DeployAndWaitArgs::try_parse_from(args).is_err(),

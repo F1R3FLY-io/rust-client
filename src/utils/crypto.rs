@@ -61,7 +61,10 @@ impl CryptoUtils {
             .ok_or_else(|| Error::invalid("public key", "no vault address derives from it"))
     }
 
-    /// Write key pair to files
+    /// Write key pair to files. An existing private key file is never
+    /// overwritten, since it may be the only copy of a funded key. On Unix the
+    /// new file is readable by its owner only, as `SigningKey::from_file`
+    /// requires.
     pub fn write_key_pair_to_files(
         private_key: &SecretKey,
         public_key: &Secp256k1PublicKey,
@@ -69,17 +72,42 @@ impl CryptoUtils {
         public_key_file: &Path,
         compressed: bool,
     ) -> Result<()> {
-        let private_key_hex = Self::serialize_private_key(private_key);
-        let public_key_hex = Self::serialize_public_key(public_key, compressed);
-
-        let write = |path: &Path, contents: String| {
-            fs::write(path, contents).map_err(|cause| Error::Io {
-                path: path.to_path_buf(),
-                cause,
-            })
+        let io_error = |path: &Path| {
+            let path = path.to_path_buf();
+            move |cause| Error::Io { path, cause }
         };
-        write(private_key_file, private_key_hex)?;
-        write(public_key_file, public_key_hex)
+
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let file = options.open(private_key_file).map_err(|cause| {
+            if cause.kind() == std::io::ErrorKind::AlreadyExists {
+                Error::invalid(
+                    "private key file",
+                    format!(
+                        "{} already exists; move it or choose another --output-dir",
+                        private_key_file.display()
+                    ),
+                )
+            } else {
+                io_error(private_key_file)(cause)
+            }
+        })?;
+        std::io::Write::write_all(
+            &mut &file,
+            Self::serialize_private_key(private_key).as_bytes(),
+        )
+        .map_err(io_error(private_key_file))?;
+
+        fs::write(
+            public_key_file,
+            Self::serialize_public_key(public_key, compressed),
+        )
+        .map_err(io_error(public_key_file))
     }
 
     /// Create secp256k1 context

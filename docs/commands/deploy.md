@@ -15,7 +15,7 @@ node_cli deploy -f <FILE> [OPTIONS]
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--file` | `-f` | required | Rholang file to deploy |
-| `--private-key` | `-k` | dev key | Signing key (64 hex chars) |
+| `--private-key-file` | | none | File holding the signing key's hex; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--grpc` | | `http://localhost:40401` | Node gRPC endpoint, `http://` or `https://`, with no path |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |

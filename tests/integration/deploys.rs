@@ -106,8 +106,8 @@ fn a_deploy_writing_nothing_returns_no_data() {
 /// command must name the execution failure rather than time out silently.
 fn an_errored_deploy_reports_its_execution_failure() {
     let term = vault::build_transfer_rholang(
-        keys::OVERDRAFT.address,
-        keys::TRANSFER_RECIPIENT.address,
+        &keys::OVERDRAFT.address,
+        &keys::TRANSFER_RECIPIENT.address,
         &1u32.into(),
     )
     .unwrap();
@@ -173,7 +173,7 @@ fn deploy_status_reports_a_finalized_deploy() {
 /// deploy again, as a caller recovering from a timeout would, is not a second
 /// deploy: the node answers with the same ID and the deploy finalizes once.
 fn a_signed_deploy_sent_twice_is_one_deploy() {
-    let key = node_cli::utils::CryptoUtils::decode_private_key(keys::RESUBMIT.private).unwrap();
+    let key = *keys::RESUBMIT.signing_key().secret_key();
     let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint())).unwrap();
     let signed = rt()
         .block_on(api.prepare(contracts::STDOUT_TERM, &DeployOptions::default()))
@@ -200,8 +200,7 @@ fn a_signed_deploy_sent_twice_is_one_deploy() {
 /// even when it already landed. Resending it must still resolve to the landed
 /// deploy rather than report it refused.
 fn a_landed_deploy_resent_after_it_expired_is_the_same_deploy() {
-    let key =
-        node_cli::utils::CryptoUtils::decode_private_key(keys::RESEND_EXPIRED.private).unwrap();
+    let key = *keys::RESEND_EXPIRED.signing_key().secret_key();
     let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint())).unwrap();
     let expiration = unix_millis() + 45_000;
     let options = DeployOptions {
@@ -251,8 +250,7 @@ fn unix_millis() -> i64 {
 fn a_deploy_for_another_shard_is_refused() {
     let api = F1r3flyApi::new(endpoint(Node::Validator1.grpc_endpoint()))
         .unwrap()
-        .with_signing_key(keys::SPARE.private)
-        .unwrap()
+        .with_signing_key(&keys::SPARE.signing_key())
         .with_shard_id("not-this-shard");
     let error = rt()
         .block_on(api.deploy(contracts::STDOUT_TERM, &DeployOptions::default()))
@@ -270,7 +268,7 @@ fn manager(key: &Key, finalization_timeout_secs: u32) -> F1r3flyConnectionManage
     let mut config = ConnectionConfig::new(
         endpoint(Node::Validator1.grpc_endpoint()),
         endpoint(Node::Validator1.http_endpoint()),
-        key.private.to_string(),
+        key.signing_key(),
     )
     .with_observer(endpoint(Node::ReadOnly.http_endpoint()));
     config.finalization_timeout_secs = finalization_timeout_secs;

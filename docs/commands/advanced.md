@@ -11,7 +11,7 @@ node_cli load-test --to-address <ADDR> --readonly-grpc <URL> --num-tests <N> --a
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--to-address` | required | Recipient address |
-| `--private-key` | required (`FIREFLY_PRIVATE_KEY`) | Key for signing |
+| `--private-key-file` | none | File holding the signing key's hex; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--num-tests` | `20` | Number of transfers to send |
 | `--amount` | `1` | Amount per transfer in base units (dust). Use `--whole-tokens`/`-d` for whole tokens. |
 | `--whole-tokens`, `-d` | `false` | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status |
@@ -25,7 +25,7 @@ node_cli load-test --to-address <ADDR> --readonly-grpc <URL> --num-tests <N> --a
 | `--finalization-timeout` | `120` | Max seconds for finalization |
 | `--check-interval` | `1` | Seconds between polls |
 | `--chain-depth` | `200` | Depth to check for orphaned blocks |
-| `--readonly-grpc` | required | gRPC endpoint of a read-only node, with no path, for balance queries |
+| `--readonly-grpc` | required (`FIREFLY_READONLY_GRPC_URL`, or a profile's `readonly_grpc`) | gRPC endpoint of a read-only node, with no path, for balance queries |
 
 ```
 $ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000 \
@@ -159,13 +159,13 @@ Interactive -- requires a terminal with TUI support.
 Bond a new validator to the network. Deploys a bonding contract via the PoS system.
 
 ```bash
-node_cli bond-validator --stake <AMOUNT> --private-key <KEY> [OPTIONS]
+node_cli bond-validator --stake <AMOUNT> --private-key-file <PATH> [OPTIONS]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--stake` | required | Stake amount |
-| `--private-key` | required | Validator's signing key |
+| `--private-key-file` | none | File holding the signing key's hex of the validator being bonded; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
 | `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
 | `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
@@ -193,7 +193,7 @@ is included in a block and fails there with
 [Bonding a validator](../guides/bonding-a-validator.md) for the full sequence.
 
 ```
-$ node_cli bond-validator --stake 1000 --private-key <KEY>
+$ node_cli bond-validator --stake 1000 --private-key-file validator.hex
 
 Bonding validator with stake: 1000
 Deploy ID:    3045022100...
@@ -205,7 +205,7 @@ Bonding complete. Verify with: node_cli bonds --http <read-only node>
 The command exits non-zero when the PoS contract rejects the bond:
 
 ```
-$ node_cli bond-validator --stake 1000 --private-key <ALREADY_BONDED_KEY>
+$ node_cli bond-validator --stake 1000 --private-key-file already-bonded.hex
 
 Bonding validator with stake: 1000
 Deploy ID: 3045022100e415...
@@ -225,12 +225,12 @@ A bond joins the active set at an epoch boundary only while the shard's `number-
 Withdraw a validator's bond. Deploys the PoS `withdraw` call signed by the validator's key; no node needs to run for that key.
 
 ```bash
-node_cli unbond-validator --private-key <KEY> [OPTIONS]
+node_cli unbond-validator --private-key-file <PATH> [OPTIONS]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--private-key` | required | Signing key of the validator to unbond |
+| `--private-key-file` | none | File holding the signing key's hex of the validator to unbond; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
 | `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
 | `--ca-cert` | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
@@ -254,7 +254,7 @@ The withdrawal takes effect in stages, each at an epoch boundary:
 The quarantine end is `quarantine-length + epoch-length * (1 + B / epoch-length)`, where `B` is the block that holds the deploy. `validator-status` shows the request with its quarantine end, and then the pending payout.
 
 ```
-$ node_cli unbond-validator --private-key <KEY>
+$ node_cli unbond-validator --private-key-file validator.hex
 
 Requesting withdrawal for validator: 0429af984ed4da1a...455f1727
 Deploy ID: 3044022065871c6d...
@@ -308,19 +308,21 @@ not all use the same one. Passing the gRPC endpoint to an HTTP command fails wit
 `error sending request for url (…/api/explore-deploy)`, which does not name the
 real problem. An HTTP endpoint may carry a base path; a gRPC endpoint takes
 none. These commands have no default endpoint, since a node's default ports are
-a validator's, which refuses them; the flag is required. On the
+a validator's, which refuses them. The endpoint is required: the flag, its
+environment variable, or a profile's `readonly_grpc`/`readonly_http`
+([Configuration](../configuration.md)). On the
 system-integration single-host Docker shard the read-only node is HTTP
 `http://localhost:40453` and gRPC `http://localhost:40452`.
 
-| Command | Transport | Flag | Default |
+| Command | Transport | Flag | Environment variable |
 |---|---|---|---|
-| `bonds` | HTTP | `--http` | required |
-| `active-validators` | HTTP | `--http` | required |
-| `validator-status` | HTTP | `--http` | required |
-| `network-consensus` | HTTP | `--http` | required |
-| `epoch-rewards` | HTTP | `--http` | required |
-| `epoch-info` | gRPC | `--grpc` | required |
-| `wallet-balance` | gRPC | `--grpc` | required |
+| `bonds` | HTTP | `--http` | `FIREFLY_READONLY_HTTP_URL` |
+| `active-validators` | HTTP | `--http` | `FIREFLY_READONLY_HTTP_URL` |
+| `validator-status` | HTTP | `--http` | `FIREFLY_READONLY_HTTP_URL` |
+| `network-consensus` | HTTP | `--http` | `FIREFLY_READONLY_HTTP_URL` |
+| `epoch-rewards` | HTTP | `--http` | `FIREFLY_READONLY_HTTP_URL` |
+| `epoch-info` | gRPC | `--grpc` | `FIREFLY_READONLY_GRPC_URL` |
+| `wallet-balance` | gRPC | `--grpc` | `FIREFLY_READONLY_GRPC_URL` |
 
 Each also takes `--ca-cert` for `https://` endpoints, and `--connect-timeout`
 (default 10) and `--timeout` (default 30) in seconds.

@@ -1,6 +1,7 @@
 use crate::args::*;
 use crate::commands::*;
 use crate::error::Error;
+use crate::settings::Parsed;
 use crate::utils::print_error;
 
 /// Central command dispatcher that routes and executes all CLI commands
@@ -8,8 +9,8 @@ pub struct Dispatcher;
 
 impl Dispatcher {
     /// Run the command, printing its error, if any, with a suggestion.
-    pub async fn dispatch(cli: &Cli) -> CliResult {
-        let result = match &cli.command {
+    pub async fn dispatch(parsed: &Parsed) -> CliResult {
+        let result = match &parsed.cli.command {
             Commands::Deploy(args) => deploy_command(args).await,
             Commands::Propose(args) => propose_command(args).await,
             Commands::DeployAndWait(args) => deploy_and_wait_command(args).await,
@@ -45,6 +46,9 @@ impl Dispatcher {
             Commands::Dag(args) => run_dag(args).await,
             Commands::BlockTransfers(args) => block_transfers_command(args).await,
             Commands::DeployStatus(args) => deploy_status_command(args).await,
+            Commands::Config(ConfigArgs {
+                action: ConfigAction::Show(args),
+            }) => config_show_command(args, parsed.profile.as_ref(), &parsed.sources),
         };
 
         if let Err(error) = &result {

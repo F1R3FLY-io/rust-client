@@ -30,7 +30,7 @@ impl Shard {
         run(Command::new("docker").args(["pull", &image]))?;
         println!("node image {image} at {}", shard.image_digest(&image));
 
-        issue_tls_certificates(&tls_dir())?;
+        write_shard_files(&shard_dir(), &shard.topology)?;
         shard.compose(&["up", "-d"])?;
         shard.wait_until_ready(Node::all(), Duration::from_secs(180))?;
         Ok(shard)
@@ -140,10 +140,11 @@ impl Shard {
     fn compose_command(&self, args: &[&str]) -> Command {
         let mut command = Command::new("docker");
         command
-            .args(["compose", "-p", PROJECT, "-f"])
+            .args(["compose", "-p", PROJECT, "--env-file"])
+            .arg(shard_dir().join("shard.env"))
+            .arg("-f")
             .arg(self.topology.join("compose.yml"))
-            .args(args)
-            .env("IT_TLS_DIR", tls_dir());
+            .args(args);
         command
     }
 }
@@ -151,11 +152,109 @@ impl Shard {
 /// The certificate authority the TLS proxy's certificate is issued by, for
 /// `--ca-cert`.
 pub fn ca_certificate() -> PathBuf {
-    tls_dir().join("ca.pem")
+    shard_dir().join("tls/ca.pem")
 }
 
-fn tls_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("target/integration-tls")
+/// Where the harness writes everything the topology reads per run, and each
+/// funded key under `keys/<role>.hex`.
+pub fn shard_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("target/integration-shard")
+}
+
+/// Write the run's generated keys and the files that carry them: genesis
+/// bonds and wallets, each node's config with its validator key, the
+/// bootstrap's TLS key, the proxy's certificates, and `shard.env` for compose.
+fn write_shard_files(dir: &Path, topology: &Path) -> Result<(), String> {
+    use super::keys;
+
+    let write = |path: PathBuf, contents: &str| -> Result<(), String> {
+        std::fs::create_dir_all(path.parent().expect("a file in a directory"))
+            .map_err(|e| e.to_string())?;
+        std::fs::write(&path, contents).map_err(|e| format!("{}: {e}", path.display()))
+    };
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+
+    let bonds: String = keys::genesis_bonds()
+        .iter()
+        .map(|key| format!("{} 100\n", key.public))
+        .collect();
+    write(dir.join("genesis/bonds.txt"), &bonds)?;
+    let wallets: String = keys::genesis_wallets()
+        .iter()
+        .map(|(_, key, balance)| format!("{},{balance}\n", key.address))
+        .collect();
+    write(dir.join("genesis/wallets.txt"), &wallets)?;
+    // Each funded key, readable by its owner only, for working the shard by
+    // hand, as the bonding guide does.
+    for (role, key, _) in keys::genesis_wallets() {
+        let path = dir.join(format!("keys/{role}.hex"));
+        write(path.clone(), &key.private)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+    }
+
+    let node_conf = std::fs::read_to_string(topology.join("node.conf"))
+        .map_err(|e| format!("node.conf: {e}"))?;
+    for (node, key) in [
+        ("boot", &*keys::BOOT),
+        ("validator1", &*keys::VALIDATOR1),
+        ("validator2", &*keys::VALIDATOR2),
+        ("validator3", &*keys::VALIDATOR3),
+        ("validator4", &*keys::VALIDATOR4),
+    ] {
+        write(
+            dir.join(format!("conf/{node}.conf")),
+            &with_validator_key(&node_conf, &key.private)?,
+        )?;
+    }
+
+    let boot_node_id = write_bootstrap_identity(&dir.join("bootstrap"))?;
+    issue_tls_certificates(&dir.join("tls"))?;
+    write(
+        dir.join("shard.env"),
+        &format!(
+            "IT_SHARD_DIR={}\nIT_BOOT_NODE_ID={boot_node_id}\n",
+            dir.display()
+        ),
+    )
+}
+
+/// `node_conf` with `key` as the node's validator key, inside its `casper`
+/// block, so the key reaches the node through its config rather than its
+/// command line.
+fn with_validator_key(node_conf: &str, key: &str) -> Result<String, String> {
+    let block = "casper {";
+    let at = node_conf
+        .find(block)
+        .ok_or("node.conf has no casper block for the validator key")?
+        + block.len();
+    Ok(format!(
+        "{}\n  validator-private-key = \"{key}\"{}",
+        &node_conf[..at],
+        &node_conf[at..]
+    ))
+}
+
+/// Generate the bootstrap's TLS key, from which the node builds its
+/// certificate, and return the node ID other nodes dial: the last 20 bytes of
+/// the Keccak-256 of its uncompressed public key, without the 0x04 prefix.
+fn write_bootstrap_identity(dir: &Path) -> Result<String, String> {
+    use sha3::Digest;
+
+    let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+        .map_err(|e| format!("bootstrap key: {e}"))?;
+    let public = key.public_key_raw();
+    let hash = sha3::Keccak256::digest(&public[1..]);
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("node.key.pem"), key.serialize_pem())
+        .map_err(|e| format!("bootstrap key: {e}"))?;
+    Ok(hex::encode(&hash[hash.len() - 20..]))
 }
 
 /// Issue a fresh CA and a `localhost` server certificate for the TLS proxy.

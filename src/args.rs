@@ -6,6 +6,7 @@ use crate::connection_manager::{DEFAULT_GRPC_URL, DEFAULT_HTTP_URL};
 use crate::endpoint::Endpoint;
 use crate::f1r3fly_api::F1r3flyApi;
 use crate::node_http::NodeHttp;
+use crate::signing_key::SigningKey;
 
 fn parse_endpoint(url: &str) -> Result<Endpoint, String> {
     Endpoint::parse(url).map_err(|e| e.to_string())
@@ -17,12 +18,13 @@ fn parse_endpoint(url: &str) -> Result<Endpoint, String> {
 pub struct TransportArgs {
     /// PEM file of the certificate authorities that https endpoints are
     /// trusted against, in place of the bundled public roots
-    #[arg(long = "ca-cert")]
+    #[arg(long = "ca-cert", env = "FIREFLY_CA_CERT")]
     pub ca_cert: Option<PathBuf>,
 
     /// Seconds a connection to a node may take to establish
     #[arg(
         long = "connect-timeout",
+        env = "FIREFLY_CONNECT_TIMEOUT",
         default_value_t = crate::endpoint::DEFAULT_CONNECT_TIMEOUT.as_secs(),
         value_parser = clap::value_parser!(u64).range(1..)
     )]
@@ -31,6 +33,7 @@ pub struct TransportArgs {
     /// Seconds a single request to a node may take
     #[arg(
         long = "timeout",
+        env = "FIREFLY_REQUEST_TIMEOUT",
         default_value_t = crate::endpoint::DEFAULT_REQUEST_TIMEOUT.as_secs(),
         value_parser = clap::value_parser!(u64).range(1..)
     )]
@@ -55,11 +58,58 @@ impl TransportArgs {
     }
 }
 
+/// Where a command's signing key comes from. A key is never taken as a flag
+/// value, which would leave it in shell history and the process list.
+#[derive(Args, Debug, Clone)]
+pub struct KeyArgs {
+    /// File holding the signing key's hex; it must not be readable by group or
+    /// others. Without it, the key is read from FIREFLY_PRIVATE_KEY
+    #[arg(long = "private-key-file", env = "FIREFLY_PRIVATE_KEY_FILE")]
+    pub private_key_file: Option<PathBuf>,
+}
+
+impl KeyArgs {
+    pub fn load(&self) -> CliResult<SigningKey> {
+        Ok(self.load_optional()?.ok_or(crate::Error::MissingConfig {
+            var: "--private-key-file or FIREFLY_PRIVATE_KEY",
+        })?)
+    }
+
+    /// The key, or `None` when neither source is set. Both set is an error,
+    /// since signing with the one not intended would go unnoticed.
+    pub fn load_optional(&self) -> CliResult<Option<SigningKey>> {
+        if let Some(path) = &self.private_key_file {
+            if std::env::var_os("FIREFLY_PRIVATE_KEY").is_some() {
+                return Err(crate::Error::invalid(
+                    "signing key",
+                    format!(
+                        "both a key file ({}) and FIREFLY_PRIVATE_KEY are set; use one",
+                        path.display()
+                    ),
+                )
+                .into());
+            }
+            return Ok(Some(SigningKey::from_file(path)?));
+        }
+        match std::env::var("FIREFLY_PRIVATE_KEY") {
+            Ok(hex) => {
+                Ok(Some(SigningKey::from_hex(&hex).map_err(|e| {
+                    crate::Error::invalid("FIREFLY_PRIVATE_KEY", e)
+                })?))
+            }
+            Err(std::env::VarError::NotPresent) => Ok(None),
+            Err(std::env::VarError::NotUnicode(_)) => {
+                Err(crate::Error::invalid("FIREFLY_PRIVATE_KEY", "not unicode").into())
+            }
+        }
+    }
+}
+
 /// The node a command reaches over gRPC
 #[derive(Args, Debug, Clone)]
 pub struct GrpcNodeArgs {
     /// Node gRPC endpoint, http:// or https://, with no path
-    #[arg(long = "grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    #[arg(long = "grpc", env = "FIREFLY_GRPC_URL", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     #[command(flatten)]
@@ -76,7 +126,7 @@ impl GrpcNodeArgs {
 #[derive(Args, Debug, Clone)]
 pub struct HttpNodeArgs {
     /// Node HTTP endpoint, http:// or https://, optionally with a base path
-    #[arg(long = "http", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
+    #[arg(long = "http", env = "FIREFLY_HTTP_URL", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
     pub http: Endpoint,
 
     #[command(flatten)]
@@ -89,12 +139,13 @@ impl HttpNodeArgs {
     }
 }
 
-/// A read-only node a command queries over gRPC. There is no default: the
-/// default node ports are a validator's, which refuses these queries.
+/// A read-only node a command queries over gRPC. There is no built-in
+/// default: the default node ports are a validator's, which refuses these
+/// queries.
 #[derive(Args, Debug, Clone)]
 pub struct ReadOnlyGrpcArgs {
     /// gRPC endpoint of a read-only node, http:// or https://, with no path
-    #[arg(long = "grpc", value_parser = parse_endpoint)]
+    #[arg(id = "readonly_grpc", long = "grpc", env = "FIREFLY_READONLY_GRPC_URL", value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     #[command(flatten)]
@@ -107,12 +158,13 @@ impl ReadOnlyGrpcArgs {
     }
 }
 
-/// A read-only node a command queries over HTTP. There is no default: the
-/// default node ports are a validator's, which refuses these queries.
+/// A read-only node a command queries over HTTP. There is no built-in
+/// default: the default node ports are a validator's, which refuses these
+/// queries.
 #[derive(Args, Debug, Clone)]
 pub struct ReadOnlyHttpArgs {
     /// HTTP endpoint of a read-only node, http:// or https://, optionally with a base path
-    #[arg(long = "http", value_parser = parse_endpoint)]
+    #[arg(id = "readonly_http", long = "http", env = "FIREFLY_READONLY_HTTP_URL", value_parser = parse_endpoint)]
     pub http: Endpoint,
 
     #[command(flatten)]
@@ -129,11 +181,11 @@ impl ReadOnlyHttpArgs {
 #[derive(Args, Debug, Clone)]
 pub struct NodeArgs {
     /// Node gRPC endpoint, http:// or https://, with no path
-    #[arg(long = "grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    #[arg(long = "grpc", env = "FIREFLY_GRPC_URL", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     /// Node HTTP endpoint, http:// or https://, optionally with a base path
-    #[arg(long = "http", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
+    #[arg(long = "http", env = "FIREFLY_HTTP_URL", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
     pub http: Endpoint,
 
     #[command(flatten)]
@@ -154,6 +206,15 @@ impl NodeArgs {
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
+    /// Config file holding named profiles (default: $XDG_CONFIG_HOME/f1r3fly/node_cli.toml,
+    /// or ~/.config/f1r3fly/node_cli.toml)
+    #[arg(long = "config", env = "FIREFLY_CONFIG", global = true)]
+    pub config: Option<PathBuf>,
+
+    /// Profile of the config file to take settings from (default: the file's default_profile)
+    #[arg(long = "profile", env = "FIREFLY_PROFILE", global = true)]
+    pub profile: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -264,6 +325,54 @@ pub enum Commands {
 
     /// Check canonical-state finalization status of a deploy by signature
     DeployStatus(DeployStatusArgs),
+
+    /// Inspect the settings commands resolve from flags, environment and config profiles
+    Config(ConfigArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub action: ConfigAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigAction {
+    /// Show each setting's resolved value and where it came from: a flag, the
+    /// environment, the selected profile, or the built-in default
+    Show(Box<ConfigShowArgs>),
+}
+
+/// Every setting a profile can hold, under the same flags and environment
+/// variables the commands read, so `config show` resolves them the same way.
+#[derive(Args, Debug)]
+pub struct ConfigShowArgs {
+    #[arg(long = "grpc", env = "FIREFLY_GRPC_URL", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    pub grpc: Endpoint,
+
+    #[arg(long = "http", env = "FIREFLY_HTTP_URL", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
+    pub http: Endpoint,
+
+    #[arg(long = "observer", env = "FIREFLY_OBSERVER_URL", value_parser = parse_endpoint)]
+    pub observer: Option<Endpoint>,
+
+    #[arg(id = "internal_grpc", long = "internal-grpc", env = "FIREFLY_INTERNAL_GRPC_URL", default_value = DEFAULT_INTERNAL_GRPC_URL, value_parser = parse_endpoint)]
+    pub internal_grpc: Endpoint,
+
+    #[arg(long = "readonly-grpc", env = "FIREFLY_READONLY_GRPC_URL", value_parser = parse_endpoint)]
+    pub readonly_grpc: Option<Endpoint>,
+
+    #[arg(long = "readonly-http", env = "FIREFLY_READONLY_HTTP_URL", value_parser = parse_endpoint)]
+    pub readonly_http: Option<Endpoint>,
+
+    #[arg(long = "shard-id", env = "FIREFLY_SHARD_ID", default_value = crate::deploy::DEFAULT_SHARD_ID)]
+    pub shard_id: String,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+
+    #[command(flatten)]
+    pub key: KeyArgs,
 }
 
 /// Node, finalization-wait and expiration options of commands that deploy and
@@ -275,7 +384,7 @@ pub struct DeployWaitArgs {
 
     /// HTTP endpoint of a second node, such as the shard's read-only node,
     /// polled alongside the deploy node for the deploy's verdict
-    #[arg(long = "observer", value_parser = parse_endpoint)]
+    #[arg(long = "observer", env = "FIREFLY_OBSERVER_URL", value_parser = parse_endpoint)]
     pub observer: Option<Endpoint>,
 
     /// Maximum seconds to wait for the deploy to finalize
@@ -338,9 +447,8 @@ pub struct DeployAndWaitArgs {
     #[arg(short, long)]
     pub file: String,
 
-    /// Private key for deploy (--private-key or FIREFLY_PRIVATE_KEY env)
-    #[arg(short = 'k', long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     #[command(flatten)]
     pub wait: DeployWaitArgs,
@@ -412,9 +520,8 @@ pub struct DeployArgs {
     #[arg(short, long)]
     pub file: PathBuf,
 
-    /// Private key in hex format
-    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     #[command(flatten)]
     pub node: GrpcNodeArgs,
@@ -435,7 +542,7 @@ pub const DEFAULT_INTERNAL_GRPC_URL: &str = "http://localhost:40402";
 #[derive(Parser)]
 pub struct ProposeArgs {
     /// Node's internal gRPC endpoint, http:// or https://, with no path
-    #[arg(long = "grpc", default_value = DEFAULT_INTERNAL_GRPC_URL, value_parser = parse_endpoint)]
+    #[arg(id = "internal_grpc", long = "grpc", env = "FIREFLY_INTERNAL_GRPC_URL", default_value = DEFAULT_INTERNAL_GRPC_URL, value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     #[command(flatten)]
@@ -501,24 +608,21 @@ pub struct EstimateCostArgs {
 
     /// Hex-encoded 65-byte uncompressed secp256k1 public key (04-prefixed).
     /// Supplying this ensures the cost estimate accounts for identity-dependent
-    /// terms (e.g. vault transfers). Without it, the estimate may be
-    /// significantly lower than the real deploy cost.
+    /// terms (e.g. vault transfers). Without it, the deployer is derived from
+    /// the signing key when one is configured, and the estimate may otherwise
+    /// be significantly lower than the real deploy cost.
     #[arg(long)]
     pub deployer: Option<String>,
 
-    /// Private key in hex format. Convenience alternative to --deployer:
-    /// the public key is derived locally — the private key never leaves
-    /// this machine. If --deployer is provided, this is ignored.
-    #[arg(long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: Option<String>,
+    #[command(flatten)]
+    pub key: KeyArgs,
 }
 
 /// Arguments for generate-public-key command
 #[derive(Parser)]
 pub struct GeneratePublicKeyArgs {
-    /// Private key in hex format
-    #[arg(short, long, env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     /// Output public key in compressed format (shorter)
     #[arg(short, long, default_value_t = false)]
@@ -544,13 +648,13 @@ pub struct GenerateKeyPairArgs {
 /// Arguments for generate-vault-address command
 #[derive(Parser)]
 pub struct GenerateVaultAddressArgs {
-    /// Public key in hex format (uncompressed format preferred)
-    #[arg(short, long, conflicts_with = "private_key")]
+    /// Public key in hex format (uncompressed format preferred). Without it,
+    /// the public key is derived from the signing key
+    #[arg(short, long, conflicts_with = "private_key_file")]
     pub public_key: Option<String>,
 
-    /// Private key in hex format (will derive public key from this)
-    #[arg(long, conflicts_with = "public_key")]
-    pub private_key: Option<String>,
+    #[command(flatten)]
+    pub key: KeyArgs,
 }
 
 /// Arguments for blocks command
@@ -630,9 +734,8 @@ pub struct BondValidatorArgs {
     #[arg(long = "phlo-limit", default_value_t = crate::pos::POS_CALL_PHLO_LIMIT)]
     pub phlo_limit: u64,
 
-    /// Private key for signing the deploy (hex format) - determines which validator gets bonded
-    #[arg(long)]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     /// Also propose a block after bonding
     #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
@@ -649,9 +752,8 @@ pub struct UnbondValidatorArgs {
     #[command(flatten)]
     pub wait: DeployWaitArgs,
 
-    /// Private key of the validator to unbond (hex format)
-    #[arg(long)]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     /// Most phlo the deploy may spend
     #[arg(long = "phlo-limit", default_value_t = crate::pos::POS_CALL_PHLO_LIMIT)]
@@ -696,9 +798,8 @@ pub struct TransferArgs {
     #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
     pub whole_tokens: bool,
 
-    /// Private key for signing the transfer (hex format)
-    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     #[command(flatten)]
     pub wait: DeployWaitArgs,
@@ -739,15 +840,14 @@ pub struct LoadTestArgs {
     #[arg(long, default_value_t = 10)]
     pub interval: u64,
 
-    /// Private key for signing (hex format)
-    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     #[command(flatten)]
     pub node: NodeArgs,
 
     /// gRPC endpoint of a read-only node, for balance queries
-    #[arg(long = "readonly-grpc", value_parser = parse_endpoint)]
+    #[arg(long = "readonly-grpc", env = "FIREFLY_READONLY_GRPC_URL", value_parser = parse_endpoint)]
     pub readonly_grpc: Endpoint,
 
     /// Check interval in seconds for deploy status (fast mode)
@@ -878,8 +978,6 @@ mod bigint_tests {
             "recipient",
             "--amount",
             "18446744073709551616",
-            "--private-key",
-            "test-key",
         ])
         .unwrap();
         assert_eq!(raw.amount, "18446744073709551616");
@@ -891,8 +989,6 @@ mod bigint_tests {
             "--amount",
             "1.000000000000000001",
             "--whole-tokens",
-            "--private-key",
-            "test-key",
         ])
         .unwrap();
         assert_eq!(tokens.amount, "1.000000000000000001");

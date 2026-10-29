@@ -46,6 +46,13 @@ pub fn trials() -> Vec<Trial> {
             an_untrusted_certificate_is_refused();
             Ok(())
         }),
+        Trial::test(
+            "routing::a_profile_alone_supplies_the_endpoints_and_the_key_file",
+            || {
+                a_profile_alone_supplies_the_endpoints_and_the_key_file();
+                Ok(())
+            },
+        ),
     ]
 }
 
@@ -142,6 +149,37 @@ fn an_untrusted_certificate_is_refused() {
         .run()
         .expect_success("status with the proxy's CA")
         .expect_contains("Shard:");
+}
+
+/// With only `--config`, a profile supplies the deploy node, the observer and
+/// the signing key file, and `config show` names that key's vault address.
+fn a_profile_alone_supplies_the_endpoints_and_the_key_file() {
+    let config = shard::shard_dir().join("profile.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "default_profile = \"it\"\n\n[profiles.it]\ngrpc = \"{}\"\nhttp = \"{}\"\nobserver = \"{}\"\nprivate_key_file = \"keys/profile-deploy.hex\"\n",
+            Node::Validator1.grpc_endpoint(),
+            Node::Validator1.http_endpoint(),
+            Node::ReadOnly.http_endpoint(),
+        ),
+    )
+    .expect("profile config");
+    let config = config.display().to_string();
+
+    Cli::new("deploy-and-wait")
+        .args(["-f", contracts::path("stdout.rho")])
+        .args(["--config", &config, "--max-wait", "120"])
+        .run()
+        .expect_success("deploy-and-wait from a profile")
+        .expect_contains("Block hash:");
+
+    Cli::new("config")
+        .args(["show", "--config", &config])
+        .run()
+        .expect_success("config show")
+        .expect_contains(&keys::PROFILE_DEPLOY.address)
+        .expect_contains("(profile it)");
 }
 
 fn ca_certificate() -> String {

@@ -33,7 +33,7 @@ cargo run -- load-test \
 - `--interval` - Seconds between tests (default: 10)
 - `--check-interval` - Fast polling interval (default: 1s)
 - `--chain-depth` - Main chain depth for orphan check (default: 200)
-- `--private-key` - Signing key, required (or set `FIREFLY_PRIVATE_KEY`)
+- `--private-key-file` - File holding the signing key's hex, not readable by group or others (or set `FIREFLY_PRIVATE_KEY_FILE` or `FIREFLY_PRIVATE_KEY`); required
 - `--grpc` - gRPC endpoint URL (default: `http://localhost:40401`) — must be a bonded validator
 - `--http` - HTTP endpoint URL of the same node (default: `http://localhost:40403`)
 - `--readonly-grpc` - gRPC endpoint URL of a read-only node for balance checks (required)
