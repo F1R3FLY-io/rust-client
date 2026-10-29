@@ -57,14 +57,30 @@ Defined in `tests/integration/topology/`, which the repository owns outright:
 | `it-validator4` | joiner, unbonded at genesis, started by the bonding tests | 40442 / 40443 |
 | `it-tls-proxy` | Caddy (`caddy:2.10-alpine`) terminating TLS in front of validator1; 40462 serves its HTTP API under `/node1` | 40460 / 40461, 40462 |
 
-The harness issues a CA and the proxy's server certificate per run into
-`target/integration-tls/`. The `routing` group uses them for a deploy-and-wait
+Every key is generated per run and none is committed: the deploying accounts'
+keys, the boot and validator keys, the bootstrap's P-256 TLS key and node ID,
+and the proxy's CA and server certificate. The harness writes the genesis bonds
+and wallets, each node's config carrying its validator key
+(`casper.validator-private-key`), the bootstrap key and the certificates into
+`target/integration-shard/`, plus `shard.env` (`IT_SHARD_DIR`,
+`IT_BOOT_NODE_ID`), which compose reads through `--env-file`. To run the
+topology by hand after a harness run:
+
+```bash
+docker compose --env-file target/integration-shard/shard.env \
+  -f tests/integration/topology/compose.yml up -d
+```
+
+The CLI under test gets its key through `FIREFLY_PRIVATE_KEY`, and runs with
+every other `FIREFLY_*` variable from the caller's shell removed and no default
+config file, so neither can change what is tested.
+
+The `routing` group uses the proxy's certificates for a deploy-and-wait
 over TLS with no observer, whose HTTP calls go through the `/node1` base path,
 and to check that an untrusted certificate is refused.
 
-Every deploying test owns a key funded at genesis in
-`topology/genesis/wallets.txt`, because concurrent deploys from one deployer
-collide. Deploys go only to validators: a node whose validator is not bonded
+Every deploying test owns a key funded in the genesis the harness writes,
+because concurrent deploys from one deployer collide. Deploys go only to validators: a node whose validator is not bonded
 accepts them and strands them (f1r3node-rust#427).
 
 ### Coverage

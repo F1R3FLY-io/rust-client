@@ -14,7 +14,7 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 |------|-------|---------|-------------|
 | `--to-address` | `-t` | required | Recipient vault address (starts with `1111`) |
 | `--amount` | `-a` | required | Amount in base units (dust) by default. Use `--whole-tokens`/`-d` for whole tokens. |
-| `--private-key` | | dev key | Sender's signing key |
+| `--private-key-file` | | none | File holding the sender's signing key's hex; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--grpc` | | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit to — must be a **bonded validator** |
 | `--http` | | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
@@ -60,7 +60,7 @@ Transfer: 1111AtahZe...r3g -> 111127RX5Z...iHA (100000000 dust)
   strands it, because nothing can ever include it (f1r3node-rust#427). The
   command then runs out `--max-wait` and reports a timeout, and the deploy is
   never found.
-- The sender address is derived from the private key automatically
+- The sender address is derived from the signing key automatically
 - `--amount` is in base units (dust) by default; use `--whole-tokens`/`-d` to specify whole tokens (scaled by the native token's decimals fetched from node status)
 - Deploys with a 500,000 phlo limit by default: the transfer contract costs
   about 250,000. The sender's vault must cover `phlo limit × phlo price` plus

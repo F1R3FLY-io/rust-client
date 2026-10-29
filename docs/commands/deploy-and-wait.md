@@ -21,7 +21,7 @@ node_cli deploy-and-wait -f <FILE> [OPTIONS]
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--file` | `-f` | required | Rholang file to deploy |
-| `--private-key` | `-k` | dev key | Signing key (64 hex chars) |
+| `--private-key-file` | | none | File holding the signing key's hex; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--grpc` | | `http://localhost:40401` | Deploy node's gRPC endpoint, with no path |
 | `--http` | | `http://localhost:40403` | Deploy node's HTTP endpoint, optionally with a base path, polled for finalization status |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
@@ -93,7 +93,7 @@ The deploy must reach a terminal state (`Finalized`, `Failed`, or `Expired`) wit
 
 ## Observer Node
 
-With `--observer`, finalization checks run against both the deploy node and that node. Without it, only the deploy node is polled.
+With `--observer` (env `FIREFLY_OBSERVER_URL`, or a profile's `observer`; see [Configuration](../configuration.md)), finalization checks run against both the deploy node and that node. Without it, only the deploy node is polled.
 
 On the system-integration single-host Docker shard, deploy to validator1 and observe from the read-only node:
 

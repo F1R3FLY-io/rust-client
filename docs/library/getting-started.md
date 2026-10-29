@@ -12,7 +12,7 @@ node_cli = { git = "https://github.com/F1R3FLY-io/rust-client.git", default-feat
 The primary library API. Handles deploy orchestration, finalization, and data reads.
 
 ```rust
-use node_cli::{ConnectionConfig, Endpoint, F1r3flyConnectionManager};
+use node_cli::{ConnectionConfig, Endpoint, F1r3flyConnectionManager, SigningKey};
 
 #[tokio::main]
 async fn main() -> node_cli::Result<()> {
@@ -23,7 +23,7 @@ async fn main() -> node_cli::Result<()> {
     let config = ConnectionConfig::new(
         Endpoint::parse("http://localhost:40401")?,
         Endpoint::parse("http://localhost:40403")?,
-        "your_private_key_hex".into(),
+        SigningKey::from_file(std::path::Path::new("deployer.hex"))?,
     );
     let manager = F1r3flyConnectionManager::new(config)?;
 
@@ -34,13 +34,24 @@ async fn main() -> node_cli::Result<()> {
 The manager builds its gRPC and HTTP clients once and reuses their connections
 across calls.
 
+### Signing keys
+
+`SigningKey::from_file(path)` reads a file holding the key's 64 hex characters;
+on Unix it refuses a file that group or others can read, as ssh does.
+`SigningKey::from_hex(hex)` takes the hex directly. `public_key()` and
+`secret_key()` expose the key's parts. Its `Debug` output is
+`SigningKey(<redacted>)`, so a configuration holding one can be logged, and
+dropping it overwrites its bytes (best effort: copies made while signing may
+remain in memory). `from_env` reads `FIREFLY_PRIVATE_KEY_FILE` or
+`FIREFLY_PRIVATE_KEY`, exactly one of them; both set is an error.
+
 ### With observer node
 
 ```rust
 let config = ConnectionConfig::new(
     Endpoint::parse("http://localhost:40412")?,
     Endpoint::parse("http://localhost:40413")?,
-    key.into(),
+    key,
 )
 .with_observer(Endpoint::parse("http://localhost:40453")?);
 ```
@@ -176,10 +187,10 @@ For single gRPC operations without orchestration. Without a signing key the
 client reads and sends pre-signed deploys:
 
 ```rust
-use node_cli::{Endpoint, F1r3flyApi};
+use node_cli::{Endpoint, F1r3flyApi, SigningKey};
 
 let api = F1r3flyApi::new(Endpoint::parse("http://localhost:40401")?)?
-    .with_signing_key("private_key_hex")?;
+    .with_signing_key(&SigningKey::from_file(std::path::Path::new("deployer.hex"))?);
 
 // Deploy only (no waiting)
 let deploy_id = api.deploy("new x in { x!(1) }", &DeployOptions::default()).await?;
@@ -279,7 +290,7 @@ match manager.transfer("1111recipient...", amount).await {
 | `grpc` | `http://localhost:40401` | Deploy node's gRPC endpoint |
 | `http` | `http://localhost:40403` | Deploy node's HTTP endpoint: finalization status and deploy details |
 | `observer` | none | HTTP endpoint of a second node polled for the deploy's verdict |
-| `signing_key` | required | Private key (hex) |
+| `signing_key` | required | `SigningKey` that signs deploys |
 | `finalization_timeout_secs` | `90` | Max seconds to wait for a deploy to finalize |
 | `poll_interval_secs` | `2` | Seconds between finalization status polls |
 | `shard_id` | `root` | Shard deploys are signed for: the node's `casper.shard-name` |

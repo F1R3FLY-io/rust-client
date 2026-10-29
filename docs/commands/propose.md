@@ -17,7 +17,7 @@ node_cli propose [OPTIONS]
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 
-Propose is served on a node's internal gRPC API (port 40402 on a node; 40412 for validator1 on the system-integration Docker shard), not the external API on 40401 that deploys use. `--grpc` defaults to the internal port; on the Docker shard, point it at validator1:
+Propose is served on a node's internal gRPC API (port 40402 on a node; 40412 for validator1 on the system-integration Docker shard), not the external API on 40401 that deploys use. `--grpc` (env `FIREFLY_INTERNAL_GRPC_URL`, or a profile's `internal_grpc`) defaults to the internal port; on the Docker shard, point it at validator1:
 
 ```bash
 node_cli propose --grpc http://localhost:40412
