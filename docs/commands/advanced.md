@@ -5,7 +5,7 @@
 Run a load test by sending multiple transfers and tracking finalization and orphan rates.
 
 ```bash
-node_cli load-test --to-address <ADDR> --readonly-grpc <URL> --num-tests <N> --amount <AMT> [OPTIONS]
+node_cli load-test --to-address <ADDR> --readonly-http <URL> --num-tests <N> --amount <AMT> [OPTIONS]
 ```
 
 | Flag | Default | Description |
@@ -30,7 +30,7 @@ node_cli load-test --to-address <ADDR> --readonly-grpc <URL> --num-tests <N> --a
 ```
 $ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000 \
     --grpc http://localhost:40412 --http http://localhost:40413 \
-    --readonly-grpc http://localhost:40452
+    --readonly-http http://localhost:40453
 
 F1R3FLY Load Test
 Tests: 3

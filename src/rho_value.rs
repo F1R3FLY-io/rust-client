@@ -1,8 +1,14 @@
 //! Values a node returns from Rholang: query results and data sent to a name.
 //!
 //! A [`RhoValue`] is decoded from the protocol's [`Par`] (gRPC) or from the
-//! node's HTTP JSON. The HTTP encoding loses information: map keys arrive as
-//! strings, and `Nil` elements of collections are dropped.
+//! node's HTTP JSON. The node's HTTP encoding loses information:
+//!
+//! - map keys arrive as strings;
+//! - `Nil` is dropped as a result, as a collection element, and as either side
+//!   of a map entry, which drops the entry;
+//! - a PathMap arrives as a list, and a zipper as a tuple;
+//! - a `Par` holding data alongside processes arrives as its data alone, where
+//!   the gRPC decoder refuses it as not a value.
 
 use std::fmt;
 

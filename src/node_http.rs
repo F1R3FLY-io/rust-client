@@ -150,7 +150,7 @@ impl NodeHttp {
     ) -> Result<u64> {
         let mut url = self.endpoint.join("/api/estimate-cost");
         if let Some(block_hash) = block_hash {
-            url.push_str(&format!("?block_hash={block_hash}"));
+            url.push_str(&block_hash_query(block_hash)?);
         }
         let body = EstimateCostRequest { term, deployer };
         let response = send(self.client.post(&url).json(&body), &url).await?;
@@ -195,7 +195,7 @@ impl NodeHttp {
         crate::vault::validate_address(address)?;
         let mut url = self.endpoint.join(&format!("/api/balance/{address}"));
         if let Some(block_hash) = block_hash {
-            url.push_str(&format!("?block_hash={block_hash}"));
+            url.push_str(&block_hash_query(block_hash)?);
         }
         let response = send(self.client.get(&url), &url).await?;
         if !response.status().is_success() {
@@ -209,6 +209,16 @@ impl NodeHttp {
             block: balance.block,
         })
     }
+}
+
+fn block_hash_query(block_hash: &str) -> Result<String> {
+    if block_hash.is_empty() || !block_hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(Error::invalid(
+            "block hash",
+            format!("{block_hash:?} is not hex"),
+        ));
+    }
+    Ok(format!("?block_hash={block_hash}"))
 }
 
 #[derive(Deserialize)]
@@ -270,6 +280,26 @@ mod tests {
                 feature: "/api/x",
                 ..
             }
+        ));
+    }
+
+    #[tokio::test]
+    async fn malformed_inputs_never_reach_the_url() {
+        let node = server(200).await;
+        let address = "1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMNikBk5r3g";
+        for (address, block_hash) in [
+            ("1111AtahZeefej4tvVR6ti9TJtv8yxLebT31SCEVDCKMN/../x", None),
+            (address, Some("abcd&x=1")),
+            (address, Some("")),
+        ] {
+            assert!(matches!(
+                node.balance(address, block_hash).await,
+                Err(Error::InvalidInput { .. })
+            ));
+        }
+        assert!(matches!(
+            node.estimate_cost("Nil", None, Some("ab cd")).await,
+            Err(Error::InvalidInput { .. })
         ));
     }
 

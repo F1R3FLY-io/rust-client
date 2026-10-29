@@ -3,11 +3,10 @@
 //! The gRPC client is split across `grpc/` submodules:
 //! - `grpc::deploy` prepare, submit, deploy, propose
 //! - `grpc::query` exploratory_deploy, get_data_at_deploy_id
-//!
-//! Values in results decode to [`RhoValue`].
 //! - `grpc::blocks` show_main_chain, get_blocks_by_height, is_finalized, tip sampling
 //!
-//! The HTTP client is [`crate::node_http::NodeHttp`].
+//! The HTTP client is [`crate::node_http::NodeHttp`]. Values in results decode
+//! to [`RhoValue`].
 
 use f1r3fly_models::rhoapi::Par;
 use serde::{Deserialize, Serialize};
@@ -54,7 +53,7 @@ impl ExploratoryResult {
 }
 
 /// What an exploratory deploy returned over HTTP, already decoded. The node's
-/// HTTP encoding writes map keys as strings and drops `Nil` elements.
+/// HTTP encoding loses information; [`crate::rho_value`] lists what.
 #[derive(Debug, Clone)]
 pub struct ExploratoryValues {
     pub values: Vec<RhoValue>,

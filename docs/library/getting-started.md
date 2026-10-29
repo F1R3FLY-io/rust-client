@@ -229,9 +229,16 @@ let balance = http.balance("1111...", None).await?;            // Balance { addr
 let status_json = http.get_json("/api/status").await?;
 ```
 
-Over HTTP the node encodes values itself, losing information: map keys arrive
-as strings and `Nil` elements of collections are dropped. Read values over gRPC
-when that matters.
+Over HTTP the node encodes values itself and loses information:
+
+- map keys arrive as strings;
+- `Nil` is dropped as a result, as a collection element, and as either side of
+  a map entry, which drops the entry;
+- a PathMap arrives as a list, and a zipper as a tuple;
+- a `Par` holding data alongside processes arrives as its data alone, where
+  gRPC refuses it as not a value.
+
+Read values over gRPC when that matters.
 
 It also has `get_deploy`, `get_deploy_block_hash` and `get_text`.
 

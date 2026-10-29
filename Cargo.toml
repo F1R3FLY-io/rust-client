@@ -27,8 +27,9 @@ required-features = ["cli"]
 
 [dependencies]
 num-bigint = "0.4"
-# F1r3fly protocol types, pinned to the f1r3node-rust dev commit the
-# integration suite's node image is built from.
+# F1r3fly protocol types, pinned to an f1r3node-rust dev commit. The
+# integration suite runs against the moving `:dev` node image, so move this pin
+# to that image's commit whenever the node's protocol changes.
 f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "252a86d1dcf5ebffc0c39d17614c1256df9c3a22" }
 f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "252a86d1dcf5ebffc0c39d17614c1256df9c3a22" }
 f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "252a86d1dcf5ebffc0c39d17614c1256df9c3a22" }
