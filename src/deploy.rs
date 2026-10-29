@@ -93,6 +93,7 @@ impl UnsignedDeploy {
                 deployer: ByteString::new(),
                 sig_algorithm: String::new(),
                 expiration_timestamp: options.expiration.unwrap_or(0),
+                parameters: Vec::new(),
             },
         })
     }
@@ -266,6 +267,7 @@ mod tests {
             deployer: ByteString::new(),
             sig_algorithm: String::new(),
             expiration_timestamp: 0,
+            parameters: Vec::new(),
         };
         let digest: [u8; 32] = Blake2b::<U32>::digest(expected.encode_to_vec()).into();
         let signature = Signature::from_der(&signed.proto().sig).unwrap();

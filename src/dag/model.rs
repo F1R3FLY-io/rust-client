@@ -184,7 +184,7 @@ impl Dag {
     /// Get blocks sorted by block number (descending)
     pub fn blocks_by_number(&self) -> Vec<&DagBlock> {
         let mut blocks: Vec<_> = self.blocks.values().collect();
-        blocks.sort_by(|a, b| b.block_number.cmp(&a.block_number));
+        blocks.sort_by_key(|b| std::cmp::Reverse(b.block_number));
         blocks
     }
 
