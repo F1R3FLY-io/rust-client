@@ -57,6 +57,9 @@ jobs:
           RUSTFLAGS: "-D warnings -C target-feature=+aes,+sse2"
         run: cargo clippy --all-targets --features cli
 
+      - name: Test release versioning
+        run: scripts/test-version.sh
+
       # A bare Box<dyn Error> held across an .await makes the future !Send.
       # Library code returns crate::Error; CLI code boxes with Send + Sync.
       - name: Reject bare Box<dyn Error>
