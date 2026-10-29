@@ -1186,6 +1186,7 @@ mod authorship_tests {
             "PROPOSING: blocks at 2 of the last 3 heights (#10-#12); latest #12, 4s ago, \
              not yet finalized"
         );
+        assert!(line("04ab", 1, &[block(12, "04ab", -5, false)]).contains("latest #12, 5s ahead,"));
     }
 
     #[test]

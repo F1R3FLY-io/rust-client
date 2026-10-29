@@ -191,7 +191,7 @@ impl NodeHttp {
     /// Every block this node holds at its top `heights` heights, including
     /// blocks off the main chain, through `GET /api/blocks/{depth}`.
     ///
-    /// The node serves at most `api-server.max-blocks-limit` heights and
+    /// The node serves at most `api-server.max-blocks-limit` + 1 heights and
     /// silently serves the most recent ones beyond that, as it does when it
     /// holds nothing older, so the window served is the span of the blocks'
     /// numbers.

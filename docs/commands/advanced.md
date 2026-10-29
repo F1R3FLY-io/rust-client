@@ -377,7 +377,7 @@ node_cli validator-status -k <PUBLIC_KEY> --http URL [--window HEIGHTS]
 Reports the validator's state as of the last finalized block:
 
 - `BONDED` with the stake, then `ACTIVE` or `NOT ACTIVE`. The active set is recomputed at each epoch boundary, up to the shard's `number-of-active-validators`, so a bond outside it is not guaranteed to activate.
-- `PROPOSING` or `NOT PROPOSING`: whether the key authored a block in the node's most recent `--window` heights (default 50), counting each height once, with the latest block's age and whether it is finalized. Bonded and active say a validator may propose; only this says it does. The window is the one the node served: it serves at most `api-server.max-blocks-limit` heights (default 100) and none older than a snapshot it restored from, and the line says when it served fewer than asked.
+- `PROPOSING` or `NOT PROPOSING`: whether the key authored a block in the node's most recent `--window` heights (default 50), counting each height once, with the latest block's age and whether it is finalized. Bonded and active say a validator may propose; only this says it does. The window is the one the node served: it serves at most `api-server.max-blocks-limit` + 1 heights (101 by default) and none older than a snapshot it restored from, and the line says when it served fewer than asked.
 - `WITHDRAWAL REQUESTED` after `unbond-validator`, with the block at or after which stake and rewards become payable.
 - `WITHDRAWING` after the validator leaves the bond set, until the payout.
 
