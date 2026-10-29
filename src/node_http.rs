@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::endpoint::Endpoint;
 use crate::error::{Error, Result};
 use crate::f1r3fly_api::{
-    Balance, BlockRef, DeployDetail, DeployFinalizationStatus, ExploratoryValues,
+    Balance, BlockRef, BlockSummary, DeployDetail, DeployFinalizationStatus, ExploratoryValues,
 };
 use crate::utils::http::{http_error, is_deploy_not_found, json, send, EXPLORATORY_RETRY_BACKOFF};
 
@@ -188,6 +188,26 @@ impl NodeHttp {
         }
     }
 
+    /// Every block this node holds at its top `heights` heights, including
+    /// blocks off the main chain, through `GET /api/blocks/{depth}`.
+    ///
+    /// The node serves at most `api-server.max-blocks-limit` + 1 heights and
+    /// silently serves the most recent ones beyond that, as it does when it
+    /// holds nothing older, so the window served is the span of the blocks'
+    /// numbers.
+    pub async fn recent_blocks(&self, heights: u32) -> Result<Vec<BlockSummary>> {
+        if heights == 0 {
+            return Err(Error::invalid("heights", "at least one height"));
+        }
+        let url = self.endpoint.join(&format!("/api/blocks/{}", heights - 1));
+        let response = send(self.client.get(&url), &url).await?;
+        if !response.status().is_success() {
+            return Err(http_error(response, &url).await);
+        }
+        let blocks: Vec<ListedBlock> = json(response, &url, "blocks").await?;
+        Ok(blocks.into_iter().map(|listed| listed.block_info).collect())
+    }
+
     /// The native-token balance of `address`, at `block_hash` or else the last
     /// finalized block, through `GET /api/balance/{address}`, which only a
     /// read-only node serves. A vault the node cannot look up is an error.
@@ -219,6 +239,12 @@ fn block_hash_query(block_hash: &str) -> Result<String> {
         ));
     }
     Ok(format!("?block_hash={block_hash}"))
+}
+
+#[derive(Deserialize)]
+struct ListedBlock {
+    #[serde(rename = "blockInfo")]
+    block_info: BlockSummary,
 }
 
 #[derive(Deserialize)]

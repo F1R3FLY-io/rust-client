@@ -1,10 +1,12 @@
 use crate::args::*;
 use crate::commands::CliResult;
 use crate::endpoint::Endpoint;
+use crate::f1r3fly_api::BlockSummary;
 use crate::node_http::NodeHttp;
 use crate::pos::{parse_pos_snapshot, PosSnapshot, POS_SNAPSHOT_QUERY};
 use crate::rho_value::RhoValue;
 use serde_json;
+use std::collections::BTreeSet;
 use std::time::Instant;
 
 pub async fn status_command(args: &HttpNodeArgs) -> CliResult {
@@ -571,7 +573,10 @@ pub async fn validator_status_command(args: &ValidatorStatusArgs) -> CliResult {
     println!(" Checking validator status for: {}", args.public_key);
 
     let start_time = Instant::now();
-    let snapshot = fetch_pos_snapshot(&args.node.node()?).await?;
+    let node = args.node.node()?;
+    let (snapshot, blocks) = tokio::try_join!(fetch_pos_snapshot(&node), async {
+        Ok(node.recent_blocks(args.window).await?)
+    })?;
 
     println!(" Validator status retrieved successfully!");
     println!(" Time taken: {:.2?}", start_time.elapsed());
@@ -595,6 +600,10 @@ pub async fn validator_status_command(args: &ValidatorStatusArgs) -> CliResult {
         }
         None => println!(" NOT BONDED"),
     }
+    println!(
+        " {}",
+        authorship(key, args.window, &blocks, chrono::Utc::now())?
+    );
     if let Some(quarantine_end) = pending_withdrawal {
         println!(
             " WITHDRAWAL REQUESTED: leaves the bond set at the next epoch boundary; \
@@ -614,6 +623,52 @@ pub async fn validator_status_command(args: &ValidatorStatusArgs) -> CliResult {
     println!(" As of block: {} (last finalized)", snapshot.block_number);
 
     Ok(())
+}
+
+/// Whether `key` authored any of `blocks`, the node's top heights. Bonded and
+/// active say only that a validator may propose; this says whether it does.
+fn authorship(
+    key: &str,
+    requested: u32,
+    blocks: &[BlockSummary],
+    now: chrono::DateTime<chrono::Utc>,
+) -> CliResult<String> {
+    let (lowest, highest) = blocks
+        .iter()
+        .map(|block| block.number)
+        .fold(None, |span: Option<(i64, i64)>, n| {
+            Some(span.map_or((n, n), |(lo, hi)| (lo.min(n), hi.max(n))))
+        })
+        .ok_or("the node returned no recent blocks")?;
+    let served = highest - lowest + 1;
+    let mut window = format!("the last {served} heights (#{lowest}-#{highest})");
+    if served < i64::from(requested) {
+        window.push_str(&format!(
+            " (asked for {requested}; the node served {served})"
+        ));
+    }
+
+    let authored: Vec<&BlockSummary> = blocks
+        .iter()
+        .filter(|block| block.sender.eq_ignore_ascii_case(key))
+        .collect();
+    let Some(latest) = authored.iter().max_by_key(|block| block.number) else {
+        return Ok(format!("NOT PROPOSING: no block in {window}"));
+    };
+    let heights: BTreeSet<i64> = authored.iter().map(|block| block.number).collect();
+    let stamped = chrono::DateTime::from_timestamp_millis(latest.timestamp)
+        .ok_or_else(|| format!("block {} has timestamp {}", latest.hash, latest.timestamp))?;
+    Ok(format!(
+        "PROPOSING: blocks at {} of {window}; latest #{}, {}, {}",
+        heights.len(),
+        latest.number,
+        crate::dag::model::age_string(now - stamped),
+        if latest.finalized {
+            "finalized"
+        } else {
+            "not yet finalized"
+        }
+    ))
 }
 
 pub async fn epoch_info_command(args: &ReadOnlyGrpcArgs) -> CliResult {
@@ -1093,5 +1148,56 @@ mod block_transfers_tests {
     #[test]
     fn a_block_without_a_deploys_list_is_an_error() {
         assert!(block_deploys(&json!({"blockInfo": {}})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod authorship_tests {
+    use super::*;
+
+    const NOW_MS: i64 = 1_800_000_000_000;
+
+    fn block(number: i64, sender: &str, seconds_ago: i64, finalized: bool) -> BlockSummary {
+        BlockSummary {
+            hash: format!("{sender}{number}"),
+            number,
+            sender: sender.to_string(),
+            timestamp: NOW_MS - seconds_ago * 1000,
+            finalized,
+        }
+    }
+
+    fn line(key: &str, requested: u32, blocks: &[BlockSummary]) -> String {
+        let now = chrono::DateTime::from_timestamp_millis(NOW_MS).unwrap();
+        authorship(key, requested, blocks, now).unwrap()
+    }
+
+    #[test]
+    fn authored_heights_are_counted_once_and_the_latest_is_described() {
+        let blocks = [
+            block(10, "04ab", 30, true),
+            block(10, "04AB", 29, true),
+            block(10, "04cd", 30, true),
+            block(11, "04cd", 20, false),
+            block(12, "04ab", 4, false),
+        ];
+        assert_eq!(
+            line("04aB", 3, &blocks),
+            "PROPOSING: blocks at 2 of the last 3 heights (#10-#12); latest #12, 4s ago, \
+             not yet finalized"
+        );
+        assert!(line("04ab", 1, &[block(12, "04ab", -5, false)]).contains("latest #12, 5s ahead,"));
+    }
+
+    #[test]
+    fn a_silent_key_and_a_short_window_are_both_stated() {
+        let blocks = [block(40, "04cd", 9, true), block(41, "04cd", 3, false)];
+        assert_eq!(
+            line("04ab", 50, &blocks),
+            "NOT PROPOSING: no block in the last 2 heights (#40-#41) \
+             (asked for 50; the node served 2)"
+        );
+        let now = chrono::DateTime::from_timestamp_millis(NOW_MS).unwrap();
+        assert!(authorship("04ab", 50, &[], now).is_err());
     }
 }

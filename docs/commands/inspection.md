@@ -37,7 +37,7 @@ $ node_cli status --http http://localhost:40413
 |-------|-------------|
 | Native Token | Name, symbol, decimals — baked into genesis, immutable |
 | LFB Number | Last finalized block number (-1 if not yet initialized) |
-| Validator | Whether autopropose is enabled — **not** whether the node is a bonded validator (f1r3node-rust#429). A bonded, actively proposing validator reports `false` here. Use `validator-status` to check bonding |
+| Validator | Whether autopropose is enabled — **not** whether the node is a bonded validator (f1r3node-rust#429). A bonded, actively proposing validator reports `false` here. Use `validator-status` to check bonding and whether the validator proposes |
 | Read Only | Whether this node is in read-only mode |
 | Ready | Whether the engine has entered Running state |
 | Epoch | Current epoch and epoch length from genesis config |

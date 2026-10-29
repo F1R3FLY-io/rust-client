@@ -881,6 +881,10 @@ pub struct ValidatorStatusArgs {
     #[arg(short = 'k', long)]
     pub public_key: String,
 
+    /// Most recent heights to look for blocks the validator authored
+    #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u32).range(1..))]
+    pub window: u32,
+
     #[command(flatten)]
     pub node: ReadOnlyHttpArgs,
 }

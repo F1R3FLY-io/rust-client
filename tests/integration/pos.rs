@@ -61,11 +61,13 @@ fn genesis_reports_three_bonded_validators() {
 
     validator_status(&keys::VALIDATOR1.public)
         .expect_success("validator-status for a genesis validator")
-        .expect_contains("BONDED");
+        .expect_contains("BONDED")
+        .expect_contains("PROPOSING: blocks at");
 
     validator_status(keys::NEVER_BONDED_PUBLIC)
         .expect_success("validator-status for an unbonded key")
-        .expect_contains("NOT BONDED");
+        .expect_contains("NOT BONDED")
+        .expect_contains("NOT PROPOSING: no block");
 }
 
 /// Start the joiner, bond it, and watch it enter the active set at the next
@@ -86,6 +88,17 @@ fn a_joiner_bonds_and_becomes_active() {
     validator_status(&keys::VALIDATOR4.public)
         .expect_success("validator-status for the joiner")
         .expect_contains("ACTIVE");
+
+    // Active says the joiner may propose; only its blocks say it does.
+    chain::until(
+        "the joiner to author a block",
+        Duration::from_secs(120),
+        || {
+            validator_status(&keys::VALIDATOR4.public)
+                .expect_success("validator-status for the joiner")
+                .contains("PROPOSING: blocks at")
+        },
+    );
 }
 
 /// Unbonding takes the joiner out of the bond set and puts its stake into
