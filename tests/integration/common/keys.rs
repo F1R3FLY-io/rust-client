@@ -9,6 +9,12 @@ pub struct Key {
     pub address: &'static str,
 }
 
+impl Key {
+    pub fn signing_key(&self) -> node_cli::SigningKey {
+        node_cli::SigningKey::from_hex(self.private).expect("a valid test key")
+    }
+}
+
 pub const DEPLOY_A: Key = Key {
     private: "d00874be7317879581b01e70a1d67d6483c04958cdd485669559c901362ae277",
     public: "0443cef93c38aa007d406307b779af0e3015fed5092ddef83b49edea58cef1728f00eb8ac082ec09e41263db19ec0319586ebe4eaba30d98a703e6e900ae658da7",

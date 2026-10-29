@@ -43,11 +43,10 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     println!("Target: {}", args.node.grpc);
     println!();
 
-    // Derive sender address from private key
-    let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
-    let public_key = CryptoUtils::derive_public_key(&secret_key);
-    let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-    let sender_address = CryptoUtils::generate_vault_address(&public_key_hex)?;
+    let key = args.key.load()?;
+    let sender_address = CryptoUtils::generate_vault_address(&hex::encode(
+        key.public_key().serialize_uncompressed(),
+    ))?;
 
     // Check initial balances
     println!(" Checking initial wallet balances...");
@@ -83,7 +82,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     let api = args
         .node
         .api()?
-        .with_signing_key(&args.private_key)?
+        .with_signing_key(&key)
         .with_shard_id(&args.deploy.shard_id);
 
     let mut results = Vec::new();
@@ -94,7 +93,8 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
         println!();
 
         // Run single test with detailed logging
-        let result = run_single_test(&api, &node, args, test_num, &amount_dust).await?;
+        let result =
+            run_single_test(&api, &node, args, &sender_address, test_num, &amount_dust).await?;
 
         results.push(result);
 
@@ -118,6 +118,7 @@ async fn run_single_test(
     api: &F1r3flyApi,
     node: &NodeHttp,
     args: &LoadTestArgs,
+    sender_address: &str,
     test_num: u32,
     amount_dust: &num_bigint::BigUint,
 ) -> CliResult<TestResult> {
@@ -127,7 +128,7 @@ async fn run_single_test(
     println!(" [{}] Deploying transfer...", now_timestamp());
     let deploy_start = Instant::now();
 
-    let rholang = generate_transfer_contract(args, amount_dust)?;
+    let rholang = generate_transfer_contract(sender_address, args, amount_dust)?;
     let deploy_id = api
         .deploy(&rholang, &args.deploy.options(args.phlo_limit))
         .await?;
@@ -201,7 +202,7 @@ async fn run_single_test(
 
     // Step 5: Get wallet balance
     println!(" [{}] Checking wallet balance...", now_timestamp());
-    match get_wallet_balance(args).await {
+    match get_balance_for_address(sender_address, args).await {
         Ok(balance) => {
             println!(" [{}] Wallet balance: {}", now_timestamp(), balance);
         }
@@ -224,16 +225,10 @@ async fn run_single_test(
 }
 
 fn generate_transfer_contract(
+    from_address: &str,
     args: &LoadTestArgs,
     amount_dust: &num_bigint::BigUint,
 ) -> crate::Result<String> {
-    use crate::utils::CryptoUtils;
-
-    let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
-    let public_key = CryptoUtils::derive_public_key(&secret_key);
-    let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-    let from_address = CryptoUtils::generate_vault_address(&public_key_hex)?;
-
     let amount_literal = crate::vault::amount_literal(amount_dust)?;
     Ok(format!(
         r#"new 
@@ -341,19 +336,6 @@ async fn get_balance_for_address(address: &str, args: &LoadTestArgs) -> CliResul
         .await?;
 
     Ok(result.trim().to_string())
-}
-
-// Get wallet balance for the sender address (convenience wrapper)
-async fn get_wallet_balance(args: &LoadTestArgs) -> CliResult<String> {
-    use crate::utils::CryptoUtils;
-
-    // Derive sender address from private key
-    let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
-    let public_key = CryptoUtils::derive_public_key(&secret_key);
-    let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-    let sender_address = CryptoUtils::generate_vault_address(&public_key_hex)?;
-
-    get_balance_for_address(&sender_address, args).await
 }
 
 fn print_progress_stats(results: &[TestResult]) {

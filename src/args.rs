@@ -6,6 +6,7 @@ use crate::connection_manager::{DEFAULT_GRPC_URL, DEFAULT_HTTP_URL};
 use crate::endpoint::Endpoint;
 use crate::f1r3fly_api::F1r3flyApi;
 use crate::node_http::NodeHttp;
+use crate::signing_key::SigningKey;
 
 fn parse_endpoint(url: &str) -> Result<Endpoint, String> {
     Endpoint::parse(url).map_err(|e| e.to_string())
@@ -52,6 +53,42 @@ impl TransportArgs {
             cause,
         })?;
         Ok(endpoint.with_ca_certificates(pem)?)
+    }
+}
+
+/// Where a command's signing key comes from. A key is never taken as a flag
+/// value, which would leave it in shell history and the process list.
+#[derive(Args, Debug, Clone)]
+pub struct KeyArgs {
+    /// File holding the signing key's hex; it must not be readable by group or
+    /// others. Without it, the key is read from FIREFLY_PRIVATE_KEY
+    #[arg(long = "private-key-file")]
+    pub private_key_file: Option<PathBuf>,
+}
+
+impl KeyArgs {
+    pub fn load(&self) -> CliResult<SigningKey> {
+        Ok(self.load_optional()?.ok_or(crate::Error::MissingConfig {
+            var: "--private-key-file or FIREFLY_PRIVATE_KEY",
+        })?)
+    }
+
+    /// The key, or `None` when neither source is set.
+    pub fn load_optional(&self) -> CliResult<Option<SigningKey>> {
+        if let Some(path) = &self.private_key_file {
+            return Ok(Some(SigningKey::from_file(path)?));
+        }
+        match std::env::var("FIREFLY_PRIVATE_KEY") {
+            Ok(hex) => {
+                Ok(Some(SigningKey::from_hex(&hex).map_err(|e| {
+                    crate::Error::invalid("FIREFLY_PRIVATE_KEY", e)
+                })?))
+            }
+            Err(std::env::VarError::NotPresent) => Ok(None),
+            Err(std::env::VarError::NotUnicode(_)) => {
+                Err(crate::Error::invalid("FIREFLY_PRIVATE_KEY", "not unicode").into())
+            }
+        }
     }
 }
 
@@ -338,9 +375,8 @@ pub struct DeployAndWaitArgs {
     #[arg(short, long)]
     pub file: String,
 
-    /// Private key for deploy (--private-key or FIREFLY_PRIVATE_KEY env)
-    #[arg(short = 'k', long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     #[command(flatten)]
     pub wait: DeployWaitArgs,
@@ -412,9 +448,8 @@ pub struct DeployArgs {
     #[arg(short, long)]
     pub file: PathBuf,
 
-    /// Private key in hex format
-    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     #[command(flatten)]
     pub node: GrpcNodeArgs,
@@ -501,24 +536,21 @@ pub struct EstimateCostArgs {
 
     /// Hex-encoded 65-byte uncompressed secp256k1 public key (04-prefixed).
     /// Supplying this ensures the cost estimate accounts for identity-dependent
-    /// terms (e.g. vault transfers). Without it, the estimate may be
-    /// significantly lower than the real deploy cost.
+    /// terms (e.g. vault transfers). Without it, the deployer is derived from
+    /// the signing key when one is configured, and the estimate may otherwise
+    /// be significantly lower than the real deploy cost.
     #[arg(long)]
     pub deployer: Option<String>,
 
-    /// Private key in hex format. Convenience alternative to --deployer:
-    /// the public key is derived locally — the private key never leaves
-    /// this machine. If --deployer is provided, this is ignored.
-    #[arg(long = "private-key", env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: Option<String>,
+    #[command(flatten)]
+    pub key: KeyArgs,
 }
 
 /// Arguments for generate-public-key command
 #[derive(Parser)]
 pub struct GeneratePublicKeyArgs {
-    /// Private key in hex format
-    #[arg(short, long, env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     /// Output public key in compressed format (shorter)
     #[arg(short, long, default_value_t = false)]
@@ -544,13 +576,13 @@ pub struct GenerateKeyPairArgs {
 /// Arguments for generate-vault-address command
 #[derive(Parser)]
 pub struct GenerateVaultAddressArgs {
-    /// Public key in hex format (uncompressed format preferred)
-    #[arg(short, long, conflicts_with = "private_key")]
+    /// Public key in hex format (uncompressed format preferred). Without it,
+    /// the public key is derived from the signing key
+    #[arg(short, long, conflicts_with = "private_key_file")]
     pub public_key: Option<String>,
 
-    /// Private key in hex format (will derive public key from this)
-    #[arg(long, conflicts_with = "public_key")]
-    pub private_key: Option<String>,
+    #[command(flatten)]
+    pub key: KeyArgs,
 }
 
 /// Arguments for blocks command
@@ -630,9 +662,8 @@ pub struct BondValidatorArgs {
     #[arg(long = "phlo-limit", default_value_t = crate::pos::POS_CALL_PHLO_LIMIT)]
     pub phlo_limit: u64,
 
-    /// Private key for signing the deploy (hex format) - determines which validator gets bonded
-    #[arg(long)]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     /// Also propose a block after bonding
     #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
@@ -649,9 +680,8 @@ pub struct UnbondValidatorArgs {
     #[command(flatten)]
     pub wait: DeployWaitArgs,
 
-    /// Private key of the validator to unbond (hex format)
-    #[arg(long)]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     /// Most phlo the deploy may spend
     #[arg(long = "phlo-limit", default_value_t = crate::pos::POS_CALL_PHLO_LIMIT)]
@@ -696,9 +726,8 @@ pub struct TransferArgs {
     #[arg(short = 'd', long = "whole-tokens", default_value_t = false)]
     pub whole_tokens: bool,
 
-    /// Private key for signing the transfer (hex format)
-    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     #[command(flatten)]
     pub wait: DeployWaitArgs,
@@ -739,9 +768,8 @@ pub struct LoadTestArgs {
     #[arg(long, default_value_t = 10)]
     pub interval: u64,
 
-    /// Private key for signing (hex format)
-    #[arg(long, env = "FIREFLY_PRIVATE_KEY")]
-    pub private_key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
 
     #[command(flatten)]
     pub node: NodeArgs,
@@ -878,8 +906,6 @@ mod bigint_tests {
             "recipient",
             "--amount",
             "18446744073709551616",
-            "--private-key",
-            "test-key",
         ])
         .unwrap();
         assert_eq!(raw.amount, "18446744073709551616");
@@ -891,8 +917,6 @@ mod bigint_tests {
             "--amount",
             "1.000000000000000001",
             "--whole-tokens",
-            "--private-key",
-            "test-key",
         ])
         .unwrap();
         assert_eq!(tokens.amount, "1.000000000000000001");

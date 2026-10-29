@@ -50,10 +50,10 @@ impl F1r3flyApi {
         })
     }
 
-    /// Sign deploys with `signing_key`, a hex secp256k1 private key.
-    pub fn with_signing_key(mut self, signing_key: &str) -> Result<Self> {
-        self.signing_key = Some(crate::utils::CryptoUtils::decode_private_key(signing_key)?);
-        Ok(self)
+    /// Sign deploys with `signing_key`.
+    pub fn with_signing_key(mut self, signing_key: &crate::SigningKey) -> Self {
+        self.signing_key = Some(*signing_key.secret_key());
+        self
     }
 
     /// Sign deploys for this shard: the node's `casper.shard-name`. Without

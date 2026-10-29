@@ -5,11 +5,7 @@ use std::fs;
 use std::path::Path;
 
 pub fn generate_public_key_command(args: &GeneratePublicKeyArgs) -> CliResult {
-    // Decode private key using crypto utils
-    let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
-
-    // Derive public key from private key
-    let public_key = CryptoUtils::derive_public_key(&secret_key);
+    let public_key = args.key.load()?.public_key();
 
     // Serialize public key in the requested format
     let public_key_hex = CryptoUtils::serialize_public_key(&public_key, args.compressed);
@@ -74,17 +70,13 @@ pub fn generate_key_pair_command(args: &GenerateKeyPairArgs) -> CliResult {
 
 pub fn generate_vault_address_command(args: &GenerateVaultAddressArgs) -> CliResult {
     // Determine the public key to use
-    let public_key_hex = if let Some(public_key_hex) = &args.public_key {
-        // Use provided public key
-        public_key_hex.clone()
-    } else if let Some(private_key_hex) = &args.private_key {
-        // Derive public key from private key
-        let secret_key = CryptoUtils::decode_private_key(private_key_hex)?;
-        let public_key = CryptoUtils::derive_public_key(&secret_key);
-        // Use uncompressed format for vault address generation
-        CryptoUtils::serialize_public_key(&public_key, false)
-    } else {
-        return Err("either --public-key or --private-key must be provided".into());
+    let public_key_hex = match (&args.public_key, args.key.load_optional()?) {
+        (Some(public_key_hex), _) => public_key_hex.clone(),
+        (None, Some(key)) => CryptoUtils::serialize_public_key(&key.public_key(), false),
+        (None, None) => return Err(
+            "pass --public-key, or a signing key with --private-key-file or FIREFLY_PRIVATE_KEY"
+                .into(),
+        ),
     };
 
     if !CryptoUtils::is_valid_public_key(&public_key_hex) {

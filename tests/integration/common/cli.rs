@@ -64,12 +64,14 @@ impl Output {
 /// A `node_cli` invocation against the shard.
 pub struct Cli {
     args: Vec<String>,
+    env: Vec<(&'static str, String)>,
 }
 
 impl Cli {
     pub fn new(command: &str) -> Self {
         Cli {
             args: vec![command.to_string()],
+            env: Vec::new(),
         }
     }
 
@@ -101,13 +103,26 @@ impl Cli {
         self.args(["--observer".to_string(), node.http_endpoint()])
     }
 
-    pub fn key(self, key: &super::keys::Key) -> Self {
-        self.args(["--private-key".to_string(), key.private.to_string()])
+    /// Sign with `key`, passed through the environment as a user would rather
+    /// than on the command line.
+    pub fn key(mut self, key: &super::keys::Key) -> Self {
+        self.env
+            .push(("FIREFLY_PRIVATE_KEY", key.private.to_string()));
+        self
     }
 
+    /// Run with only this invocation's settings: `FIREFLY_*` variables from
+    /// the caller's shell are removed so they cannot change what is tested.
     pub fn run(self) -> Output {
-        let output = Command::new(env!("CARGO_BIN_EXE_node_cli"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_node_cli"));
+        for (var, _) in std::env::vars_os() {
+            if var.to_string_lossy().starts_with("FIREFLY_") {
+                command.env_remove(var);
+            }
+        }
+        let output = command
             .args(&self.args)
+            .envs(self.env.iter().map(|(var, value)| (var, value)))
             .output()
             .unwrap_or_else(|e| panic!("could not run node_cli {:?}: {e}", self.args));
 
