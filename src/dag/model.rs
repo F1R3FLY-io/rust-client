@@ -85,16 +85,20 @@ impl DagBlock {
 
     /// Human-readable age string
     pub fn age_string(&self) -> String {
-        let age = self.age();
-        if age.num_seconds() < 60 {
-            format!("{}s ago", age.num_seconds())
-        } else if age.num_minutes() < 60 {
-            format!("{}m ago", age.num_minutes())
-        } else if age.num_hours() < 24 {
-            format!("{}h ago", age.num_hours())
-        } else {
-            format!("{}d ago", age.num_days())
-        }
+        age_string(self.age())
+    }
+}
+
+/// `age` in its largest whole unit, as "5s ago" or "3h ago".
+pub fn age_string(age: chrono::Duration) -> String {
+    if age.num_seconds() < 60 {
+        format!("{}s ago", age.num_seconds())
+    } else if age.num_minutes() < 60 {
+        format!("{}m ago", age.num_minutes())
+    } else if age.num_hours() < 24 {
+        format!("{}h ago", age.num_hours())
+    } else {
+        format!("{}d ago", age.num_days())
     }
 }
 

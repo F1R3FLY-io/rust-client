@@ -95,6 +95,21 @@ impl ExploratoryValues {
     }
 }
 
+/// A block as the node's block listings describe it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct BlockSummary {
+    #[serde(rename = "blockHash")]
+    pub hash: String,
+    #[serde(rename = "blockNumber")]
+    pub number: i64,
+    /// The author's public key, as hex.
+    pub sender: String,
+    /// Milliseconds since the Unix epoch, as the author stamped it.
+    pub timestamp: i64,
+    #[serde(rename = "isFinalized")]
+    pub finalized: bool,
+}
+
 /// A vault's native-token balance at one block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Balance {

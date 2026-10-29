@@ -144,14 +144,12 @@ node_cli validator-status --public-key <joiner public key> --http http://localho
 ```
  BONDED: stake 100
  ACTIVE: participating in consensus
+ PROPOSING: blocks at 6 of the last 50 heights (#151-#200); latest #200, 3s ago, not yet finalized
 ```
 
-From here it is a block producer; its public key appears as the `validator`
-of blocks it authors:
-
-```bash
-node_cli blocks --http http://localhost:40413
-```
+`ACTIVE` says the joiner may propose; `PROPOSING` says it has, counting the
+recent heights at which it authored a block. Right after activation the count
+is small and grows with each height it proposes at.
 
 ## 6. Unbond
 
@@ -229,8 +227,11 @@ node`.** The query ran against a validator. Point it at the read-only node —
 The command reads over HTTP but was given a gRPC endpoint. Use
 `--http http://localhost:40453`.
 
-**The joiner runs but never proposes.** Being bonded is not enough — it has to
-be in the *active* set, which only changes at an epoch boundary. Note that
-`/api/status` cannot be used to check this: its `isValidator` field reports
-whether autopropose is enabled, not whether the node is a validator
-(f1r3node-rust#429). Use `validator-status`.
+**The joiner runs but never proposes.** `validator-status` reports `NOT
+PROPOSING`. Being bonded is not enough — it has to be in the *active* set,
+which only changes at an epoch boundary, so check for `ACTIVE` first. If it is
+active and still not proposing, the node is the problem, not its bond: read its
+logs. Note that `/api/status`
+cannot be used to check any of this: its `isValidator` field reports whether
+autopropose is enabled, not whether the node is a validator
+(f1r3node-rust#429).
