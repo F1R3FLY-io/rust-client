@@ -2,6 +2,7 @@
 
 use libtest_mimic::Trial;
 
+use crate::common::chain;
 use crate::common::cli::Cli;
 use crate::common::keys::{self, Key};
 use crate::common::node::Node;
@@ -57,13 +58,14 @@ const AMOUNT: u64 = 1_000_000;
 fn a_transfer_moves_exactly_the_amount() {
     let before = balance(&keys::TRANSFER_RECIPIENT.address);
 
-    transfer(
+    let sent = transfer(
         &keys::TRANSFER_SENDER,
         &keys::TRANSFER_RECIPIENT.address,
         AMOUNT,
     )
     .expect_success("transfer")
     .expect_contains("Transfer complete");
+    chain::finalized_on_read_only(&sent);
 
     let after = balance(&keys::TRANSFER_RECIPIENT.address);
     assert_eq!(
@@ -79,13 +81,16 @@ fn an_overdraft_fails_and_moves_nothing() {
     let sender = balance(&keys::OVERDRAFT_TRANSFER.address);
     let recipient = balance(&keys::IDLE_RECIPIENT.address);
 
-    transfer(
+    let refused = transfer(
         &keys::OVERDRAFT_TRANSFER,
         &keys::IDLE_RECIPIENT.address,
         u64::from(u32::MAX) * 1_000_000,
     )
     .expect_failure("an overdrawing transfer")
     .expect_contains("Insufficient funds");
+    // Without this, a balance read before the deploy settles would pass even
+    // if the transfer had moved tokens.
+    chain::finalized_on_read_only(&refused);
 
     assert_eq!(
         balance(&keys::IDLE_RECIPIENT.address),
@@ -103,6 +108,7 @@ fn an_overdraft_fails_and_moves_nothing() {
 fn the_block_report_describes_the_transfer() {
     let sent =
         transfer(&keys::REPORT_SENDER, &keys::SPARE.address, AMOUNT).expect_success("transfer");
+    chain::finalized_on_read_only(&sent);
     let block = sent.value_after("Block hash:").to_string();
 
     Cli::new("block-transfers")
