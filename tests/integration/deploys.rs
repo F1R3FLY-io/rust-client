@@ -6,6 +6,7 @@ use libtest_mimic::Trial;
 use node_cli::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use node_cli::{vault, DeployOptions, Endpoint, F1r3flyApi};
 
+use crate::common::chain;
 use crate::common::cli::Cli;
 use crate::common::contracts;
 use crate::common::keys::{self, Key};
@@ -160,6 +161,9 @@ fn deploy_status_reports_a_finalized_deploy() {
         )
         .expect("deploy-and-wait")
         .deploy_id;
+    // The verdict may have come from validator1; the read-only node settles
+    // the deploy on its own schedule.
+    chain::settled_on(Node::ReadOnly, &deploy_id, Duration::from_secs(60));
 
     Cli::new("deploy-status")
         .args(["--sig", &deploy_id])
