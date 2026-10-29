@@ -2,6 +2,7 @@
 
 use super::{rejected, F1r3flyApi};
 use crate::error::{Error, Result};
+use crate::f1r3fly_api::{BlockRef, ExploratoryResult};
 use crate::utils::http::EXPLORATORY_RETRY_BACKOFF;
 use f1r3fly_models::casper::v1::exploratory_deploy_response::Message as ExploratoryDeployResponseMessage;
 use f1r3fly_models::casper::v1::rho_data_response;
@@ -26,7 +27,7 @@ impl F1r3flyApi {
         rho_code: &str,
         block_hash: Option<&str>,
         use_pre_state_hash: bool,
-    ) -> Result<(String, String, u64)> {
+    ) -> Result<ExploratoryResult> {
         let mut client = self.deploy_client().await?;
 
         let query = ExploratoryDeployQuery {
@@ -56,47 +57,29 @@ impl F1r3flyApi {
             }
         };
 
-        let resp = response.get_ref();
-        let cost = resp.cost;
-
-        let message = resp
+        let response = response.into_inner();
+        match response
             .message
-            .as_ref()
-            .ok_or_else(|| Error::decode("exploratory deploy response", "empty message"))?;
-
-        match message {
+            .ok_or_else(|| Error::decode("exploratory deploy response", "empty message"))?
+        {
             ExploratoryDeployResponseMessage::Error(error) => {
-                Err(rejected("the exploratory deploy", error))
+                Err(rejected("the exploratory deploy", &error))
             }
             ExploratoryDeployResponseMessage::Result(result) => {
-                let data = if !result.post_block_data.is_empty() {
-                    result
-                        .post_block_data
-                        .iter()
-                        .enumerate()
-                        .map(|(i, par)| {
-                            extract_par_data(par).unwrap_or_else(|| {
-                                format!("Result {}: Complex data structure", i + 1)
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                } else {
-                    "No data returned".to_string()
-                };
-
-                let block_info = result
-                    .block
-                    .as_ref()
-                    .map(|b| {
-                        format!(
-                            "Block hash: {}, Block number: {}",
-                            b.block_hash, b.block_number
-                        )
-                    })
-                    .unwrap_or_else(|| "No block info".to_string());
-
-                Ok((data, block_info, cost))
+                let block = result.block.ok_or_else(|| {
+                    Error::decode(
+                        "exploratory deploy response",
+                        "it does not name the block it read",
+                    )
+                })?;
+                Ok(ExploratoryResult {
+                    data: result.post_block_data,
+                    block: BlockRef {
+                        hash: block.block_hash,
+                        number: block.block_number,
+                    },
+                    cost: response.cost,
+                })
             }
         }
     }
@@ -134,115 +117,6 @@ impl F1r3flyApi {
                 Err(rejected("the getDataAtName read", &error))
             }
             None => Err(Error::decode("getDataAtName response", "empty message")),
-        }
-    }
-}
-
-pub fn extract_par_data(par: &Par) -> Option<String> {
-    use f1r3fly_models::rhoapi::expr::ExprInstance;
-
-    if !par.exprs.is_empty() && par.exprs[0].expr_instance.is_some() {
-        let expr = &par.exprs[0];
-        if let Some(instance) = &expr.expr_instance {
-            match instance {
-                ExprInstance::GString(s) => Some(format!("\"{s}\"")),
-                ExprInstance::GUri(u) => Some(format!("`{u}`")),
-                ExprInstance::GInt(i) => Some(i.to_string()),
-                ExprInstance::GBigInt(bytes) => {
-                    Some(num_bigint::BigInt::from_signed_bytes_be(bytes).to_string())
-                }
-                ExprInstance::GBool(b) => Some(b.to_string()),
-                ExprInstance::GByteArray(bytes) => Some(format!("0x{}", hex::encode(bytes))),
-                ExprInstance::EListBody(list) => {
-                    let items: Vec<String> = list
-                        .ps
-                        .iter()
-                        .map(|p| extract_par_data(p).unwrap_or_else(|| "?".to_string()))
-                        .collect();
-                    Some(format!("[{}]", items.join(", ")))
-                }
-                ExprInstance::ETupleBody(tup) => {
-                    let items: Vec<String> = tup
-                        .ps
-                        .iter()
-                        .map(|p| extract_par_data(p).unwrap_or_else(|| "?".to_string()))
-                        .collect();
-                    Some(format!("({})", items.join(", ")))
-                }
-                ExprInstance::ESetBody(set) => {
-                    let items: Vec<String> = set
-                        .ps
-                        .iter()
-                        .map(|p| extract_par_data(p).unwrap_or_else(|| "?".to_string()))
-                        .collect();
-                    Some(format!("Set({{{}}})", items.join(", ")))
-                }
-                ExprInstance::EMapBody(map) => {
-                    let items: Vec<String> = map
-                        .kvs
-                        .iter()
-                        .map(|kv| {
-                            let k = kv
-                                .key
-                                .as_ref()
-                                .and_then(extract_par_data)
-                                .unwrap_or_else(|| "?".to_string());
-                            let v = kv
-                                .value
-                                .as_ref()
-                                .and_then(extract_par_data)
-                                .unwrap_or_else(|| "?".to_string());
-                            format!("{k}: {v}")
-                        })
-                        .collect();
-                    Some(format!("{{{}}}", items.join(", ")))
-                }
-                _ => Some("Complex expression".to_string()),
-            }
-        } else {
-            None
-        }
-    } else if !par.sends.is_empty() {
-        Some("Send operation".to_string())
-    } else if !par.receives.is_empty() {
-        Some("Receive operation".to_string())
-    } else if !par.news.is_empty() {
-        Some("New declaration".to_string())
-    } else {
-        None
-    }
-}
-
-#[cfg(test)]
-mod bigint_tests {
-    use super::*;
-    use f1r3fly_models::rhoapi::{expr::ExprInstance, EList, Expr};
-    use num_bigint::BigInt;
-
-    #[test]
-    fn decodes_signed_bigints_and_nested_values_exactly() {
-        for value in [
-            BigInt::from(0),
-            (BigInt::from(1) << 200usize) + 1,
-            -(BigInt::from(1) << 200usize) - 1,
-        ] {
-            let par = Par {
-                exprs: vec![Expr {
-                    expr_instance: Some(ExprInstance::GBigInt(value.to_signed_bytes_be())),
-                }],
-                ..Default::default()
-            };
-            assert_eq!(extract_par_data(&par), Some(value.to_string()));
-            let list = Par {
-                exprs: vec![Expr {
-                    expr_instance: Some(ExprInstance::EListBody(EList {
-                        ps: vec![par],
-                        ..Default::default()
-                    })),
-                }],
-                ..Default::default()
-            };
-            assert_eq!(extract_par_data(&list), Some(format!("[{value}]")));
         }
     }
 }

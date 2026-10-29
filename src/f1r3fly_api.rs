@@ -3,15 +3,106 @@
 //! The gRPC client is split across `grpc/` submodules:
 //! - `grpc::deploy` prepare, submit, deploy, propose
 //! - `grpc::query` exploratory_deploy, get_data_at_deploy_id
+//!
+//! Values in results decode to [`RhoValue`].
 //! - `grpc::blocks` show_main_chain, get_blocks_by_height, is_finalized, tip sampling
 //!
 //! The HTTP client is [`crate::node_http::NodeHttp`].
 
+use f1r3fly_models::rhoapi::Par;
 use serde::{Deserialize, Serialize};
 
-// Re-export the client and helpers from the grpc module
-pub use crate::grpc::query::extract_par_data;
+use crate::error::{Error, Result};
+use crate::rho_value::RhoValue;
+
 pub use crate::grpc::F1r3flyApi;
+
+/// A block a read ran against.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct BlockRef {
+    #[serde(rename = "blockHash")]
+    pub hash: String,
+    #[serde(rename = "blockNumber")]
+    pub number: i64,
+}
+
+/// What an exploratory deploy returned over gRPC.
+#[derive(Debug, Clone)]
+pub struct ExploratoryResult {
+    /// The data the term sent to the first name it declares, as in
+    /// `new return in { return!(...) }`.
+    pub data: Vec<Par>,
+    pub block: BlockRef,
+    pub cost: u64,
+}
+
+impl ExploratoryResult {
+    pub fn values(&self) -> Result<Vec<RhoValue>> {
+        self.data.iter().map(RhoValue::try_from).collect()
+    }
+
+    /// The one value the term returned.
+    pub fn value(&self) -> Result<RhoValue> {
+        match self.data.as_slice() {
+            [par] => RhoValue::try_from(par),
+            data => Err(Error::decode(
+                "exploratory deploy result",
+                format!("expected one value, got {}", data.len()),
+            )),
+        }
+    }
+}
+
+/// What an exploratory deploy returned over HTTP, already decoded. The node's
+/// HTTP encoding writes map keys as strings and drops `Nil` elements.
+#[derive(Debug, Clone)]
+pub struct ExploratoryValues {
+    pub values: Vec<RhoValue>,
+    pub block: BlockRef,
+    pub cost: u64,
+}
+
+impl ExploratoryValues {
+    /// Decode a `/api/explore-deploy` response.
+    pub(crate) fn from_node_json(json: serde_json::Value) -> Result<Self> {
+        #[derive(Deserialize)]
+        struct Response {
+            expr: Vec<serde_json::Value>,
+            block: BlockRef,
+            cost: u64,
+        }
+        let response: Response = serde_json::from_value(json)
+            .map_err(|e| Error::decode("exploratory deploy response", e))?;
+        Ok(ExploratoryValues {
+            values: response
+                .expr
+                .iter()
+                .map(RhoValue::from_node_json)
+                .collect::<Result<_>>()?,
+            block: response.block,
+            cost: response.cost,
+        })
+    }
+
+    /// The one value the term returned.
+    pub fn value(&self) -> Result<&RhoValue> {
+        match self.values.as_slice() {
+            [value] => Ok(value),
+            values => Err(Error::decode(
+                "exploratory deploy result",
+                format!("expected one value, got {}", values.len()),
+            )),
+        }
+    }
+}
+
+/// A vault's native-token balance at one block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Balance {
+    pub address: String,
+    pub dust: num_bigint::BigUint,
+    pub block: BlockRef,
+}
 
 /// Node status from `/api/status`.
 #[derive(Debug, Clone, Serialize, Deserialize)]

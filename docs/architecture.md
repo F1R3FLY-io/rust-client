@@ -73,6 +73,7 @@ Data is read AFTER finalization, not before. Reading before finalization can ret
 | `GET /api/deploy/{id}` | get_deploy_detail, get_deploy_block_hash | Deploy execution details |
 | `GET /api/deploy-finalization-status/{sig}` | deploy_finalization_status, wait_for_deploy_finalization | Canonical-state verdict; polled on the deploy node and the observer, if any, together |
 | `POST /api/explore-deploy` | NodeHttp::explore_deploy (fetch_pos_snapshot, epoch-rewards) | Read-only node only |
+| `GET /api/balance/{address}` | NodeHttp::balance (wallet-balance, load-test) | Read-only node only |
 | `GET /api/bond-status/{pk}` | bond-status | Bond state for a public key |
 | `GET /api/status` | status, token metadata, tip sampling | Node identity and chain position |
 | `GET /metrics` | network-health | Prometheus metrics |

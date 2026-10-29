@@ -303,39 +303,12 @@ async fn is_on_main_chain_fast(api: &F1r3flyApi, block_hash: &str, depth: u32) -
     Ok(blocks.iter().any(|b| b.block_hash == block_hash))
 }
 
-// Get wallet balance for any address
-async fn get_balance_for_address(address: &str, args: &LoadTestArgs) -> CliResult<String> {
-    // Build the Rholang query to get wallet balance
-    let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
- rl!(`rho:vault:system`, *systemVaultCh) |
- for (@(_, SystemVault) <- systemVaultCh) {{
- @SystemVault!("findOrCreate", "{address}", *vaultCh) |
- for (@either <- vaultCh) {{
- match either {{
- (true, vault) => {{
- @vault!("balance", *balanceCh) |
- for (@balance <- balanceCh) {{
- return!(balance)
- }}
- }}
- (false, errorMsg) => {{
- return!(errorMsg)
- }}
- }}
- }}
- }}
- }}"#
-    );
-
-    let readonly_api = F1r3flyApi::new(args.node.transport.apply(&args.readonly_grpc)?)?;
-
-    // Execute exploratory deploy to get balance on read-only node
-    let (result, _block_info, _cost) = readonly_api
-        .exploratory_deploy(&rholang_query, None, false)
-        .await?;
-
-    Ok(result.trim().to_string())
+async fn get_balance_for_address(
+    address: &str,
+    args: &LoadTestArgs,
+) -> CliResult<num_bigint::BigUint> {
+    let readonly = NodeHttp::new(args.node.transport.apply(&args.readonly_http)?)?;
+    Ok(readonly.balance(address, None).await?.dust)
 }
 
 fn print_progress_stats(results: &[TestResult]) {

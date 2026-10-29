@@ -12,13 +12,13 @@ Native Rust command for testing orphan rates by sending multiple transfers with 
 # Basic usage (20 tests, 1 REV, 10s interval)
 cargo run -- load-test --to-address "111129p33f7vaRrpLqK8Nr35Y2aacAjrR5pd6PCzqcdrMuPHzymczH" \
   --grpc http://localhost:40412 --http http://localhost:40413 \
-  --readonly-grpc http://localhost:40452
+  --readonly-http http://localhost:40453
 
 # Custom configuration
 cargo run -- load-test \
   --to-address "111129p33f7vaRrpLqK8Nr35Y2aacAjrR5pd6PCzqcdrMuPHzymczH" \
   --grpc http://localhost:40412 --http http://localhost:40413 \
-  --readonly-grpc http://localhost:40452 \
+  --readonly-http http://localhost:40453 \
   --num-tests 50 \
   --amount 5 \
   --interval 15 \
@@ -36,7 +36,7 @@ cargo run -- load-test \
 - `--private-key-file` - File holding the signing key's hex, not readable by group or others (or set `FIREFLY_PRIVATE_KEY_FILE` or `FIREFLY_PRIVATE_KEY`); required
 - `--grpc` - gRPC endpoint URL (default: `http://localhost:40401`) — must be a bonded validator
 - `--http` - HTTP endpoint URL of the same node (default: `http://localhost:40403`)
-- `--readonly-grpc` - gRPC endpoint URL of a read-only node for balance checks (required)
+- `--readonly-http` - HTTP endpoint URL of a read-only node for balance checks (required)
 - `--ca-cert`, `--connect-timeout`, `--timeout` - TLS trust and timeouts, as for every command
 
 ### Features
@@ -81,10 +81,10 @@ Check interval: 1s (fast mode)
 
 **Light testing (devnet):**
 ```bash
-cargo run -- load-test --to-address "111..." --readonly-grpc http://localhost:40452 --num-tests 10 --amount 1 --interval 15
+cargo run -- load-test --to-address "111..." --readonly-http http://localhost:40453 --num-tests 10 --amount 1 --interval 15
 ```
 
 **Performance testing:**
 ```bash
-cargo run -- load-test --to-address "111..." --readonly-grpc http://localhost:40452 --num-tests 50 --amount 1 --interval 5
+cargo run -- load-test --to-address "111..." --readonly-http http://localhost:40453 --num-tests 50 --amount 1 --interval 5
 ```

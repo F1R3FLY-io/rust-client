@@ -51,6 +51,15 @@ impl Output {
             .unwrap_or_else(|| panic!("no {label:?} in output:\n{}", self.text))
     }
 
+    pub fn expect_not_contains(self, needle: &str) -> Self {
+        assert!(
+            !self.contains(needle),
+            "output contains {needle:?}:\n{}",
+            self.text
+        );
+        self
+    }
+
     pub fn expect_contains(self, needle: &str) -> Self {
         assert!(
             self.contains(needle),

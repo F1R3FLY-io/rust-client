@@ -73,7 +73,7 @@ pub static VALIDATOR4: Role = Role::new(Key::generate);
 /// have bonded, for the negative side of the bond-status assertions.
 pub const NEVER_BONDED_PUBLIC: &str = "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8";
 
-const FUNDED: &str = "50000000000000000";
+pub const FUNDED: &str = "50000000000000000";
 const SCARCELY_FUNDED: &str = "1000000";
 
 /// Each vault funded at genesis: its role's name, key and balance.

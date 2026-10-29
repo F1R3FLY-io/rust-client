@@ -1,0 +1,3 @@
+new return in {
+  return!((-1, 2n, 3u64, -4i32, 5u8, 1.5f64, 7r, 12.50p2, "s", `rho:id:x`, [true, false], Set(1), {"k": 7u16}))
+}

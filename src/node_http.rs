@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::endpoint::Endpoint;
 use crate::error::{Error, Result};
-use crate::f1r3fly_api::{DeployDetail, DeployFinalizationStatus};
+use crate::f1r3fly_api::{
+    Balance, BlockRef, DeployDetail, DeployFinalizationStatus, ExploratoryValues,
+};
 use crate::utils::http::{http_error, is_deploy_not_found, json, send, EXPLORATORY_RETRY_BACKOFF};
 
 /// A node's HTTP API at one endpoint. Cloning shares the connection pool.
@@ -165,7 +167,7 @@ impl NodeHttp {
     /// A node admits only `api-server.exploratory-deploy-max-concurrent`
     /// exploratory queries and answers the excess with 503 instead of queueing
     /// it, so an occupied slot is retried on [`EXPLORATORY_RETRY_BACKOFF`].
-    pub async fn explore_deploy(&self, term: &str) -> Result<serde_json::Value> {
+    pub async fn explore_deploy(&self, term: &str) -> Result<ExploratoryValues> {
         let url = self.endpoint.join("/api/explore-deploy");
         let body = serde_json::json!({ "term": term });
         let mut backoff = EXPLORATORY_RETRY_BACKOFF.iter();
@@ -173,7 +175,9 @@ impl NodeHttp {
             let response = send(self.client.post(&url).json(&body), &url).await?;
             let status = response.status();
             if status.is_success() {
-                return json(response, &url, "exploratory deploy").await;
+                return ExploratoryValues::from_node_json(
+                    json(response, &url, "exploratory deploy").await?,
+                );
             }
             match backoff.next() {
                 Some(delay) if status == reqwest::StatusCode::SERVICE_UNAVAILABLE => {
@@ -183,6 +187,36 @@ impl NodeHttp {
             }
         }
     }
+
+    /// The native-token balance of `address`, at `block_hash` or else the last
+    /// finalized block, through `GET /api/balance/{address}`, which only a
+    /// read-only node serves. A vault the node cannot look up is an error.
+    pub async fn balance(&self, address: &str, block_hash: Option<&str>) -> Result<Balance> {
+        crate::vault::validate_address(address)?;
+        let mut url = self.endpoint.join(&format!("/api/balance/{address}"));
+        if let Some(block_hash) = block_hash {
+            url.push_str(&format!("?block_hash={block_hash}"));
+        }
+        let response = send(self.client.get(&url), &url).await?;
+        if !response.status().is_success() {
+            return Err(http_error(response, &url).await);
+        }
+        let balance: BalanceResponse = json(response, &url, "balance").await?;
+        Ok(Balance {
+            dust: crate::vault::parse_amount(&balance.balance)
+                .map_err(|e| Error::decode("balance", e))?,
+            address: balance.address,
+            block: balance.block,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct BalanceResponse {
+    address: String,
+    balance: String,
+    #[serde(flatten)]
+    block: BlockRef,
 }
 
 #[derive(Serialize)]

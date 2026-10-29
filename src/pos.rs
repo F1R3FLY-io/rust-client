@@ -5,13 +5,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use f1r3fly_models::rhoapi::expr::ExprInstance;
 use f1r3fly_models::rhoapi::Par;
 use num_bigint::BigUint;
-use serde_json::Value;
 
 use crate::error::{Contract, Error, Result};
-use crate::rholang_helpers::convert_rholang_to_json;
+use crate::f1r3fly_api::ExploratoryValues;
+use crate::rho_value::RhoValue;
 
 /// Phlo limit of a bond or withdrawal deploy.
 pub const POS_CALL_PHLO_LIMIT: u64 = 5_000_000_000;
@@ -104,123 +103,74 @@ impl PosSnapshot {
 }
 
 /// Parse an explore-deploy response to [`POS_SNAPSHOT_QUERY`].
-pub fn parse_pos_snapshot(response: &Value) -> Result<PosSnapshot> {
-    let expr = response
-        .get("expr")
-        .and_then(Value::as_array)
-        .and_then(|exprs| exprs.first())
-        .ok_or_else(|| malformed(format!("response carries no PoS state: {response}")))?;
-    let [bonds, active, pending, withdrawers, quarantine] = expr
-        .get("ExprTuple")
-        .and_then(|v| v.get("data"))
-        .and_then(Value::as_array)
-        .and_then(|parts| <&[Value; 5]>::try_from(parts.as_slice()).ok())
-        .ok_or_else(|| {
-            malformed(format!(
-                "expected (bonds, active, pendingWithdrawers, withdrawers, quarantineLength), \
-                 got {expr}"
-            ))
-        })?;
-    let block_number = response
-        .get("block")
-        .and_then(|block| block.get("blockNumber"))
-        .and_then(Value::as_i64)
-        .ok_or_else(|| {
-            malformed(format!(
-                "response does not name the block it read: {response}"
-            ))
-        })?;
+pub fn parse_pos_snapshot(response: &ExploratoryValues) -> Result<PosSnapshot> {
+    let state = response
+        .values
+        .first()
+        .ok_or_else(|| malformed("response carries no PoS state"))?;
+    let [bonds, active, pending, withdrawers, quarantine] = match state {
+        RhoValue::Tuple(parts) => <&[RhoValue; 5]>::try_from(parts.as_slice()).ok(),
+        _ => None,
+    }
+    .ok_or_else(|| {
+        malformed(format!(
+            "expected (bonds, active, pendingWithdrawers, withdrawers, quarantineLength), \
+             got {state}"
+        ))
+    })?;
 
-    let quarantine = convert_rholang_to_json(quarantine)?;
     Ok(PosSnapshot {
-        block_number,
-        bonds: amount_map(bonds)?,
-        active: key_set(&convert_rholang_to_json(active)?)?,
-        pending_withdrawals: integer_map(&convert_rholang_to_json(pending)?, "pendingWithdrawers")?,
-        withdrawals: withdrawal_map(withdrawers)?,
-        quarantine_length: quarantine.as_i64().ok_or_else(|| {
-            malformed(format!("quarantineLength is not an integer: {quarantine}"))
+        block_number: response.block.number,
+        bonds: map(bonds, "bonds", |stake| stake.as_amount())?,
+        active: active
+            .elements()
+            .ok_or_else(|| malformed(format!("activeValidators is not a set: {active}")))?
+            .iter()
+            .map(public_key)
+            .collect::<Result<_>>()?,
+        pending_withdrawals: map(pending, "pendingWithdrawers", |end| {
+            integer(end, "quarantine end")
         })?,
+        withdrawals: map(withdrawers, "withdrawers", |pair| match pair.elements() {
+            Some([stake, end]) if matches!(pair, RhoValue::Tuple(_)) => Ok(Withdrawal {
+                stake: stake.as_amount()?,
+                quarantine_end: integer(end, "quarantine end")?,
+            }),
+            _ => Err(malformed(format!(
+                "withdrawal {pair} is not a (stake, quarantineEnd) pair"
+            ))),
+        })?,
+        quarantine_length: integer(quarantine, "quarantineLength")?,
     })
 }
 
-fn integer_map(value: &Value, name: &str) -> Result<BTreeMap<String, i64>> {
+fn integer(value: &RhoValue, name: &str) -> Result<i64> {
     value
-        .as_object()
+        .as_i64()
+        .ok_or_else(|| malformed(format!("{name} is not an integer: {value}")))
+}
+
+/// A validator's public key as lowercase hex. Over HTTP the node writes a key
+/// that was a byte array as its hex string.
+fn public_key(value: &RhoValue) -> Result<String> {
+    match value {
+        RhoValue::Bytes(bytes) => Ok(hex::encode(bytes)),
+        RhoValue::String(text) => Ok(text.to_ascii_lowercase()),
+        _ => Err(malformed(format!("{value} is not a public key"))),
+    }
+}
+
+/// A PoS map keyed by validator public key.
+fn map<T>(
+    value: &RhoValue,
+    name: &str,
+    entry: impl Fn(&RhoValue) -> Result<T>,
+) -> Result<BTreeMap<String, T>> {
+    value
+        .entries()
         .ok_or_else(|| malformed(format!("{name} is not a map: {value}")))?
         .iter()
-        .map(|(key, entry)| {
-            entry
-                .as_i64()
-                .map(|n| (key.to_ascii_lowercase(), n))
-                .ok_or_else(|| malformed(format!("{name}[{key}] is not an integer: {entry}")))
-        })
-        .collect()
-}
-
-fn key_set(value: &Value) -> Result<BTreeSet<String>> {
-    value
-        .as_array()
-        .ok_or_else(|| malformed(format!("activeValidators is not a set: {value}")))?
-        .iter()
-        .map(|key| {
-            key.as_str().map(str::to_ascii_lowercase).ok_or_else(|| {
-                malformed(format!("activeValidators entry is not a public key: {key}"))
-            })
-        })
-        .collect()
-}
-
-fn amount_map(value: &Value) -> Result<BTreeMap<String, BigUint>> {
-    value
-        .get("ExprMap")
-        .and_then(|v| v.get("data"))
-        .and_then(Value::as_object)
-        .ok_or_else(|| malformed(format!("bonds is not a map: {value}")))?
-        .iter()
-        .map(|(key, value)| {
-            crate::rholang_helpers::rholang_amount(value)
-                .map(|stake| (key.to_ascii_lowercase(), stake))
-        })
-        .collect()
-}
-
-fn withdrawal_map(value: &Value) -> Result<BTreeMap<String, Withdrawal>> {
-    value
-        .get("ExprMap")
-        .and_then(|v| v.get("data"))
-        .and_then(Value::as_object)
-        .ok_or_else(|| malformed(format!("withdrawers is not a map: {value}")))?
-        .iter()
-        .map(|(key, entry)| {
-            let pair = entry
-                .get("ExprTuple")
-                .and_then(|v| v.get("data"))
-                .and_then(Value::as_array)
-                .filter(|pair| pair.len() == 2)
-                .ok_or_else(|| {
-                    malformed(format!(
-                        "withdrawers[{key}] is not a (stake, quarantineEnd) pair: {entry}"
-                    ))
-                })?;
-            let stake = crate::rholang_helpers::rholang_amount(&pair[0])?;
-            let quarantine_end = pair[1]
-                .get("ExprInt")
-                .and_then(|v| v.get("data"))
-                .and_then(Value::as_i64)
-                .ok_or_else(|| {
-                    malformed(format!(
-                        "withdrawers[{key}] quarantineEnd is not an integer"
-                    ))
-                })?;
-            Ok((
-                key.to_ascii_lowercase(),
-                Withdrawal {
-                    stake,
-                    quarantine_end,
-                },
-            ))
-        })
+        .map(|(key, value)| Ok((public_key(key)?, entry(value)?)))
         .collect()
 }
 
@@ -263,59 +213,34 @@ pub const WITHDRAW_RHOLANG: &str = r#"new deployId(`rho:system:deployId`), deplo
 /// No answer at all is also a failure: a call is never reported successful
 /// without positive evidence.
 pub fn parse_pos_call_result(data: &[Par]) -> Result<()> {
-    let unexpected = |detail: String| Error::decode("PoS result", detail);
     let par = data.first().ok_or_else(|| {
-        unexpected("nothing on the deployId channel; the PoS contract did not answer".into())
+        Error::decode(
+            "PoS result",
+            "nothing on the deployId channel; the PoS contract did not answer",
+        )
     })?;
-    let tuple = par
-        .exprs
-        .iter()
-        .find_map(|expr| match &expr.expr_instance {
-            Some(ExprInstance::ETupleBody(tuple)) => Some(tuple),
-            _ => None,
-        })
-        .ok_or_else(|| unexpected(format!("{par:?}")))?;
-    let verdict = tuple.ps.first().and_then(|first| {
-        first
-            .exprs
-            .iter()
-            .find_map(|expr| match expr.expr_instance {
-                Some(ExprInstance::GBool(verdict)) => Some(verdict),
-                _ => None,
-            })
-    });
-
-    match verdict {
-        Some(true) => Ok(()),
-        Some(false) => {
-            let reason: Vec<&str> = tuple
-                .ps
-                .iter()
-                .skip(1)
-                .flat_map(|part| part.exprs.iter())
-                .filter_map(|expr| match &expr.expr_instance {
-                    Some(ExprInstance::GString(reason)) => Some(reason.as_str()),
-                    _ => None,
-                })
-                .collect();
-            Err(Error::ContractRejected {
-                contract: Contract::ProofOfStake,
-                reason: if reason.is_empty() {
-                    format!("{tuple:?}")
-                } else {
-                    reason.join(": ")
-                },
-            })
-        }
-        None => Err(unexpected(format!("{par:?}"))),
+    let result = RhoValue::try_from(par)?;
+    let parts = match &result {
+        RhoValue::Tuple(parts) => parts.as_slice(),
+        _ => &[],
+    };
+    match parts.first() {
+        Some(RhoValue::Bool(true)) => Ok(()),
+        Some(RhoValue::Bool(false)) => Err(crate::vault::rejection(
+            Contract::ProofOfStake,
+            &result,
+            parts,
+        )),
+        _ => Err(Error::decode("PoS result", result)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use f1r3fly_models::rhoapi::expr::ExprInstance;
     use f1r3fly_models::rhoapi::{ETuple, Expr};
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     const V1: &str = "04fa70d7be5eb750e0915c0f6d19e7085d18bb1c22d030feb2a877ca2cd226d04438aa819359c56c720142fbc66e9da03a5ab960a3d8b75363a226b7c800f60420";
     const V4: &str = "0429af984ed4da1a753030b1d06f0f3985379cf8935c953f92631afafff580c6ae447a9102789f69ec58ac69998cce512efecd0fae35dd61125f16b119455f1727";
@@ -323,11 +248,21 @@ mod tests {
     /// Shape of a live node's explore-deploy response to `POS_SNAPSHOT_QUERY`.
     fn response(bonds: Value, active: Value, pending: Value, withdrawers: Value) -> Value {
         let quarantine = json!({"ExprInt": {"data": 50000}});
+        with_state(
+            json!([{"ExprTuple": {"data": [bonds, active, pending, withdrawers, quarantine]}}]),
+        )
+    }
+
+    fn with_state(expr: Value) -> Value {
         json!({
-            "expr": [{"ExprTuple": {"data": [bonds, active, pending, withdrawers, quarantine]}}],
-            "block": {"blockNumber": 51148},
+            "expr": expr,
+            "block": {"blockHash": "abcd", "blockNumber": 51148},
             "cost": 0
         })
+    }
+
+    fn snapshot(response: Value) -> Result<PosSnapshot> {
+        parse_pos_snapshot(&ExploratoryValues::from_node_json(response)?)
     }
 
     fn bonds(entries: &[(&str, i64)]) -> Value {
@@ -357,8 +292,7 @@ mod tests {
         let withdrawers = json!({"ExprMap": {"data": {V1: {"ExprTuple": {"data": [
             {"ExprBigInt": {"data": stake.to_string()}}, {"ExprInt": {"data": 49610}}
         ]}}}}});
-        let snapshot =
-            parse_pos_snapshot(&response(bonds, active(&[V4]), empty_map(), withdrawers)).unwrap();
+        let snapshot = snapshot(response(bonds, active(&[V4]), empty_map(), withdrawers)).unwrap();
         assert_eq!(snapshot.stake(V4), Some(stake.clone()));
         assert_eq!(
             snapshot.withdrawal(V1).unwrap(),
@@ -374,7 +308,7 @@ mod tests {
 
     #[test]
     fn parses_bonded_and_active_validators() {
-        let snapshot = parse_pos_snapshot(&response(
+        let snapshot = snapshot(response(
             bonds(&[(V1, 1000), (V4, 1000)]),
             active(&[V1, V4]),
             empty_map(),
@@ -393,7 +327,7 @@ mod tests {
 
     #[test]
     fn bonded_key_outside_the_active_set_is_inactive() {
-        let snapshot = parse_pos_snapshot(&response(
+        let snapshot = snapshot(response(
             bonds(&[(V1, 1000), (V4, 1000)]),
             active(&[V1]),
             empty_map(),
@@ -415,7 +349,7 @@ mod tests {
         let withdrawers = json!({"ExprMap": {"data": {V1: {"ExprTuple": {"data": [
             {"ExprInt": {"data": 1000}}, {"ExprInt": {"data": 49610}}
         ]}}}}});
-        let snapshot = parse_pos_snapshot(&response(
+        let snapshot = snapshot(response(
             bonds(&[(V4, 1000)]),
             active(&[V4]),
             pending,
@@ -436,7 +370,7 @@ mod tests {
 
     #[test]
     fn lookups_ignore_key_case() {
-        let snapshot = parse_pos_snapshot(&response(
+        let snapshot = snapshot(response(
             bonds(&[(V1, 1000)]),
             active(&[V1]),
             empty_map(),
@@ -453,7 +387,7 @@ mod tests {
 
     #[test]
     fn rejects_a_response_without_pos_state() {
-        let err = parse_pos_snapshot(&json!({"expr": [], "block": {}})).unwrap_err();
+        let err = snapshot(with_state(json!([]))).unwrap_err();
         assert!(decode_detail(&err).contains("no PoS state"), "{err}");
     }
 
@@ -465,12 +399,9 @@ mod tests {
             empty_map(),
             empty_map(),
         );
-        unnamed["block"] = json!({});
-        let err = parse_pos_snapshot(&unnamed).unwrap_err();
-        assert!(
-            decode_detail(&err).contains("does not name the block"),
-            "{err}"
-        );
+        unnamed["block"] = json!({"blockHash": "abcd"});
+        let err = snapshot(unnamed).unwrap_err();
+        assert!(decode_detail(&err).contains("blockNumber"), "{err}");
     }
 
     #[test]
@@ -482,7 +413,7 @@ mod tests {
             empty_map(),
         );
         bad["expr"][0]["ExprTuple"]["data"][4] = json!({"ExprString": {"data": "20"}});
-        let err = parse_pos_snapshot(&bad).unwrap_err();
+        let err = snapshot(bad).unwrap_err();
         assert!(
             decode_detail(&err).contains("quarantineLength is not an integer"),
             "{err}"
@@ -491,22 +422,21 @@ mod tests {
 
     #[test]
     fn rejects_a_result_of_the_wrong_arity() {
-        let bad = json!({"expr": [{"ExprTuple": {"data": [bonds(&[(V1, 1000)]), active(&[V1])]}}]});
-        let err = parse_pos_snapshot(&bad).unwrap_err();
+        let bad =
+            with_state(json!([{"ExprTuple": {"data": [bonds(&[(V1, 1000)]), active(&[V1])]}}]));
+        let err = snapshot(bad).unwrap_err();
         assert!(decode_detail(&err).contains("expected (bonds"), "{err}");
     }
 
     #[test]
     fn rejects_a_non_integer_stake() {
         let bad_bonds = json!({"ExprMap": {"data": {V1: {"ExprString": {"data": "1000"}}}}});
-        let err = parse_pos_snapshot(&response(
-            bad_bonds,
-            active(&[V1]),
-            empty_map(),
-            empty_map(),
-        ))
-        .unwrap_err();
-        assert!(decode_detail(&err).contains("is not an integer"), "{err}");
+        let err =
+            snapshot(response(bad_bonds, active(&[V1]), empty_map(), empty_map())).unwrap_err();
+        assert!(
+            decode_detail(&err).contains("is not an unsigned integer"),
+            "{err}"
+        );
     }
 
     fn decode_detail(err: &Error) -> &str {

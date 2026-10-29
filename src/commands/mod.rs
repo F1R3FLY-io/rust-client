@@ -3,6 +3,14 @@
 pub type CliError = Box<dyn std::error::Error + Send + Sync>;
 pub type CliResult<T = ()> = std::result::Result<T, CliError>;
 
+/// A datum as Rholang source, or why it is not a value.
+pub(crate) fn show(par: &f1r3fly_models::rhoapi::Par) -> String {
+    match crate::rho_value::RhoValue::try_from(par) {
+        Ok(value) => value.to_string(),
+        Err(err) => format!("<{err}>"),
+    }
+}
+
 pub mod config;
 pub mod crypto;
 pub mod dag;

@@ -25,7 +25,7 @@ node_cli load-test --to-address <ADDR> --readonly-grpc <URL> --num-tests <N> --a
 | `--finalization-timeout` | `120` | Max seconds for finalization |
 | `--check-interval` | `1` | Seconds between polls |
 | `--chain-depth` | `200` | Depth to check for orphaned blocks |
-| `--readonly-grpc` | required (`FIREFLY_READONLY_GRPC_URL`, or a profile's `readonly_grpc`) | gRPC endpoint of a read-only node, with no path, for balance queries |
+| `--readonly-http` | required (`FIREFLY_READONLY_HTTP_URL`, or a profile's `readonly_http`) | HTTP endpoint of a read-only node, optionally with a base path, for balance queries |
 
 ```
 $ node_cli load-test --to-address 11112oRq...r2L --num-tests 3 --amount 100000000 \
@@ -322,7 +322,8 @@ system-integration single-host Docker shard the read-only node is HTTP
 | `network-consensus` | HTTP | `--http` | `FIREFLY_READONLY_HTTP_URL` |
 | `epoch-rewards` | HTTP | `--http` | `FIREFLY_READONLY_HTTP_URL` |
 | `epoch-info` | gRPC | `--grpc` | `FIREFLY_READONLY_GRPC_URL` |
-| `wallet-balance` | gRPC | `--grpc` | `FIREFLY_READONLY_GRPC_URL` |
+| `wallet-balance` | HTTP | `--http` | `FIREFLY_READONLY_HTTP_URL` |
+| `exploratory-deploy` | gRPC | `--grpc` | `FIREFLY_READONLY_GRPC_URL` |
 
 Each also takes `--ca-cert` for `https://` endpoints, and `--connect-timeout`
 (default 10) and `--timeout` (default 30) in seconds.

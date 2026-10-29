@@ -3,6 +3,7 @@ use crate::commands::CliResult;
 use crate::endpoint::Endpoint;
 use crate::node_http::NodeHttp;
 use crate::pos::{parse_pos_snapshot, PosSnapshot, POS_SNAPSHOT_QUERY};
+use crate::rho_value::RhoValue;
 use serde_json;
 use std::time::Instant;
 
@@ -150,50 +151,16 @@ pub async fn active_validators_command(args: &ReadOnlyHttpArgs) -> CliResult {
 pub async fn wallet_balance_command(args: &WalletBalanceArgs) -> CliResult {
     println!(" Checking wallet balance for address: {}", args.address);
 
-    let f1r3fly_api = args.node.api()?;
-
-    let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
- rl!(`rho:vault:system`, *systemVaultCh) |
- for (@(_, SystemVault) <- systemVaultCh) {{
- @SystemVault!("findOrCreate", "{}", *vaultCh) |
- for (@either <- vaultCh) {{
- match either {{
- (true, vault) => {{
- @vault!("balance", *balanceCh) |
- for (@balance <- balanceCh) {{
- return!(balance)
- }}
- }}
- (false, errorMsg) => {{
- return!(errorMsg)
- }}
- }}
- }}
- }}
- }}"#,
-        args.address
-    );
-
     let start_time = Instant::now();
+    let balance = args.node.node()?.balance(&args.address, None).await?;
 
-    match f1r3fly_api
-        .exploratory_deploy(&rholang_query, None, false)
-        .await
-    {
-        Ok((result, block_info, _cost)) => {
-            let duration = start_time.elapsed();
-            println!("Wallet balance retrieved successfully!");
-            println!("Time taken: {duration:.2?}");
-            println!("Balance for {}: {}", args.address, result);
-            println!("{block_info}");
-        }
-        Err(e) => {
-            println!(" Failed to get wallet balance!");
-            println!("Error: {e}");
-            return Err(e.into());
-        }
-    }
+    println!("Wallet balance retrieved successfully!");
+    println!("Time taken: {:.2?}", start_time.elapsed());
+    println!("Balance for {}: {}", balance.address, balance.dust);
+    println!(
+        "Block hash: {}, Block number: {}",
+        balance.block.hash, balance.block.number
+    );
 
     Ok(())
 }
@@ -694,21 +661,14 @@ pub async fn epoch_info_command(args: &ReadOnlyGrpcArgs) -> CliResult {
 
     let duration = start_time.elapsed();
 
-    // Parse epoch length from PoS contract result
-    let epoch_length = epoch_result.0.trim().parse::<i64>().map_err(|e| {
-        format!(
-            "Failed to parse epoch length from PoS contract: '{}'. Error: {}",
-            epoch_result.0, e
-        )
-    })?;
-
-    // Parse quarantine length from PoS contract result
-    let quarantine_length = quarantine_result.0.trim().parse::<i64>().map_err(|e| {
-        format!(
-            "Failed to parse quarantine length from PoS contract: '{}'. Error: {}",
-            quarantine_result.0, e
-        )
-    })?;
+    let length = |result: &crate::f1r3fly_api::ExploratoryResult, name: &str| -> CliResult<i64> {
+        let value = result.value()?;
+        value.as_i64().filter(|length| *length > 0).ok_or_else(|| {
+            format!("the PoS contract's {name} is not a positive integer: {value}").into()
+        })
+    };
+    let epoch_length = length(&epoch_result, "epoch length")?;
+    let quarantine_length = length(&quarantine_result, "quarantine length")?;
 
     // Calculate epoch information
     let current_epoch = current_block / epoch_length;
@@ -783,72 +743,48 @@ pub async fn epoch_rewards_command(args: &ReadOnlyHttpArgs) -> CliResult {
  }"#;
 
     let start_time = Instant::now();
-    let response_json = node.explore_deploy(rewards_query).await?;
+    let response = node.explore_deploy(rewards_query).await?;
     let duration = start_time.elapsed();
+    let rewards = response.value()?;
+    let rewards = rewards
+        .entries()
+        .ok_or_else(|| format!("the PoS contract's epoch rewards are not a map: {rewards}"))?;
+    let mut entries = rewards
+        .iter()
+        .map(|(key, reward)| {
+            let key = match key {
+                RhoValue::String(key) => key.to_string(),
+                other => other.to_string(),
+            };
+            Ok((key, reward.as_amount()?))
+        })
+        .collect::<crate::Result<Vec<_>>>()?;
+    let total_rewards: num_bigint::BigUint = entries.iter().map(|(_, r)| r).sum();
+    entries.sort_by(|a, b| b.1.cmp(&a.1));
 
     println!(" Epoch rewards retrieved successfully!");
     println!(" Time taken: {duration:.2?}");
-
-    // Extract block info
-    if let Some(block) = response_json.get("block") {
-        let block_hash = block
-            .get("blockHash")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let block_number = block
-            .get("blockNumber")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        println!(" Block hash: {block_hash}, Block number: {block_number}");
-    }
-
-    // Parse rewards from ExprMap: { validator_pubkey: ExprInt { data: reward } }
+    println!(
+        " Block hash: {}, Block number: {}",
+        response.block.hash, response.block.number
+    );
     println!();
-    if let Some(expr) = response_json.get("expr").and_then(|e| e.as_array()) {
-        if let Some(expr_map) = expr
-            .first()
-            .and_then(|e| e.get("ExprMap"))
-            .and_then(|m| m.get("data"))
-            .and_then(|d| d.as_object())
-        {
-            println!(" Current Epoch Rewards ({} validators):", expr_map.len());
-            println!();
-
-            let mut entries: Vec<(&String, num_bigint::BigUint)> = expr_map
-                .iter()
-                .map(|(key, val)| {
-                    crate::rholang_helpers::rholang_amount(val).map(|reward| (key, reward))
-                })
-                .collect::<Result<_, _>>()?;
-            let total_rewards: num_bigint::BigUint = entries.iter().map(|(_, r)| r).sum();
-            entries.sort_by(|a, b| b.1.cmp(&a.1));
-
-            for (key, reward) in &entries {
-                let short_key = if key.len() > 16 {
-                    format!("{}...{}", &key[..8], &key[key.len() - 8..])
-                } else {
-                    key.to_string()
-                };
-                println!(" {short_key} : {reward}");
-            }
-
-            println!();
-            println!(" Total: {total_rewards}");
-        } else {
-            println!(" Current Epoch Rewards:");
-            println!("{}", serde_json::to_string_pretty(&response_json["expr"])?);
-        }
-    } else {
-        println!("No reward data returned");
+    println!(" Current Epoch Rewards ({} validators):", entries.len());
+    println!();
+    for (key, reward) in &entries {
+        println!(" {} : {reward}", abbreviate_key(key));
     }
+    println!();
+    println!(" Total: {total_rewards}");
 
     Ok(())
 }
 
 /// Read the PoS contract's validator bookkeeping through a read-only node's HTTP API.
 async fn fetch_pos_snapshot(node: &NodeHttp) -> CliResult<PosSnapshot> {
-    let json = node.explore_deploy(POS_SNAPSHOT_QUERY).await?;
-    Ok(parse_pos_snapshot(&json)?)
+    Ok(parse_pos_snapshot(
+        &node.explore_deploy(POS_SNAPSHOT_QUERY).await?,
+    )?)
 }
 
 fn abbreviate_key(key: &str) -> String {

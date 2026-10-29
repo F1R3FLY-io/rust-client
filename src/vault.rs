@@ -9,6 +9,7 @@
 //! - All amounts in this module are in dust unless otherwise specified
 
 use crate::error::{Contract, Error, Result};
+use crate::rho_value::RhoValue;
 use num_bigint::BigUint;
 
 /// Phlo limit for vault transfer deploys.
@@ -110,72 +111,38 @@ pub fn check_transfer_result(result: crate::f1r3fly_api::DeployResult) -> Result
 /// means the contract's joins never fired, which is also a failure — a
 /// transfer must never be reported successful without positive evidence.
 pub fn parse_transfer_result(data: &[f1r3fly_models::rhoapi::Par]) -> Result<()> {
-    use f1r3fly_models::rhoapi::expr::ExprInstance;
-
     let par = data.first().ok_or_else(|| {
         Error::decode(
             "transfer result",
             "nothing on the deployId channel; the transfer contract did not complete",
         )
     })?;
-
-    for expr in &par.exprs {
-        if let Some(ExprInstance::ETupleBody(tuple)) = &expr.expr_instance {
-            let first_is_true = tuple.ps.first().is_some_and(|p| {
-                p.exprs
-                    .iter()
-                    .any(|e| e.expr_instance == Some(ExprInstance::GBool(true)))
-            });
-            if first_is_true {
-                return Ok(());
-            }
-            let reasons: Vec<String> = tuple
-                .ps
-                .iter()
-                .skip(1)
-                .flat_map(|p| p.exprs.iter())
-                .filter_map(|e| match &e.expr_instance {
-                    Some(ExprInstance::GString(s)) => Some(s.clone()),
-                    _ => None,
-                })
-                .collect();
-            let reason = if reasons.is_empty() {
-                format!("{tuple:?}")
-            } else {
-                reasons.join(": ")
-            };
-            return Err(Error::ContractRejected {
-                contract: Contract::Vault,
-                reason,
-            });
+    let result = RhoValue::try_from(par)?;
+    let parts = match &result {
+        RhoValue::Tuple(parts) => parts.as_slice(),
+        _ => &[],
+    };
+    match parts.first() {
+        Some(RhoValue::Bool(true)) => Ok(()),
+        Some(RhoValue::Bool(false)) => Err(rejection(Contract::Vault, &result, parts)),
+        Some(RhoValue::String(tag)) if tag == "error" => {
+            Err(rejection(Contract::Vault, &result, parts))
         }
+        _ => Err(Error::decode("transfer result", result)),
     }
-    Err(Error::decode("transfer result", format!("{par:?}")))
 }
 
-/// Build Rholang code to query vault balance
-///
-/// # Arguments
-///
-/// * `address` - Vault address to query (1111...)
-pub fn build_balance_query(address: &str) -> String {
-    format!(
-        r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
- rl!(`rho:vault:system`, *systemVaultCh) |
- for (@(_, SystemVault) <- systemVaultCh) {{
- @SystemVault!("findOrCreate", "{address}", *vaultCh) |
- for (@either <- vaultCh) {{
- match either {{
- (true, vault) => {{
- @vault!("balance", *balanceCh) |
- for (@balance <- balanceCh) {{ return!(balance) }}
- }}
- (false, _) => return!(-1)
- }}
- }}
- }}
-}}"#
-    )
+/// A contract's rejection, explained by the strings after its verdict.
+pub(crate) fn rejection(contract: Contract, result: &RhoValue, parts: &[RhoValue]) -> Error {
+    let reasons: Vec<&str> = parts.iter().skip(1).filter_map(RhoValue::as_str).collect();
+    Error::ContractRejected {
+        contract,
+        reason: if reasons.is_empty() {
+            result.to_string()
+        } else {
+            reasons.join(": ")
+        },
+    }
 }
 
 /// Validate vault address format
@@ -188,6 +155,10 @@ pub fn validate_address(address: &str) -> Result<()> {
 
     if address.len() < 40 {
         return Err(Error::invalid("vault address", "too short"));
+    }
+
+    if bs58::decode(address).into_vec().is_err() {
+        return Err(Error::invalid("vault address", "not base58"));
     }
 
     Ok(())
