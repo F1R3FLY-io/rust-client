@@ -75,9 +75,20 @@ impl KeyArgs {
         })?)
     }
 
-    /// The key, or `None` when neither source is set.
+    /// The key, or `None` when neither source is set. Both set is an error,
+    /// since signing with the one not intended would go unnoticed.
     pub fn load_optional(&self) -> CliResult<Option<SigningKey>> {
         if let Some(path) = &self.private_key_file {
+            if std::env::var_os("FIREFLY_PRIVATE_KEY").is_some() {
+                return Err(crate::Error::invalid(
+                    "signing key",
+                    format!(
+                        "both a key file ({}) and FIREFLY_PRIVATE_KEY are set; use one",
+                        path.display()
+                    ),
+                )
+                .into());
+            }
             return Ok(Some(SigningKey::from_file(path)?));
         }
         match std::env::var("FIREFLY_PRIVATE_KEY") {
