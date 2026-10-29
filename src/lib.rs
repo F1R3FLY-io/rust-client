@@ -23,6 +23,8 @@ pub mod commands;
 pub mod dag;
 #[cfg(feature = "cli")]
 pub mod dispatcher;
+#[cfg(feature = "cli")]
+pub mod settings;
 
 // Re-export primary types
 pub use connection_manager::{ConnectionConfig, F1r3flyConnectionManager};

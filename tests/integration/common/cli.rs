@@ -112,7 +112,8 @@ impl Cli {
     }
 
     /// Run with only this invocation's settings: `FIREFLY_*` variables from
-    /// the caller's shell are removed so they cannot change what is tested.
+    /// the caller's shell are removed, and the default config file location
+    /// points nowhere, so neither can change what is tested.
     pub fn run(self) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_node_cli"));
         for (var, _) in std::env::vars_os() {
@@ -120,6 +121,10 @@ impl Cli {
                 command.env_remove(var);
             }
         }
+        command.env(
+            "XDG_CONFIG_HOME",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/target/integration-no-config"),
+        );
         let output = command
             .args(&self.args)
             .envs(self.env.iter().map(|(var, value)| (var, value)))

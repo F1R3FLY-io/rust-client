@@ -18,12 +18,13 @@ fn parse_endpoint(url: &str) -> Result<Endpoint, String> {
 pub struct TransportArgs {
     /// PEM file of the certificate authorities that https endpoints are
     /// trusted against, in place of the bundled public roots
-    #[arg(long = "ca-cert")]
+    #[arg(long = "ca-cert", env = "FIREFLY_CA_CERT")]
     pub ca_cert: Option<PathBuf>,
 
     /// Seconds a connection to a node may take to establish
     #[arg(
         long = "connect-timeout",
+        env = "FIREFLY_CONNECT_TIMEOUT",
         default_value_t = crate::endpoint::DEFAULT_CONNECT_TIMEOUT.as_secs(),
         value_parser = clap::value_parser!(u64).range(1..)
     )]
@@ -32,6 +33,7 @@ pub struct TransportArgs {
     /// Seconds a single request to a node may take
     #[arg(
         long = "timeout",
+        env = "FIREFLY_REQUEST_TIMEOUT",
         default_value_t = crate::endpoint::DEFAULT_REQUEST_TIMEOUT.as_secs(),
         value_parser = clap::value_parser!(u64).range(1..)
     )]
@@ -62,7 +64,7 @@ impl TransportArgs {
 pub struct KeyArgs {
     /// File holding the signing key's hex; it must not be readable by group or
     /// others. Without it, the key is read from FIREFLY_PRIVATE_KEY
-    #[arg(long = "private-key-file")]
+    #[arg(long = "private-key-file", env = "FIREFLY_PRIVATE_KEY_FILE")]
     pub private_key_file: Option<PathBuf>,
 }
 
@@ -96,7 +98,7 @@ impl KeyArgs {
 #[derive(Args, Debug, Clone)]
 pub struct GrpcNodeArgs {
     /// Node gRPC endpoint, http:// or https://, with no path
-    #[arg(long = "grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    #[arg(long = "grpc", env = "FIREFLY_GRPC_URL", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     #[command(flatten)]
@@ -113,7 +115,7 @@ impl GrpcNodeArgs {
 #[derive(Args, Debug, Clone)]
 pub struct HttpNodeArgs {
     /// Node HTTP endpoint, http:// or https://, optionally with a base path
-    #[arg(long = "http", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
+    #[arg(long = "http", env = "FIREFLY_HTTP_URL", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
     pub http: Endpoint,
 
     #[command(flatten)]
@@ -126,12 +128,13 @@ impl HttpNodeArgs {
     }
 }
 
-/// A read-only node a command queries over gRPC. There is no default: the
-/// default node ports are a validator's, which refuses these queries.
+/// A read-only node a command queries over gRPC. There is no built-in
+/// default: the default node ports are a validator's, which refuses these
+/// queries.
 #[derive(Args, Debug, Clone)]
 pub struct ReadOnlyGrpcArgs {
     /// gRPC endpoint of a read-only node, http:// or https://, with no path
-    #[arg(long = "grpc", value_parser = parse_endpoint)]
+    #[arg(id = "readonly_grpc", long = "grpc", env = "FIREFLY_READONLY_GRPC_URL", value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     #[command(flatten)]
@@ -144,12 +147,13 @@ impl ReadOnlyGrpcArgs {
     }
 }
 
-/// A read-only node a command queries over HTTP. There is no default: the
-/// default node ports are a validator's, which refuses these queries.
+/// A read-only node a command queries over HTTP. There is no built-in
+/// default: the default node ports are a validator's, which refuses these
+/// queries.
 #[derive(Args, Debug, Clone)]
 pub struct ReadOnlyHttpArgs {
     /// HTTP endpoint of a read-only node, http:// or https://, optionally with a base path
-    #[arg(long = "http", value_parser = parse_endpoint)]
+    #[arg(id = "readonly_http", long = "http", env = "FIREFLY_READONLY_HTTP_URL", value_parser = parse_endpoint)]
     pub http: Endpoint,
 
     #[command(flatten)]
@@ -166,11 +170,11 @@ impl ReadOnlyHttpArgs {
 #[derive(Args, Debug, Clone)]
 pub struct NodeArgs {
     /// Node gRPC endpoint, http:// or https://, with no path
-    #[arg(long = "grpc", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    #[arg(long = "grpc", env = "FIREFLY_GRPC_URL", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     /// Node HTTP endpoint, http:// or https://, optionally with a base path
-    #[arg(long = "http", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
+    #[arg(long = "http", env = "FIREFLY_HTTP_URL", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
     pub http: Endpoint,
 
     #[command(flatten)]
@@ -191,6 +195,15 @@ impl NodeArgs {
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
+    /// Config file holding named profiles (default: $XDG_CONFIG_HOME/f1r3fly/node_cli.toml,
+    /// or ~/.config/f1r3fly/node_cli.toml)
+    #[arg(long = "config", env = "FIREFLY_CONFIG", global = true)]
+    pub config: Option<PathBuf>,
+
+    /// Profile of the config file to take settings from (default: the file's default_profile)
+    #[arg(long = "profile", env = "FIREFLY_PROFILE", global = true)]
+    pub profile: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -301,6 +314,54 @@ pub enum Commands {
 
     /// Check canonical-state finalization status of a deploy by signature
     DeployStatus(DeployStatusArgs),
+
+    /// Inspect the settings commands resolve from flags, environment and config profiles
+    Config(ConfigArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub action: ConfigAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigAction {
+    /// Show each setting's resolved value and where it came from: a flag, the
+    /// environment, the selected profile, or the built-in default
+    Show(Box<ConfigShowArgs>),
+}
+
+/// Every setting a profile can hold, under the same flags and environment
+/// variables the commands read, so `config show` resolves them the same way.
+#[derive(Args, Debug)]
+pub struct ConfigShowArgs {
+    #[arg(long = "grpc", env = "FIREFLY_GRPC_URL", default_value = DEFAULT_GRPC_URL, value_parser = parse_endpoint)]
+    pub grpc: Endpoint,
+
+    #[arg(long = "http", env = "FIREFLY_HTTP_URL", default_value = DEFAULT_HTTP_URL, value_parser = parse_endpoint)]
+    pub http: Endpoint,
+
+    #[arg(long = "observer", env = "FIREFLY_OBSERVER_URL", value_parser = parse_endpoint)]
+    pub observer: Option<Endpoint>,
+
+    #[arg(id = "internal_grpc", long = "internal-grpc", env = "FIREFLY_INTERNAL_GRPC_URL", default_value = DEFAULT_INTERNAL_GRPC_URL, value_parser = parse_endpoint)]
+    pub internal_grpc: Endpoint,
+
+    #[arg(long = "readonly-grpc", env = "FIREFLY_READONLY_GRPC_URL", value_parser = parse_endpoint)]
+    pub readonly_grpc: Option<Endpoint>,
+
+    #[arg(long = "readonly-http", env = "FIREFLY_READONLY_HTTP_URL", value_parser = parse_endpoint)]
+    pub readonly_http: Option<Endpoint>,
+
+    #[arg(long = "shard-id", env = "FIREFLY_SHARD_ID", default_value = crate::deploy::DEFAULT_SHARD_ID)]
+    pub shard_id: String,
+
+    #[command(flatten)]
+    pub transport: TransportArgs,
+
+    #[command(flatten)]
+    pub key: KeyArgs,
 }
 
 /// Node, finalization-wait and expiration options of commands that deploy and
@@ -312,7 +373,7 @@ pub struct DeployWaitArgs {
 
     /// HTTP endpoint of a second node, such as the shard's read-only node,
     /// polled alongside the deploy node for the deploy's verdict
-    #[arg(long = "observer", value_parser = parse_endpoint)]
+    #[arg(long = "observer", env = "FIREFLY_OBSERVER_URL", value_parser = parse_endpoint)]
     pub observer: Option<Endpoint>,
 
     /// Maximum seconds to wait for the deploy to finalize
@@ -470,7 +531,7 @@ pub const DEFAULT_INTERNAL_GRPC_URL: &str = "http://localhost:40402";
 #[derive(Parser)]
 pub struct ProposeArgs {
     /// Node's internal gRPC endpoint, http:// or https://, with no path
-    #[arg(long = "grpc", default_value = DEFAULT_INTERNAL_GRPC_URL, value_parser = parse_endpoint)]
+    #[arg(id = "internal_grpc", long = "grpc", env = "FIREFLY_INTERNAL_GRPC_URL", default_value = DEFAULT_INTERNAL_GRPC_URL, value_parser = parse_endpoint)]
     pub grpc: Endpoint,
 
     #[command(flatten)]
@@ -775,7 +836,7 @@ pub struct LoadTestArgs {
     pub node: NodeArgs,
 
     /// gRPC endpoint of a read-only node, for balance queries
-    #[arg(long = "readonly-grpc", value_parser = parse_endpoint)]
+    #[arg(long = "readonly-grpc", env = "FIREFLY_READONLY_GRPC_URL", value_parser = parse_endpoint)]
     pub readonly_grpc: Endpoint,
 
     /// Check interval in seconds for deploy status (fast mode)
