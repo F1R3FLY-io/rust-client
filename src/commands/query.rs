@@ -1,157 +1,101 @@
 use crate::args::*;
-use crate::f1r3fly_api::F1r3flyApi;
+use crate::commands::CliResult;
+use crate::endpoint::Endpoint;
+use crate::f1r3fly_api::BlockSummary;
+use crate::node_http::NodeHttp;
 use crate::pos::{parse_pos_snapshot, PosSnapshot, POS_SNAPSHOT_QUERY};
-use crate::utils::http::EXPLORATORY_RETRY_BACKOFF;
-use crate::utils::{build_url, HttpClient};
-use reqwest;
+use crate::rho_value::RhoValue;
 use serde_json;
-use std::collections::{HashSet, VecDeque};
+use std::collections::BTreeSet;
 use std::time::Instant;
 
-pub async fn status_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!(" Getting node status from {}:{}", args.host, args.port);
-
-    let url = format!("http://{}:{}/api/status", args.host, args.port);
-    let client = reqwest::Client::new();
+pub async fn status_command(args: &HttpNodeArgs) -> CliResult {
+    let node = args.node()?;
+    println!(" Getting node status from {}", node.endpoint());
 
     let start_time = Instant::now();
+    let status: crate::f1r3fly_api::NodeStatus =
+        serde_json::from_value(node.get_json("/api/status").await?)?;
+    let duration = start_time.elapsed();
 
-    match client.get(&url).send().await {
-        Ok(response) => {
-            let duration = start_time.elapsed();
-            if response.status().is_success() {
-                let status_text = response.text().await?;
-                let status: crate::f1r3fly_api::NodeStatus = serde_json::from_str(&status_text)?;
-
-                println!(" Node status retrieved successfully!");
-                println!(" Time taken: {duration:.2?}");
-                println!();
-                println!("  Address:       {}", status.address);
-                println!("  Network:       {}", status.network_id);
-                println!("  Shard:         {}", status.shard_id);
-                println!("  Peers:         {}", status.peers);
-                println!("  Nodes:         {}", status.nodes);
-                println!("  Min Phlo:      {}", status.min_phlo_price);
-                if !status.native_token_name.is_empty() {
-                    println!(
-                        "  Native Token:  {} ({}, {} decimals)",
-                        status.native_token_name,
-                        status.native_token_symbol,
-                        fmt(status.native_token_decimals)
-                    );
-                }
-                fn fmt<T: std::fmt::Display>(v: Option<T>) -> String {
-                    v.map(|x| x.to_string()).unwrap_or_else(|| "N/A".into())
-                }
-                println!(
-                    "  LFB Number:    {}",
-                    fmt(status.last_finalized_block_number)
-                );
-                println!("  Validator:     {}", fmt(status.is_validator));
-                println!("  Read Only:     {}", fmt(status.is_read_only));
-                println!("  Ready:         {}", fmt(status.is_ready));
-                println!(
-                    "  Epoch:         {} (length: {})",
-                    fmt(status.current_epoch),
-                    fmt(status.epoch_length)
-                );
-                println!("  Version:       {}", status.version);
-            } else {
-                println!(" Failed to get node status: HTTP {}", response.status());
-                println!("Error: {}", response.text().await?);
-            }
-        }
-        Err(e) => {
-            println!(" Connection failed!");
-            println!("Error: {e}");
-            return Err(e.into());
-        }
+    fn fmt<T: std::fmt::Display>(v: Option<T>) -> String {
+        v.map(|x| x.to_string()).unwrap_or_else(|| "N/A".into())
     }
+    println!(" Node status retrieved successfully!");
+    println!(" Time taken: {duration:.2?}");
+    println!();
+    println!("  Address:       {}", status.address);
+    println!("  Network:       {}", status.network_id);
+    println!("  Shard:         {}", status.shard_id);
+    println!("  Peers:         {}", status.peers);
+    println!("  Nodes:         {}", status.nodes);
+    println!("  Min Phlo:      {}", status.min_phlo_price);
+    if !status.native_token_name.is_empty() {
+        println!(
+            "  Native Token:  {} ({}, {} decimals)",
+            status.native_token_name,
+            status.native_token_symbol,
+            fmt(status.native_token_decimals)
+        );
+    }
+    println!(
+        "  LFB Number:    {}",
+        fmt(status.last_finalized_block_number)
+    );
+    println!("  Validator:     {}", fmt(status.is_validator));
+    println!("  Read Only:     {}", fmt(status.is_read_only));
+    println!("  Ready:         {}", fmt(status.is_ready));
+    println!(
+        "  Epoch:         {} (length: {})",
+        fmt(status.current_epoch),
+        fmt(status.epoch_length)
+    );
+    println!("  Version:       {}", status.version);
 
     Ok(())
 }
 
-pub async fn blocks_command(args: &BlocksArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn blocks_command(args: &BlocksArgs) -> CliResult {
+    let node = args.node.node()?;
     let start_time = Instant::now();
-    let client = reqwest::Client::new();
 
     if let Some(block_hash) = &args.block_hash {
         println!(" Getting specific block: {block_hash}");
-        let url = format!(
-            "http://{}:{}/api/block/{}",
-            args.host, args.port, block_hash
-        );
-
-        match client.get(&url).send().await {
-            Ok(response) => {
-                let duration = start_time.elapsed();
-                if response.status().is_success() {
-                    let block_text = response.text().await?;
-                    let block_json: serde_json::Value = serde_json::from_str(&block_text)?;
-
-                    println!(" Block retrieved successfully!");
-                    println!(" Time taken: {duration:.2?}");
-                    println!(" Block Details:");
-                    println!("{}", serde_json::to_string_pretty(&block_json)?);
-                } else {
-                    println!(" Failed to get block: HTTP {}", response.status());
-                    println!("Error: {}", response.text().await?);
-                }
-            }
-            Err(e) => {
-                println!(" Connection failed!");
-                println!("Error: {e}");
-                return Err(e.into());
-            }
-        }
+        let block_json = node.get_json(&format!("/api/block/{block_hash}")).await?;
+        println!(" Block retrieved successfully!");
+        println!(" Time taken: {:.2?}", start_time.elapsed());
+        println!(" Block Details:");
+        println!("{}", serde_json::to_string_pretty(&block_json)?);
     } else {
         println!(
-            " Getting {} recent blocks from {}:{}",
-            args.number, args.host, args.port
+            " Getting {} recent blocks from {}",
+            args.number,
+            node.endpoint()
         );
-        let url = format!(
-            "http://{}:{}/api/blocks/{}",
-            args.host, args.port, args.number
-        );
-
-        match client.get(&url).send().await {
-            Ok(response) => {
-                let duration = start_time.elapsed();
-                if response.status().is_success() {
-                    let blocks_text = response.text().await?;
-                    let blocks_json: serde_json::Value = serde_json::from_str(&blocks_text)?;
-
-                    println!(" Blocks retrieved successfully!");
-                    println!(" Time taken: {duration:.2?}");
-                    println!(" Recent Blocks:");
-                    println!("{}", serde_json::to_string_pretty(&blocks_json)?);
-                } else {
-                    println!(" Failed to get blocks: HTTP {}", response.status());
-                    println!("Error: {}", response.text().await?);
-                }
-            }
-            Err(e) => {
-                println!(" Connection failed!");
-                println!("Error: {e}");
-                return Err(e.into());
-            }
-        }
+        let blocks_json = node
+            .get_json(&format!("/api/blocks/{}", args.number))
+            .await?;
+        println!(" Blocks retrieved successfully!");
+        println!(" Time taken: {:.2?}", start_time.elapsed());
+        println!(" Recent Blocks:");
+        println!("{}", serde_json::to_string_pretty(&blocks_json)?);
     }
 
     Ok(())
 }
 
-pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!(" Getting validator bonds from {}:{}", args.host, args.port);
+pub async fn bonds_command(args: &ReadOnlyHttpArgs) -> CliResult {
+    let node = args.node()?;
+    println!(" Getting validator bonds from {}", node.endpoint());
 
     let start_time = Instant::now();
-    let snapshot = fetch_pos_snapshot(&args.host, args.port).await?;
+    let snapshot = fetch_pos_snapshot(&node).await?;
 
     println!(" Validator bonds retrieved successfully!");
     println!(" Time taken: {:.2?}", start_time.elapsed());
     println!();
 
-    let total_stake: i64 = snapshot.bonds.values().sum();
+    let total_stake: num_bigint::BigUint = snapshot.bonds.values().sum();
     println!(
         " Bonded Validators ({} total, {total_stake} total stake):",
         snapshot.bonds.len()
@@ -174,20 +118,18 @@ pub async fn bonds_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        " Getting active validators from {}:{}",
-        args.host, args.port
-    );
+pub async fn active_validators_command(args: &ReadOnlyHttpArgs) -> CliResult {
+    let node = args.node()?;
+    println!(" Getting active validators from {}", node.endpoint());
 
     let start_time = Instant::now();
-    let snapshot = fetch_pos_snapshot(&args.host, args.port).await?;
+    let snapshot = fetch_pos_snapshot(&node).await?;
 
     println!(" Active validators retrieved successfully!");
     println!(" Time taken: {:.2?}", start_time.elapsed());
     println!();
 
-    let total_stake: i64 = snapshot
+    let total_stake: num_bigint::BigUint = snapshot
         .active
         .iter()
         .filter_map(|key| snapshot.stake(key))
@@ -208,69 +150,33 @@ pub async fn active_validators_command(args: &HttpArgs) -> Result<(), Box<dyn st
     Ok(())
 }
 
-pub async fn wallet_balance_command(
-    args: &WalletBalanceArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn wallet_balance_command(args: &WalletBalanceArgs) -> CliResult {
     println!(" Checking wallet balance for address: {}", args.address);
 
-    // Use F1r3fly API with gRPC (like exploratory-deploy)
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
-
-    let rholang_query = format!(
-        r#"new return, rl(`rho:registry:lookup`), systemVaultCh, vaultCh, balanceCh in {{
- rl!(`rho:vault:system`, *systemVaultCh) |
- for (@(_, SystemVault) <- systemVaultCh) {{
- @SystemVault!("findOrCreate", "{}", *vaultCh) |
- for (@either <- vaultCh) {{
- match either {{
- (true, vault) => {{
- @vault!("balance", *balanceCh) |
- for (@balance <- balanceCh) {{
- return!(balance)
- }}
- }}
- (false, errorMsg) => {{
- return!(errorMsg)
- }}
- }}
- }}
- }}
- }}"#,
-        args.address
-    );
-
     let start_time = Instant::now();
+    let balance = args.node.node()?.balance(&args.address, None).await?;
 
-    match f1r3fly_api
-        .exploratory_deploy(&rholang_query, None, false)
-        .await
-    {
-        Ok((result, block_info, _cost)) => {
-            let duration = start_time.elapsed();
-            println!("Wallet balance retrieved successfully!");
-            println!("Time taken: {duration:.2?}");
-            println!("Balance for {}: {}", args.address, result);
-            println!("{block_info}");
-        }
-        Err(e) => {
-            println!(" Failed to get wallet balance!");
-            println!("Error: {e}");
-            return Err(e);
-        }
-    }
+    println!("Wallet balance retrieved successfully!");
+    println!("Time taken: {:.2?}", start_time.elapsed());
+    println!("Balance for {}: {}", balance.address, balance.dust);
+    println!(
+        "Block hash: {}, Block number: {}",
+        balance.block.hash, balance.block.number
+    );
 
     Ok(())
 }
 
-pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn bond_status_command(args: &BondStatusArgs) -> CliResult {
     println!(" Checking bond status for public key: {}", args.public_key);
 
-    let url = build_url(
-        &args.host,
-        args.port,
-        &format!("/api/bond-status/{}", args.public_key),
-    );
-    let (response, duration) = HttpClient::new().get_with_timing(&url).await?;
+    let start_time = Instant::now();
+    let response = args
+        .node
+        .node()?
+        .get_json(&format!("/api/bond-status/{}", args.public_key))
+        .await?;
+    let duration = start_time.elapsed();
     let is_bonded = response
         .get("isBonded")
         .and_then(serde_json::Value::as_bool)
@@ -283,62 +189,42 @@ pub async fn bond_status_command(args: &BondStatusArgs) -> Result<(), Box<dyn st
         println!(" Validator is NOT BONDED");
     }
     println!(
-        " Activation and withdrawal progress: node_cli validator-status -k {}",
+        " Activation and withdrawal progress: node_cli validator-status -k {} --http <read-only node>",
         args.public_key
     );
 
     Ok(())
 }
 
-pub async fn metrics_command(args: &HttpArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!(" Getting node metrics from {}:{}", args.host, args.port);
-
-    let url = format!("http://{}:{}/metrics", args.host, args.port);
-    let client = reqwest::Client::new();
+pub async fn metrics_command(args: &HttpNodeArgs) -> CliResult {
+    let node = args.node()?;
+    println!(" Getting node metrics from {}", node.endpoint());
 
     let start_time = Instant::now();
+    let metrics_text = node.get_text("/metrics").await?;
 
-    match client.get(&url).send().await {
-        Ok(response) => {
-            let duration = start_time.elapsed();
-            if response.status().is_success() {
-                let metrics_text = response.text().await?;
+    println!(" Node metrics retrieved successfully!");
+    println!(" Time taken: {:.2?}", start_time.elapsed());
+    println!(" Node Metrics:");
 
-                println!(" Node metrics retrieved successfully!");
-                println!(" Time taken: {duration:.2?}");
-                println!(" Node Metrics:");
+    let lines: Vec<&str> = metrics_text
+        .lines()
+        .filter(|line| {
+            line.contains("peers")
+                || line.contains("blocks")
+                || line.contains("consensus")
+                || line.contains("casper")
+                || line.contains("rspace")
+        })
+        .collect();
 
-                // Filter and display key metrics
-                let lines: Vec<&str> = metrics_text
-                    .lines()
-                    .filter(|line| {
-                        line.contains("peers")
-                            || line.contains("blocks")
-                            || line.contains("consensus")
-                            || line.contains("casper")
-                            || line.contains("rspace")
-                    })
-                    .collect();
-
-                if lines.is_empty() {
-                    println!(" All Metrics:");
-                    println!("{metrics_text}");
-                } else {
-                    println!(" Key Metrics (peers, blocks, consensus):");
-                    for line in lines {
-                        println!("{line}");
-                    }
-                    println!("\n Use --verbose flag (if implemented) to see all metrics");
-                }
-            } else {
-                println!(" Failed to get metrics: HTTP {}", response.status());
-                println!("Error: {}", response.text().await?);
-            }
-        }
-        Err(e) => {
-            println!(" Connection failed!");
-            println!("Error: {e}");
-            return Err(e.into());
+    if lines.is_empty() {
+        println!(" All Metrics:");
+        println!("{metrics_text}");
+    } else {
+        println!(" Key Metrics (peers, blocks, consensus):");
+        for line in lines {
+            println!("{line}");
         }
     }
 
@@ -371,69 +257,32 @@ impl DiscoveredPeer {
                 .to_string(),
         })
     }
-
-    fn uri_key(&self) -> String {
-        format!("{}:{}", self.host, self.protocol_port)
-    }
 }
 
-// Helper function to query a node's status and return full JSON response
+/// A node's `/status`, with the request and answer printed when `debug` is set.
 pub(crate) async fn query_node_status(
-    client: &reqwest::Client,
-    host: &str,
-    port: u16,
+    node: &NodeHttp,
     debug: bool,
-) -> Result<(serde_json::Value, String), String> {
-    let url = format!("http://{host}:{port}/status");
-
+) -> crate::Result<serde_json::Value> {
     if debug {
-        println!("\n [DEBUG] HTTP Request:");
-        println!(" Method: GET");
-        println!(" URL: {url}");
+        println!("\n [DEBUG] GET {}/status", node.endpoint());
     }
-
-    match client.get(&url).send().await {
-        Ok(response) => {
-            let status_code = response.status();
-
-            if debug {
-                println!(" [DEBUG] HTTP Response:");
-                println!(" Status: {status_code}");
-                println!(" Headers: {:#?}", response.headers());
-            }
-
-            if status_code.is_success() {
-                match response.text().await {
-                    Ok(status_text) => {
-                        if debug {
-                            println!(" [DEBUG] Response Body:");
-                            if let Ok(pretty) = serde_json::to_string_pretty(
-                                &serde_json::from_str::<serde_json::Value>(&status_text)
-                                    .unwrap_or(serde_json::json!({})),
-                            ) {
-                                for line in pretty.lines() {
-                                    println!(" {line}");
-                                }
-                            }
-                        }
-                        match serde_json::from_str::<serde_json::Value>(&status_text) {
-                            Ok(json) => Ok((json, status_text)),
-                            Err(_) => Err("Invalid JSON response".to_string()),
-                        }
-                    }
-                    Err(_) => Err("Failed to read response".to_string()),
+    let status = node.get_json("/status").await;
+    if debug {
+        match &status {
+            Ok(json) => {
+                println!(" [DEBUG] Response Body:");
+                for line in serde_json::to_string_pretty(json)
+                    .unwrap_or_default()
+                    .lines()
+                {
+                    println!(" {line}");
                 }
-            } else {
-                Err(format!("HTTP {status_code}"))
             }
-        }
-        Err(e) => {
-            if debug {
-                println!(" [DEBUG] Error: {e}");
-            }
-            Err("Connection failed".to_string())
+            Err(error) => println!(" [DEBUG] Error: {error}"),
         }
     }
+    status
 }
 
 // Helper function to extract peer list from status JSON
@@ -463,187 +312,88 @@ fn display_peer_info(peer: &DiscoveredPeer, indent: &str) {
     println!("{} Status: {}", indent, peer.connection_status);
 }
 
-pub async fn network_health_command(
-    args: &NetworkHealthArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Validate host and ports combination early
-    if let Err(e) = validate_host_and_ports(&args.host, &args.custom_ports) {
-        println!(" {e}");
-        return Err(e.into());
-    }
+/// The HTTP endpoints of a single-host Docker shard, checked when
+/// network-health is given no nodes.
+const SINGLE_HOST_SHARD: [(&str, &str); 5] = [
+    ("Bootstrap", "http://localhost:40403"),
+    ("Validator1", "http://localhost:40413"),
+    ("Validator2", "http://localhost:40423"),
+    ("Validator3", "http://localhost:40433"),
+    ("Observer", "http://localhost:40453"),
+];
 
+pub async fn network_health_command(args: &NetworkHealthArgs) -> CliResult {
     println!(" Checking F1r3fly network health");
 
-    let mut ports_to_check = Vec::new();
+    let nodes_to_check: Vec<(&str, Endpoint)> = if args.nodes.is_empty() {
+        SINGLE_HOST_SHARD
+            .iter()
+            .map(|(label, url)| {
+                (
+                    *label,
+                    Endpoint::parse(url).expect("a well-formed constant"),
+                )
+            })
+            .collect()
+    } else {
+        args.nodes
+            .iter()
+            .map(|node| ("Node", node.clone()))
+            .collect()
+    };
+    let connect = |endpoint: &Endpoint| -> CliResult<NodeHttp> {
+        Ok(NodeHttp::new(args.transport.apply(endpoint)?)?)
+    };
 
-    if args.standard_ports {
-        // Standard F1r3fly shard ports from the docker configuration
-        ports_to_check.extend_from_slice(&[
-            (40403, "Bootstrap"),
-            (40413, "Validator1"),
-            (40423, "Validator2"),
-            (40433, "Validator3"),
-            (40453, "Observer"),
-        ]);
-    }
-
-    // Add custom ports if specified
-    if let Some(custom_ports_str) = &args.custom_ports {
-        for port_str in custom_ports_str.split(',') {
-            if let Ok(port) = port_str.trim().parse::<u16>() {
-                ports_to_check.push((port, "Custom"));
-            }
-        }
-    }
-
-    if ports_to_check.is_empty() {
-        println!(" No ports specified to check");
-        return Ok(());
-    }
-
-    let client = reqwest::Client::new();
     let mut healthy_nodes = 0;
     let mut total_nodes = 0;
     let mut all_peer_lists: Vec<Vec<DiscoveredPeer>> = Vec::new();
     let mut node_status_map: Vec<(String, bool, serde_json::Value)> = Vec::new();
 
-    if args.recursive {
-        // Recursive peer discovery mode
-        println!(
-            " Starting recursive peer discovery (max peers: {})\n",
-            if args.max_peers <= 0 {
-                "unlimited".to_string()
-            } else {
-                args.max_peers.to_string()
-            }
-        );
+    println!(" Checking {} nodes...\n", nodes_to_check.len());
 
-        let mut visited = HashSet::new();
-        let mut queue: VecDeque<(String, u16)> = VecDeque::new();
-        let mut discovered_peers = Vec::new();
+    for (node_type, endpoint) in &nodes_to_check {
+        total_nodes += 1;
+        let uri_key = endpoint.to_string();
 
-        // Initialize queue with specified ports
-        for (port, _) in &ports_to_check {
-            let uri_key = format!("{}:{}", args.host, port);
-            queue.push_back((args.host.clone(), *port));
-            visited.insert(uri_key);
-        }
+        print!(" {node_type} ({uri_key}): ");
 
-        // Process discovery queue
-        while !queue.is_empty() {
-            // Check if we've reached the peer limit
-            if args.max_peers > 0 && discovered_peers.len() >= args.max_peers as usize {
-                println!("\n Reached maximum peer limit of {}", args.max_peers);
-                break;
-            }
+        match query_node_status(&connect(endpoint)?, args.debug).await {
+            Ok(status_json) => {
+                healthy_nodes += 1;
+                let peer_count = status_json
+                    .get("peers")
+                    .and_then(|p| p.as_u64())
+                    .unwrap_or(0);
 
-            if let Some((host, port)) = queue.pop_front() {
-                total_nodes += 1;
-                let uri_key = format!("{host}:{port}");
+                println!(" HEALTHY ({peer_count} peers)");
 
-                print!(" Querying {host}:{port}: ");
+                // Store the status and peer list
+                node_status_map.push((uri_key, true, status_json.clone()));
+                let peers = extract_peers(&status_json);
+                all_peer_lists.push(peers);
 
-                match query_node_status(&client, &host, port, args.debug).await {
-                    Ok((status_json, _raw_response)) => {
-                        healthy_nodes += 1;
-                        println!(" HEALTHY");
-
-                        // Display full response including peer list
-                        node_status_map.push((uri_key.clone(), true, status_json.clone()));
-
-                        // Extract peers from this node
-                        let peers = extract_peers(&status_json);
-                        all_peer_lists.push(peers.clone());
-
-                        if args.verbose {
-                            println!(" Peer count: {}", peers.len());
-                        }
-
-                        println!(" Peers from this node:");
-                        for peer in &peers {
-                            let peer_uri = peer.uri_key();
-                            if !visited.contains(&peer_uri)
-                                && (args.max_peers <= 0
-                                    || discovered_peers.len() < args.max_peers as usize)
-                            {
-                                visited.insert(peer_uri);
-                                queue.push_back((peer.host.clone(), peer.protocol_port));
-                                discovered_peers.push(peer.clone());
-                                print!(
-                                    " Added: {} ({}:{})",
-                                    peer.node_id, peer.host, peer.protocol_port
-                                );
-                                if args.verbose {
-                                    print!(" [status: {}]", peer.connection_status);
-                                }
-                                if args.max_peers > 0
-                                    && discovered_peers.len() >= args.max_peers as usize
-                                {
-                                    println!(" [LIMIT REACHED]");
-                                    break;
-                                }
-                                println!();
-                            }
-                        }
+                if args.verbose {
+                    if let Some(peers_from_endpoint) = status_json.get("peers") {
+                        println!(" Peers count from endpoint: {peers_from_endpoint}");
                     }
-                    Err(e) => {
-                        println!(" {e}");
-                        node_status_map.push((uri_key, false, serde_json::json!({})));
+                    if let Some(version) = status_json.get("version") {
+                        println!(" Version: {version}");
+                    }
+                    if let Some(uptime) = status_json.get("uptime") {
+                        println!(" Uptime: {uptime}");
                     }
                 }
             }
-        }
-
-        println!("\n Recursive Discovery Summary:");
-        println!(" Healthy nodes: {healthy_nodes}/{total_nodes}");
-        println!(" Total discovered peers: {}", discovered_peers.len());
-    } else {
-        // Standard mode: just query specified ports
-        println!(" Checking {} nodes...\n", ports_to_check.len());
-
-        for (port, node_type) in ports_to_check {
-            total_nodes += 1;
-            let uri_key = format!("{}:{}", args.host, port);
-
-            print!(" {} ({}:{}): ", node_type, args.host, port);
-
-            match query_node_status(&client, &args.host, port, args.debug).await {
-                Ok((status_json, _raw_response)) => {
-                    healthy_nodes += 1;
-                    let peer_count = status_json
-                        .get("peers")
-                        .and_then(|p| p.as_u64())
-                        .unwrap_or(0);
-
-                    println!(" HEALTHY ({peer_count} peers)");
-
-                    // Store the status and peer list
-                    node_status_map.push((uri_key, true, status_json.clone()));
-                    let peers = extract_peers(&status_json);
-                    all_peer_lists.push(peers);
-
-                    if args.verbose {
-                        if let Some(peers_from_endpoint) = status_json.get("peers") {
-                            println!(" Peers count from endpoint: {peers_from_endpoint}");
-                        }
-                        if let Some(version) = status_json.get("version") {
-                            println!(" Version: {version}");
-                        }
-                        if let Some(uptime) = status_json.get("uptime") {
-                            println!(" Uptime: {uptime}");
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!(" {e}");
-                    node_status_map.push((uri_key, false, serde_json::json!({})));
-                }
+            Err(e) => {
+                println!(" {e}");
+                node_status_map.push((uri_key, false, serde_json::json!({})));
             }
         }
-
-        println!("\n Network Health Summary:");
-        println!(" Healthy nodes: {healthy_nodes}/{total_nodes}");
     }
+
+    println!("\n Network Health Summary:");
+    println!(" Healthy nodes: {healthy_nodes}/{total_nodes}");
 
     // Display detailed peer information for each node
     if !node_status_map.is_empty() && healthy_nodes > 0 && args.verbose {
@@ -714,102 +464,66 @@ pub async fn network_health_command(
     Ok(())
 }
 
-pub async fn last_finalized_block_command(
-    args: &HttpArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        " Getting last finalized block from {}:{}",
-        args.host, args.port
-    );
-
-    let url = format!(
-        "http://{}:{}/api/last-finalized-block",
-        args.host, args.port
-    );
-    let client = reqwest::Client::new();
+pub async fn last_finalized_block_command(args: &HttpNodeArgs) -> CliResult {
+    let node = args.node()?;
+    println!(" Getting last finalized block from {}", node.endpoint());
 
     let start_time = Instant::now();
+    let block_json = node.get_json("/api/last-finalized-block").await?;
+    let duration = start_time.elapsed();
 
-    match client.get(&url).send().await {
-        Ok(response) => {
-            let duration = start_time.elapsed();
-            if response.status().is_success() {
-                let block_text = response.text().await?;
-                let block_json: serde_json::Value = serde_json::from_str(&block_text)?;
+    println!(" Last finalized block retrieved successfully!");
+    println!(" Time taken: {duration:.2?}");
 
-                println!(" Last finalized block retrieved successfully!");
-                println!(" Time taken: {duration:.2?}");
+    // Extract key information from blockInfo
+    let block_info = block_json.get("blockInfo");
 
-                // Extract key information from blockInfo
-                let block_info = block_json.get("blockInfo");
+    let block_hash = block_info
+        .and_then(|info| info.get("blockHash"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown");
 
-                let block_hash = block_info
-                    .and_then(|info| info.get("blockHash"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown");
+    let block_number = block_info
+        .and_then(|info| info.get("blockNumber"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
-                let block_number = block_info
-                    .and_then(|info| info.get("blockNumber"))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
+    let timestamp = block_info
+        .and_then(|info| info.get("timestamp"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
-                let timestamp = block_info
-                    .and_then(|info| info.get("timestamp"))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
+    // Get deploy count from blockInfo (it's already calculated)
+    let deploy_count = block_info
+        .and_then(|info| info.get("deployCount"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
-                // Get deploy count from blockInfo (it's already calculated)
-                let deploy_count = block_info
-                    .and_then(|info| info.get("deployCount"))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
+    let shard_id = block_info
+        .and_then(|info| info.get("shardId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown");
 
-                let shard_id = block_info
-                    .and_then(|info| info.get("shardId"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown");
+    let fault_tolerance = block_info
+        .and_then(|info| info.get("faultTolerance"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
 
-                let fault_tolerance = block_info
-                    .and_then(|info| info.get("faultTolerance"))
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
-
-                println!(" Last Finalized Block Summary:");
-                println!(" Block Number: {block_number}");
-                println!(" Block Hash: {block_hash}");
-                println!(" Timestamp: {timestamp}");
-                println!(" Deploy Count: {deploy_count}");
-                println!(" Shard ID: {shard_id}");
-                println!(" Fault Tolerance: {fault_tolerance:.6}");
-            } else {
-                println!(
-                    " Failed to get last finalized block: HTTP {}",
-                    response.status()
-                );
-                println!("Error: {}", response.text().await?);
-            }
-        }
-        Err(e) => {
-            println!(" Connection failed!");
-            println!("Error: {e}");
-            return Err(e.into());
-        }
-    }
+    println!(" Last Finalized Block Summary:");
+    println!(" Block Number: {block_number}");
+    println!(" Block Hash: {block_hash}");
+    println!(" Timestamp: {timestamp}");
+    println!(" Deploy Count: {deploy_count}");
+    println!(" Shard ID: {shard_id}");
+    println!(" Fault Tolerance: {fault_tolerance:.6}");
 
     Ok(())
 }
 
-pub async fn show_main_chain_command(
-    args: &ShowMainChainArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        " Getting main chain blocks from {}:{}",
-        args.host, args.port
-    );
+pub async fn show_main_chain_command(args: &ShowMainChainArgs) -> CliResult {
+    let f1r3fly_api = args.node.api()?;
+    println!(" Getting main chain blocks from {}", f1r3fly_api.endpoint());
     println!(" Depth: {} blocks", args.depth);
-
-    // Initialize the F1r3fly API client
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
 
     let start_time = Instant::now();
 
@@ -848,20 +562,21 @@ pub async fn show_main_chain_command(
         Err(e) => {
             println!(" Failed to get main chain blocks!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn validator_status_command(
-    args: &ValidatorStatusArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn validator_status_command(args: &ValidatorStatusArgs) -> CliResult {
     println!(" Checking validator status for: {}", args.public_key);
 
     let start_time = Instant::now();
-    let snapshot = fetch_pos_snapshot(&args.host, args.http_port).await?;
+    let node = args.node.node()?;
+    let (snapshot, blocks) = tokio::try_join!(fetch_pos_snapshot(&node), async {
+        Ok(node.recent_blocks(args.window).await?)
+    })?;
 
     println!(" Validator status retrieved successfully!");
     println!(" Time taken: {:.2?}", start_time.elapsed());
@@ -885,6 +600,10 @@ pub async fn validator_status_command(
         }
         None => println!(" NOT BONDED"),
     }
+    println!(
+        " {}",
+        authorship(key, args.window, &blocks, chrono::Utc::now())?
+    );
     if let Some(quarantine_end) = pending_withdrawal {
         println!(
             " WITHDRAWAL REQUESTED: leaves the bond set at the next epoch boundary; \
@@ -906,13 +625,58 @@ pub async fn validator_status_command(
     Ok(())
 }
 
-pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        " Getting current epoch information from {}:{}",
-        args.host, args.port
-    );
+/// Whether `key` authored any of `blocks`, the node's top heights. Bonded and
+/// active say only that a validator may propose; this says whether it does.
+fn authorship(
+    key: &str,
+    requested: u32,
+    blocks: &[BlockSummary],
+    now: chrono::DateTime<chrono::Utc>,
+) -> CliResult<String> {
+    let (lowest, highest) = blocks
+        .iter()
+        .map(|block| block.number)
+        .fold(None, |span: Option<(i64, i64)>, n| {
+            Some(span.map_or((n, n), |(lo, hi)| (lo.min(n), hi.max(n))))
+        })
+        .ok_or("the node returned no recent blocks")?;
+    let served = highest - lowest + 1;
+    let mut window = format!("the last {served} heights (#{lowest}-#{highest})");
+    if served < i64::from(requested) {
+        window.push_str(&format!(
+            " (asked for {requested}; the node served {served})"
+        ));
+    }
 
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
+    let authored: Vec<&BlockSummary> = blocks
+        .iter()
+        .filter(|block| block.sender.eq_ignore_ascii_case(key))
+        .collect();
+    let Some(latest) = authored.iter().max_by_key(|block| block.number) else {
+        return Ok(format!("NOT PROPOSING: no block in {window}"));
+    };
+    let heights: BTreeSet<i64> = authored.iter().map(|block| block.number).collect();
+    let stamped = chrono::DateTime::from_timestamp_millis(latest.timestamp)
+        .ok_or_else(|| format!("block {} has timestamp {}", latest.hash, latest.timestamp))?;
+    Ok(format!(
+        "PROPOSING: blocks at {} of {window}; latest #{}, {}, {}",
+        heights.len(),
+        latest.number,
+        crate::dag::model::age_string(now - stamped),
+        if latest.finalized {
+            "finalized"
+        } else {
+            "not yet finalized"
+        }
+    ))
+}
+
+pub async fn epoch_info_command(args: &ReadOnlyGrpcArgs) -> CliResult {
+    let f1r3fly_api = args.api()?;
+    println!(
+        " Getting current epoch information from {}",
+        f1r3fly_api.endpoint()
+    );
 
     let start_time = Instant::now();
 
@@ -952,21 +716,14 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
 
     let duration = start_time.elapsed();
 
-    // Parse epoch length from PoS contract result
-    let epoch_length = epoch_result.0.trim().parse::<i64>().map_err(|e| {
-        format!(
-            "Failed to parse epoch length from PoS contract: '{}'. Error: {}",
-            epoch_result.0, e
-        )
-    })?;
-
-    // Parse quarantine length from PoS contract result
-    let quarantine_length = quarantine_result.0.trim().parse::<i64>().map_err(|e| {
-        format!(
-            "Failed to parse quarantine length from PoS contract: '{}'. Error: {}",
-            quarantine_result.0, e
-        )
-    })?;
+    let length = |result: &crate::f1r3fly_api::ExploratoryResult, name: &str| -> CliResult<i64> {
+        let value = result.value()?;
+        value.as_i64().filter(|length| *length > 0).ok_or_else(|| {
+            format!("the PoS contract's {name} is not a positive integer: {value}").into()
+        })
+    };
+    let epoch_length = length(&epoch_result, "epoch length")?;
+    let quarantine_length = length(&quarantine_result, "quarantine length")?;
 
     // Calculate epoch information
     let current_epoch = current_block / epoch_length;
@@ -1029,11 +786,9 @@ pub async fn epoch_info_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        " Getting current epoch rewards from {}:{}",
-        args.host, args.http_port
-    );
+pub async fn epoch_rewards_command(args: &ReadOnlyHttpArgs) -> CliResult {
+    let node = args.node()?;
+    println!(" Getting current epoch rewards from {}", node.endpoint());
 
     let rewards_query = r#"new return, rl(`rho:registry:lookup`), poSCh in {
  rl!(`rho:system:pos`, *poSCh) |
@@ -1042,124 +797,49 @@ pub async fn epoch_rewards_command(args: &PosQueryArgs) -> Result<(), Box<dyn st
  }
  }"#;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
-    let http_url = format!("http://{}:{}/api/explore-deploy", args.host, args.http_port);
-
     let start_time = Instant::now();
-
-    let body = serde_json::json!({ "term": rewards_query });
-    let response = client.post(&http_url).json(&body).send().await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        println!(" Failed to get epoch rewards!");
-        println!("Error: HTTP {status} {body}");
-        return Err(format!("HTTP error: {status}").into());
-    }
-
-    let response_json: serde_json::Value = response.json().await?;
+    let response = node.explore_deploy(rewards_query).await?;
     let duration = start_time.elapsed();
+    let rewards = response.value()?;
+    let rewards = rewards
+        .entries()
+        .ok_or_else(|| format!("the PoS contract's epoch rewards are not a map: {rewards}"))?;
+    let mut entries = rewards
+        .iter()
+        .map(|(key, reward)| {
+            let key = match key {
+                RhoValue::String(key) => key.to_string(),
+                other => other.to_string(),
+            };
+            Ok((key, reward.as_amount()?))
+        })
+        .collect::<crate::Result<Vec<_>>>()?;
+    let total_rewards: num_bigint::BigUint = entries.iter().map(|(_, r)| r).sum();
+    entries.sort_by(|a, b| b.1.cmp(&a.1));
 
     println!(" Epoch rewards retrieved successfully!");
     println!(" Time taken: {duration:.2?}");
-
-    // Extract block info
-    if let Some(block) = response_json.get("block") {
-        let block_hash = block
-            .get("blockHash")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let block_number = block
-            .get("blockNumber")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        println!(" Block hash: {block_hash}, Block number: {block_number}");
-    }
-
-    // Parse rewards from ExprMap: { validator_pubkey: ExprInt { data: reward } }
+    println!(
+        " Block hash: {}, Block number: {}",
+        response.block.hash, response.block.number
+    );
     println!();
-    if let Some(expr) = response_json.get("expr").and_then(|e| e.as_array()) {
-        if let Some(expr_map) = expr
-            .first()
-            .and_then(|e| e.get("ExprMap"))
-            .and_then(|m| m.get("data"))
-            .and_then(|d| d.as_object())
-        {
-            println!(" Current Epoch Rewards ({} validators):", expr_map.len());
-            println!();
-
-            let mut entries: Vec<(&String, i64)> = expr_map
-                .iter()
-                .map(|(key, val)| {
-                    let reward = val
-                        .get("ExprInt")
-                        .and_then(|e| e.get("data"))
-                        .and_then(|d| d.as_i64())
-                        .unwrap_or(0);
-                    (key, reward)
-                })
-                .collect();
-            let total_rewards: i64 = entries.iter().map(|(_, r)| r).sum();
-            entries.sort_by(|a, b| b.1.cmp(&a.1));
-
-            for (key, reward) in &entries {
-                let short_key = if key.len() > 16 {
-                    format!("{}...{}", &key[..8], &key[key.len() - 8..])
-                } else {
-                    key.to_string()
-                };
-                println!(" {short_key} : {reward}");
-            }
-
-            println!();
-            println!(" Total: {total_rewards}");
-        } else {
-            println!(" Current Epoch Rewards:");
-            println!("{}", serde_json::to_string_pretty(&response_json["expr"])?);
-        }
-    } else {
-        println!("No reward data returned");
+    println!(" Current Epoch Rewards ({} validators):", entries.len());
+    println!();
+    for (key, reward) in &entries {
+        println!(" {} : {reward}", abbreviate_key(key));
     }
+    println!();
+    println!(" Total: {total_rewards}");
 
     Ok(())
 }
 
 /// Read the PoS contract's validator bookkeeping through a read-only node's HTTP API.
-///
-/// The node admits only `api-server.exploratory-deploy-max-concurrent` exploratory
-/// queries (default 1) and rejects the excess with 503 instead of queueing it, so an
-/// occupied slot is retried.
-async fn fetch_pos_snapshot(
-    host: &str,
-    http_port: u16,
-) -> Result<PosSnapshot, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-    let url = build_url(host, http_port, "/api/explore-deploy");
-    let body = serde_json::json!({ "term": POS_SNAPSHOT_QUERY });
-
-    let mut attempt = 0;
-    loop {
-        let response = client.post(&url).json(&body).send().await?;
-        let status = response.status();
-
-        if status.is_success() {
-            let json: serde_json::Value = response.json().await?;
-            return Ok(parse_pos_snapshot(&json)?);
-        }
-
-        if status == reqwest::StatusCode::SERVICE_UNAVAILABLE
-            && attempt < EXPLORATORY_RETRY_BACKOFF.len()
-        {
-            tokio::time::sleep(EXPLORATORY_RETRY_BACKOFF[attempt]).await;
-            attempt += 1;
-            continue;
-        }
-
-        return Err(format!("HTTP {status}: {}", response.text().await?).into());
-    }
+async fn fetch_pos_snapshot(node: &NodeHttp) -> CliResult<PosSnapshot> {
+    Ok(parse_pos_snapshot(
+        &node.explore_deploy(POS_SNAPSHOT_QUERY).await?,
+    )?)
 }
 
 fn abbreviate_key(key: &str) -> String {
@@ -1170,16 +850,15 @@ fn abbreviate_key(key: &str) -> String {
     }
 }
 
-pub async fn network_consensus_command(
-    args: &NetworkConsensusArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn network_consensus_command(args: &ReadOnlyHttpArgs) -> CliResult {
+    let node = args.node()?;
     println!(
-        " Getting network-wide consensus overview from {}:{}",
-        args.host, args.http_port
+        " Getting network-wide consensus overview from {}",
+        node.endpoint()
     );
 
     let start_time = Instant::now();
-    let snapshot = fetch_pos_snapshot(&args.host, args.http_port).await?;
+    let snapshot = fetch_pos_snapshot(&node).await?;
 
     println!(" Network consensus data retrieved successfully!");
     println!(" Time taken: {:.2?}", start_time.elapsed());
@@ -1221,12 +900,11 @@ pub async fn network_consensus_command(
     Ok(())
 }
 
-pub async fn get_blocks_by_height_command(
-    args: &GetBlocksByHeightArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn get_blocks_by_height_command(args: &GetBlocksByHeightArgs) -> CliResult {
+    let f1r3fly_api = args.node.api()?;
     println!(
-        " Getting blocks by height range from {}:{}",
-        args.host, args.port
+        " Getting blocks by height range from {}",
+        f1r3fly_api.endpoint()
     );
     println!(
         " Block range: {} to {}",
@@ -1241,9 +919,6 @@ pub async fn get_blocks_by_height_command(
     if args.start_block_number < 0 || args.end_block_number < 0 {
         return Err("Block numbers must be non-negative".into());
     }
-
-    // Initialize the F1r3fly API client
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
 
     let start_time = Instant::now();
 
@@ -1285,67 +960,46 @@ pub async fn get_blocks_by_height_command(
         Err(e) => {
             println!(" Failed to get blocks by height!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-/// Validates that when using -H with a remote host, --custom-ports must be specified
-fn validate_host_and_ports(host: &str, custom_ports: &Option<String>) -> Result<(), String> {
-    match (host, custom_ports) {
-        // Remote host without custom ports - ERROR
-        (h, None) if h != "localhost" && h != "127.0.0.1" => Err(format!(
-            "When using -H with remote host '{h}', you must specify --custom-ports\n\
- \n\
- Remote hosts don't use standard F1r3fly ports. Specify the actual ports:\n\
- \n\
- Examples:\n\
- cargo run -- network-health -H {h} --custom-ports \"8001,8002,9443\"\n\
- cargo run -- network-health -H {h} --custom-ports \"7890\"\n\
- \n\
- For localhost, standard ports are assumed:\n\
- cargo run -- network-health -H localhost (uses standard ports)\n\
- cargo run -- network-health (uses localhost + standard ports)"
-        )),
-        // All other combinations are valid
-        _ => Ok(()),
-    }
-}
-
-pub async fn block_transfers_command(
-    args: &BlockTransfersArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn block_transfers_command(args: &BlockTransfersArgs) -> CliResult {
     println!("Getting transfers from block: {}", args.block_hash);
 
-    let url = format!(
-        "http://{}:{}/api/block/{}",
-        args.host, args.port, args.block_hash
-    );
-    let client = reqwest::Client::new();
+    let node = args.node.node()?;
+    let path = format!("/api/block/{}", args.block_hash);
     let start_time = Instant::now();
 
-    let response = client.get(&url).send().await?;
+    let block_json = loop {
+        let block_json = node.get_json(&path).await?;
+        if transfers_reported(block_deploys(&block_json)?) {
+            break block_json;
+        }
+        if start_time.elapsed() >= std::time::Duration::from_secs(args.max_wait) {
+            return Err(format!(
+                "the node has not produced the transfer report for block {} within {}s; \
+                 only a read-only node attaches transfers, a validator never does",
+                args.block_hash, args.max_wait
+            )
+            .into());
+        }
+        tokio::time::sleep(TRANSFER_REPORT_POLL_INTERVAL).await;
+    };
     let duration = start_time.elapsed();
-
-    if !response.status().is_success() {
-        println!("Failed to get block: HTTP {}", response.status());
-        return Err(format!("HTTP {}", response.status()).into());
-    }
-
-    let block_json: serde_json::Value = response.json().await?;
 
     println!("Block retrieved successfully!");
     println!("Time taken: {duration:.2?}");
     println!();
 
-    // Extract block info
     let block_number = block_json
         .get("blockInfo")
         .and_then(|b| b.get("blockNumber"))
         .and_then(|n| n.as_i64())
-        .unwrap_or(0);
+        .ok_or("block response carries no blockInfo.blockNumber")?;
 
     let block_hash_display = if args.block_hash.len() > 16 {
         format!("{}...", &args.block_hash[..16])
@@ -1356,12 +1010,7 @@ pub async fn block_transfers_command(
     println!("Block #{block_number} ({block_hash_display})");
     println!();
 
-    // Extract deploys and their transfers
-    let deploys = block_json
-        .get("deploys")
-        .and_then(|d| d.as_array())
-        .map(|a| a.to_vec())
-        .unwrap_or_default();
+    let deploys = block_deploys(&block_json)?;
 
     let mut total_transfers = 0;
     let mut deploys_with_transfers = 0;
@@ -1377,8 +1026,7 @@ pub async fn block_transfers_command(
         let transfers = deploy
             .get("transfers")
             .and_then(|t| t.as_array())
-            .map(|a| a.to_vec())
-            .unwrap_or_default();
+            .ok_or_else(|| format!("deploy {sig}: transfers is not a list"))?;
 
         if transfers.is_empty() && !args.all_deploys {
             continue;
@@ -1409,7 +1057,10 @@ pub async fn block_transfers_command(
                     .get("toAddr")
                     .and_then(|v| v.as_str())
                     .unwrap_or("?");
-                let amount = transfer.get("amount").and_then(|v| v.as_i64()).unwrap_or(0);
+                let amount = transfer
+                    .get("amount")
+                    .and_then(crate::vault::json_reported_amount)
+                    .ok_or("invalid transfer amount")?;
                 let success = transfer
                     .get("success")
                     .and_then(|v| v.as_bool())
@@ -1452,4 +1103,101 @@ pub async fn block_transfers_command(
     }
 
     Ok(())
+}
+
+const TRANSFER_REPORT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn block_deploys(block_json: &serde_json::Value) -> Result<&[serde_json::Value], String> {
+    block_json
+        .get("deploys")
+        .and_then(|d| d.as_array())
+        .map(Vec::as_slice)
+        .ok_or_else(|| "block response carries no deploys list".to_string())
+}
+
+/// The node attaches `transfers` to every deploy once it has the block's report.
+/// A read while its reporter is busy omits the field, which means "not known
+/// yet", never "no transfers".
+fn transfers_reported(deploys: &[serde_json::Value]) -> bool {
+    deploys
+        .iter()
+        .all(|deploy| deploy.get("transfers").is_some())
+}
+
+#[cfg(test)]
+mod block_transfers_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_deploy_without_transfers_means_the_report_is_pending() {
+        let block = json!({"deploys": [{"sig": "a", "transfers": []}, {"sig": "b"}]});
+        assert!(!transfers_reported(block_deploys(&block).unwrap()));
+    }
+
+    #[test]
+    fn every_deploy_carrying_transfers_means_the_report_is_ready() {
+        let block =
+            json!({"deploys": [{"sig": "a", "transfers": []}, {"sig": "b", "transfers": []}]});
+        assert!(transfers_reported(block_deploys(&block).unwrap()));
+        assert!(transfers_reported(
+            block_deploys(&json!({"deploys": []})).unwrap()
+        ));
+    }
+
+    #[test]
+    fn a_block_without_a_deploys_list_is_an_error() {
+        assert!(block_deploys(&json!({"blockInfo": {}})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod authorship_tests {
+    use super::*;
+
+    const NOW_MS: i64 = 1_800_000_000_000;
+
+    fn block(number: i64, sender: &str, seconds_ago: i64, finalized: bool) -> BlockSummary {
+        BlockSummary {
+            hash: format!("{sender}{number}"),
+            number,
+            sender: sender.to_string(),
+            timestamp: NOW_MS - seconds_ago * 1000,
+            finalized,
+        }
+    }
+
+    fn line(key: &str, requested: u32, blocks: &[BlockSummary]) -> String {
+        let now = chrono::DateTime::from_timestamp_millis(NOW_MS).unwrap();
+        authorship(key, requested, blocks, now).unwrap()
+    }
+
+    #[test]
+    fn authored_heights_are_counted_once_and_the_latest_is_described() {
+        let blocks = [
+            block(10, "04ab", 30, true),
+            block(10, "04AB", 29, true),
+            block(10, "04cd", 30, true),
+            block(11, "04cd", 20, false),
+            block(12, "04ab", 4, false),
+        ];
+        assert_eq!(
+            line("04aB", 3, &blocks),
+            "PROPOSING: blocks at 2 of the last 3 heights (#10-#12); latest #12, 4s ago, \
+             not yet finalized"
+        );
+        assert!(line("04ab", 1, &[block(12, "04ab", -5, false)]).contains("latest #12, 5s ahead,"));
+    }
+
+    #[test]
+    fn a_silent_key_and_a_short_window_are_both_stated() {
+        let blocks = [block(40, "04cd", 9, true), block(41, "04cd", 3, false)];
+        assert_eq!(
+            line("04ab", 50, &blocks),
+            "NOT PROPOSING: no block in the last 2 heights (#40-#41) \
+             (asked for 50; the node served 2)"
+        );
+        let now = chrono::DateTime::from_timestamp_millis(NOW_MS).unwrap();
+        assert!(authorship("04ab", 50, &[], now).is_err());
+    }
 }

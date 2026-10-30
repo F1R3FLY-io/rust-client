@@ -43,8 +43,8 @@ fn genesis_reports_three_bonded_validators() {
     // The client abbreviates keys as <first 8>...<last 8>.
     let validator1 = format!(
         "{}...{}",
-        &keys::VALIDATOR1_PUBLIC[..8],
-        &keys::VALIDATOR1_PUBLIC[keys::VALIDATOR1_PUBLIC.len() - 8..]
+        &keys::VALIDATOR1.public[..8],
+        &keys::VALIDATOR1.public[keys::VALIDATOR1.public.len() - 8..]
     );
 
     bonds()
@@ -59,21 +59,24 @@ fn genesis_reports_three_bonded_validators() {
         .expect_contains("3 total")
         .expect_contains(&validator1);
 
-    validator_status(keys::VALIDATOR1_PUBLIC)
+    validator_status(&keys::VALIDATOR1.public)
         .expect_success("validator-status for a genesis validator")
-        .expect_contains("BONDED");
+        .expect_contains("BONDED")
+        .expect_contains("PROPOSING: blocks at");
 
     validator_status(keys::NEVER_BONDED_PUBLIC)
         .expect_success("validator-status for an unbonded key")
-        .expect_contains("NOT BONDED");
+        .expect_contains("NOT BONDED")
+        .expect_contains("NOT PROPOSING: no block");
 }
 
 /// Start the joiner, bond it, and watch it enter the active set at the next
 /// epoch boundary. A second bond of the same key must be refused.
 fn a_joiner_bonds_and_becomes_active() {
-    bond(&keys::VALIDATOR4)
+    let bonded = bond(&keys::VALIDATOR4)
         .expect_success("bond-validator")
         .expect_contains("Bond");
+    chain::finalized_on_read_only(&bonded);
 
     bonds().expect_success("bonds").expect_contains("4 total");
 
@@ -83,17 +86,29 @@ fn a_joiner_bonds_and_becomes_active() {
 
     chain::next_epoch_boundary(Node::ReadOnly, EPOCH_LENGTH, Duration::from_secs(180));
 
-    validator_status(keys::VALIDATOR4.public)
+    validator_status(&keys::VALIDATOR4.public)
         .expect_success("validator-status for the joiner")
         .expect_contains("ACTIVE");
+
+    // Active says the joiner may propose; only its blocks say it does.
+    chain::until(
+        "the joiner to author a block",
+        Duration::from_secs(120),
+        || {
+            validator_status(&keys::VALIDATOR4.public)
+                .expect_success("validator-status for the joiner")
+                .contains("PROPOSING: blocks at")
+        },
+    );
 }
 
 /// Unbonding takes the joiner out of the bond set and puts its stake into
 /// quarantine; the chain must keep finalizing without it.
 fn unbonding_quarantines_the_stake() {
-    unbond(&keys::VALIDATOR4).expect_success("unbond-validator");
+    let unbonded = unbond(&keys::VALIDATOR4).expect_success("unbond-validator");
+    chain::finalized_on_read_only(&unbonded);
 
-    validator_status(keys::VALIDATOR4.public)
+    validator_status(&keys::VALIDATOR4.public)
         .expect_success("validator-status after unbonding")
         .expect_contains("WITHDRAW");
 
@@ -114,7 +129,7 @@ fn bonds() -> Output {
 fn validator_status(public_key: &str) -> Output {
     Cli::new("validator-status")
         .args(["--public-key", public_key])
-        .http_port_at(Node::ReadOnly)
+        .http_at(Node::ReadOnly)
         .run()
 }
 

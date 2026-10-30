@@ -1,60 +1,63 @@
 use crate::args::*;
-use crate::commands::query::query_node_status;
+use crate::commands::CliResult;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
-use crate::f1r3fly_api::{DeployResult, F1r3flyApi, ProposeResult};
+use crate::f1r3fly_api::{DeployResult, ProposeResult};
 use crate::pos::{build_bond_rholang, parse_pos_call_result, WITHDRAW_RHOLANG};
+use crate::signing_key::SigningKey;
 use std::fs;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
-fn build_config(wait: &DeployWaitArgs, private_key: &str, check_interval: u64) -> ConnectionConfig {
+fn build_config(
+    wait: &DeployWaitArgs,
+    key: SigningKey,
+    check_interval: u64,
+) -> CliResult<ConnectionConfig> {
+    let transport = &wait.node.transport;
     let mut config = ConnectionConfig::new(
-        wait.host.clone(),
-        wait.port,
-        wait.http_port,
-        private_key.to_string(),
+        transport.apply(&wait.node.grpc)?,
+        transport.apply(&wait.node.http)?,
+        key,
     );
+    if let Some(observer) = &wait.observer {
+        config = config.with_observer(transport.apply(observer)?);
+    }
     config.finalization_timeout_secs = wait.max_wait as u32;
     config.poll_interval_secs = check_interval;
-    if let Some(obs_host) = &wait.observer_host {
-        config.observer_host = Some(obs_host.clone());
-    }
-    if let Some(obs_port) = wait.observer_port {
-        config.observer_grpc_port = obs_port;
-    }
-    if let Some(obs_http_port) = wait.observer_http_port {
-        config.observer_http_port = obs_http_port;
-    }
-    config
+    config.shard_id = wait.deploy.shard_id.clone();
+    Ok(config)
 }
 
-/// Calculates the expiration timestamp from CLI arguments.
-/// Returns 0 if no expiration is specified.
-fn calculate_expiration_timestamp(expiration: Option<i64>, expires_in: Option<u64>) -> i64 {
-    if let Some(exp_ts) = expiration {
-        exp_ts
-    } else if let Some(duration_secs) = expires_in {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get system time")
-            .as_millis() as i64;
-        now + (duration_secs as i64 * 1000)
-    } else {
-        0 // No expiration
+fn connect(
+    wait: &DeployWaitArgs,
+    key: &KeyArgs,
+    check_interval: u64,
+) -> CliResult<F1r3flyConnectionManager> {
+    Ok(F1r3flyConnectionManager::new(build_config(
+        wait,
+        key.load()?,
+        check_interval,
+    )?)?)
+}
+
+/// Propose a block on the deploy node, reporting rather than failing: the
+/// deploy has already finalized by the time this runs.
+async fn propose_after(manager: &F1r3flyConnectionManager) {
+    match manager.api().propose().await {
+        Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
+        Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
+        Err(e) => println!("Propose failed: {e}"),
     }
 }
 
-pub async fn exploratory_deploy_command(
-    args: &ExploratoryDeployArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn exploratory_deploy_command(args: &ExploratoryDeployArgs) -> CliResult {
     // Read the Rholang code from file
     println!(" Reading Rholang from: {}", args.file.display());
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
     println!(" Code size: {} bytes", rholang_code.len());
 
-    // Initialize the F1r3fly API client
-    println!(" Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
+    let f1r3fly_api = args.node.api()?;
+    println!(" Connecting to F1r3fly node at {}", f1r3fly_api.endpoint());
 
     // Execute the exploratory deployment
     println!(" Executing Rholang code (exploratory deploy)...");
@@ -81,49 +84,62 @@ pub async fn exploratory_deploy_command(
         )
         .await
     {
-        Ok((result, block_info, cost)) => {
+        Ok(result) => {
             let duration = start_time.elapsed();
             println!("Execution successful!");
-            println!("Cost:    {cost} phlogiston");
+            println!("Cost:    {} phlogiston", result.cost);
             println!("Time:    {duration:.2?}");
-            println!("{block_info}");
-            println!("Result:");
-            println!("{result}");
+            println!(
+                "Block hash: {}, Block number: {}",
+                result.block.hash, result.block.number
+            );
+            if result.data.is_empty() {
+                println!("Result: (none)");
+            } else {
+                println!("Result:");
+                for par in &result.data {
+                    println!("{}", super::show(par));
+                }
+            }
         }
         Err(e) => {
             println!("Execution failed!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn estimate_cost_command(
-    args: &EstimateCostArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn estimate_cost_command(args: &EstimateCostArgs) -> CliResult {
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
-    let deployer_hex = resolve_deployer(&args.deployer, &args.private_key)?;
+    let deployer_hex = match &args.deployer {
+        Some(deployer) => Some(deployer.clone()),
+        None => args
+            .key
+            .load_optional()?
+            .map(|key| hex::encode(key.public_key().serialize_uncompressed())),
+    };
 
     if deployer_hex.is_none() {
         eprintln!(
             " Warning: no deployer identity supplied. The estimate may be significantly \
              lower than the real cost for identity-dependent terms (e.g. vault transfers). \
-             Pass --deployer <PUBKEY> or --private-key <PRIVKEY> to fix this."
+             Pass --deployer <PUBKEY>, or a signing key with --private-key-file or \
+             FIREFLY_PRIVATE_KEY, to fix this."
         );
     }
 
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.http_port);
-
-    let response = f1r3fly_api
+    let response = args
+        .node
+        .node()?
         .estimate_cost(
             &rholang_code,
             deployer_hex.as_deref(),
             args.block_hash.as_deref(),
-            args.http_port,
         )
         .await?;
 
@@ -132,62 +148,30 @@ pub async fn estimate_cost_command(
     Ok(())
 }
 
-/// Resolve the deployer public key hex from CLI arguments.
-///
-/// Priority: `--deployer` directly, or derive from `--private-key`, or `None`.
-fn resolve_deployer(
-    deployer: &Option<String>,
-    private_key: &Option<String>,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    if let Some(pk) = deployer {
-        return Ok(Some(pk.clone()));
-    }
-    if let Some(sk_hex) = private_key {
-        let secret_key = crate::utils::CryptoUtils::decode_private_key(sk_hex)?;
-        let public_key = crate::utils::CryptoUtils::derive_public_key(&secret_key);
-        let pub_hex = crate::utils::CryptoUtils::serialize_public_key(&public_key, false);
-        return Ok(Some(pub_hex));
-    }
-    Ok(None)
-}
-
-pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn deploy_command(args: &DeployArgs) -> CliResult {
     // Read the Rholang code from file
     println!("Reading Rholang from: {}", args.file.display());
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
     println!("Code size: {} bytes", rholang_code.len());
 
-    // Initialize the F1r3fly API client
-    println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
-
-    let phlo_limit = if args.bigger_phlo {
-        "5,000,000,000"
-    } else {
-        "50,000"
-    };
-    println!("Using phlo limit: {phlo_limit}");
-
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("Deploy expiration: {expiration_timestamp} ms");
+    let f1r3fly_api = args
+        .node
+        .api()?
+        .with_signing_key(&args.key.load()?)
+        .with_shard_id(&args.deploy.shard_id);
+    println!("Connecting to F1r3fly node at {}", f1r3fly_api.endpoint());
+    let options = args.deploy.options(args.phlo_limit);
+    println!("Using phlo limit: {}", options.phlo_limit);
+    if let Some(expiration) = options.expiration {
+        println!("Deploy expiration: {expiration} ms");
     }
 
     // Deploy the Rholang code
     println!("Deploying Rholang code...");
     let start_time = Instant::now();
 
-    match f1r3fly_api
-        .deploy(
-            &rholang_code,
-            args.bigger_phlo,
-            "rholang",
-            expiration_timestamp,
-        )
-        .await
-    {
+    match f1r3fly_api.deploy(&rholang_code, &options).await {
         Ok(deploy_id) => {
             let duration = start_time.elapsed();
             println!("Deployment successful!");
@@ -197,17 +181,16 @@ pub async fn deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error:
         Err(e) => {
             println!("Deployment failed!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the F1r3fly API client
-    println!(" Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
+pub async fn propose_command(args: &ProposeArgs) -> CliResult {
+    let f1r3fly_api = args.api()?;
+    println!(" Connecting to F1r3fly node at {}", f1r3fly_api.endpoint());
 
     // Propose a block
     println!(" Proposing a new block...");
@@ -228,78 +211,16 @@ pub async fn propose_command(args: &ProposeArgs) -> Result<(), Box<dyn std::erro
         Err(e) => {
             println!(" Block proposal failed!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn full_deploy_command(args: &DeployArgs) -> Result<(), Box<dyn std::error::Error>> {
-    // Read the Rholang code from file
-    println!("Reading Rholang from: {}", args.file.display());
-    let rholang_code =
-        fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
-    println!("Code size: {} bytes", rholang_code.len());
-
-    // Initialize the F1r3fly API client
-    println!("Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new(&args.private_key, &args.host, args.port)?;
-
-    let phlo_limit = if args.bigger_phlo {
-        "5,000,000,000"
-    } else {
-        "50,000"
-    };
-    println!("Using phlo limit: {phlo_limit}");
-
-    // Calculate expiration timestamp
-    let expiration_timestamp = calculate_expiration_timestamp(args.expiration, args.expires_in);
-    if expiration_timestamp > 0 {
-        println!("Deploy expiration: {expiration_timestamp} ms");
-    }
-
-    // Deploy and propose
-    println!("Deploying Rholang code and proposing a block...");
-    let start_time = Instant::now();
-
-    match f1r3fly_api
-        .full_deploy(
-            &rholang_code,
-            args.bigger_phlo,
-            "rholang",
-            expiration_timestamp,
-        )
-        .await
-    {
-        Ok(ProposeResult::Proposed(block_hash)) => {
-            let duration = start_time.elapsed();
-            println!("Deployment and block proposal successful!");
-            println!("Time taken: {duration:.2?}");
-            println!("Block hash: {block_hash}");
-        }
-        Ok(ProposeResult::Skipped(reason)) => {
-            let duration = start_time.elapsed();
-            println!("Deployment successful, but proposal was skipped.");
-            println!("Time taken: {duration:.2?}");
-            println!("Skip reason: {reason}");
-        }
-        Err(e) => {
-            println!("Operation failed!");
-            println!("Error: {e}");
-            return Err(e);
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn is_finalized_command(
-    args: &IsFinalizedArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the F1r3fly API client
-    println!(" Connecting to F1r3fly node at {}:{}", args.host, args.port);
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
+pub async fn is_finalized_command(args: &IsFinalizedArgs) -> CliResult {
+    let f1r3fly_api = args.node.api()?;
+    println!(" Connecting to F1r3fly node at {}", f1r3fly_api.endpoint());
 
     // Check if the block is finalized
     println!(" Checking if block is finalized: {}", args.block_hash);
@@ -328,30 +249,25 @@ pub async fn is_finalized_command(
         Err(e) => {
             println!(" Error checking block finalization!");
             println!("Error: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-pub async fn bond_validator_command(
-    args: &BondValidatorArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
     println!("Bonding validator with stake: {}", args.stake);
 
-    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
-    let manager = F1r3flyConnectionManager::new(build_config(
-        &args.wait,
-        &args.private_key,
-        args.check_interval,
-    ));
+    let manager = connect(&args.wait, &args.key, args.check_interval)?;
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(&build_bond_rholang(args.stake), true, expiration)
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+        .deploy_and_wait(
+            &build_bond_rholang(&crate::vault::parse_amount(&args.stake)?)?,
+            &args.wait.deploy.options(args.phlo_limit),
+        )
+        .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -360,41 +276,22 @@ pub async fn bond_validator_command(
     ensure_pos_call_succeeded("Bond", &result)?;
 
     if args.propose {
-        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
-        match api.propose().await {
-            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
-            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
-            Err(e) => println!("Propose failed: {e}"),
-        }
+        propose_after(&manager).await;
     }
 
-    println!("Bonding complete. Verify with: node_cli bonds");
+    println!("Bonding complete. Verify with: node_cli bonds --http <read-only node>");
     Ok(())
 }
 
-pub async fn unbond_validator_command(
-    args: &UnbondValidatorArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::utils::CryptoUtils;
-
-    let public_key = {
-        let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
-        CryptoUtils::serialize_public_key(&CryptoUtils::derive_public_key(&secret_key), false)
-    };
+pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
+    let manager = connect(&args.wait, &args.key, args.check_interval)?;
+    let public_key = manager.get_public_key_hex();
     println!("Requesting withdrawal for validator: {public_key}");
-
-    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
-    let manager = F1r3flyConnectionManager::new(build_config(
-        &args.wait,
-        &args.private_key,
-        args.check_interval,
-    ));
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(WITHDRAW_RHOLANG, true, expiration)
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+        .deploy_and_wait(WITHDRAW_RHOLANG, &args.wait.deploy.options(args.phlo_limit))
+        .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -403,66 +300,47 @@ pub async fn unbond_validator_command(
     ensure_pos_call_succeeded("Withdrawal", &result)?;
 
     println!("Withdrawal requested. The validator leaves the bond set at the next epoch boundary.");
-    println!("Track progress with: node_cli validator-status -k {public_key}");
+    println!(
+        "Track progress with: node_cli validator-status -k {public_key} --http <read-only node>"
+    );
     Ok(())
 }
 
 /// Fail when a PoS method deploy errored, its verdict could not be read, or the
 /// contract rejected the call.
-fn ensure_pos_call_succeeded(
-    action: &str,
-    result: &DeployResult,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if result.errored {
-        let err = result
-            .system_deploy_error
-            .as_deref()
-            .unwrap_or("unknown error");
-        return Err(format!("{action} deploy failed: {err}").into());
+fn ensure_pos_call_succeeded(action: &str, result: &DeployResult) -> CliResult {
+    let detail = result
+        .detail
+        .as_ref()
+        .map_err(|err| format!("{action} outcome could not be read: {err}"))?;
+    if let Some(failure) = detail.execution_failure() {
+        return Err(format!("{action} deploy failed: {failure}").into());
     }
-    let data = result.data.as_ref().map_err(|err| {
-        format!("{action} deploy finalized, but its PoS verdict could not be read: {err}")
-    })?;
-    parse_pos_call_result(data)
-        .map_err(|reason| format!("{action} rejected by PoS: {reason}").into())
+    let data = result
+        .data
+        .as_ref()
+        .map_err(|err| format!("{action} verdict could not be read: {err}"))?;
+    Ok(parse_pos_call_result(data)?)
 }
 
-pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::utils::CryptoUtils;
-
-    // Derive sender address
-    let from_address = {
-        let secret_key = CryptoUtils::decode_private_key(&args.private_key)?;
-        let public_key = CryptoUtils::derive_public_key(&secret_key);
-        let public_key_hex = CryptoUtils::serialize_public_key(&public_key, false);
-        CryptoUtils::generate_vault_address(&public_key_hex)?
-    };
+pub async fn transfer_command(args: &TransferArgs) -> CliResult {
+    let manager = connect(&args.wait, &args.key, args.check_interval)?;
+    let from_address = manager.get_address()?;
 
     validate_vault_address(&from_address)?;
     validate_vault_address(&args.to_address)?;
 
     let amount_dust = if args.whole_tokens {
         // Whole-token mode: ask the node how many decimals the native token has.
-        let (status_json, _) = query_node_status(
-            &reqwest::Client::new(),
-            &args.wait.host,
-            args.wait.http_port,
-            false,
-        )
-        .await?;
+        let status_json = manager.http().get_json("/status").await?;
         let decimals = status_json
             .get("nativeTokenDecimals")
             .and_then(|v| v.as_u64())
-            .ok_or("node did not report token decimals; cannot convert whole tokens")?
-            as u32;
-        let factor = 10u64
-            .checked_pow(decimals)
-            .ok_or("token decimals too large for u64 multiplier")?;
-        args.amount
-            .checked_mul(factor)
-            .ok_or("amount overflows u64 after applying token decimals")?
+            .and_then(|v| u32::try_from(v).ok())
+            .ok_or("node did not report valid token decimals; cannot convert whole tokens")?;
+        crate::vault::tokens_to_dust(&args.amount, decimals)?
     } else {
-        args.amount
+        crate::vault::parse_amount(&args.amount)?
     };
 
     println!(
@@ -471,85 +349,62 @@ pub async fn transfer_command(args: &TransferArgs) -> Result<(), Box<dyn std::er
     );
 
     let rholang_code =
-        crate::vault::build_transfer_rholang(&from_address, &args.to_address, amount_dust);
-    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
+        crate::vault::build_transfer_rholang(&from_address, &args.to_address, &amount_dust)?;
 
-    let manager = F1r3flyConnectionManager::new(build_config(
-        &args.wait,
-        &args.private_key,
-        args.check_interval,
-    ));
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+        .deploy_and_wait(&rholang_code, &args.wait.deploy.options(args.phlo_limit))
+        .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
-    if let Some(cost) = result.cost {
-        println!("Cost: {cost}");
+    if let Ok(detail) = &result.detail {
+        println!("Cost: {}", detail.cost);
     }
     println!("Total time: {:.2?}", start.elapsed());
 
-    crate::vault::check_transfer_result(&result).map_err(|e| format!("Transfer failed: {e}"))?;
+    crate::vault::check_transfer_result(result)?;
 
     if args.propose {
-        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
-        match api.propose().await {
-            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
-            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
-            Err(e) => println!("Propose failed: {e}"),
-        }
+        propose_after(&manager).await;
     }
 
     println!("Transfer complete.");
     Ok(())
 }
 
-pub async fn deploy_and_wait_command(
-    args: &DeployAndWaitArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
     let rholang_code =
         fs::read_to_string(&args.file).map_err(|e| format!("Failed to read file: {e}"))?;
 
-    let manager = F1r3flyConnectionManager::new(build_config(
-        &args.wait,
-        &args.private_key,
-        args.check_interval,
-    ));
-    let expiration = calculate_expiration_timestamp(args.wait.expiration, args.wait.expires_in);
+    let manager = connect(&args.wait, &args.key, args.check_interval)?;
 
     println!("Deploying and waiting for finalization...");
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(&rholang_code, args.bigger_phlo, expiration)
-        .await
-        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+        .deploy_and_wait(&rholang_code, &args.wait.deploy.options(args.phlo_limit))
+        .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
-    if let Some(block_num) = result.block_number {
-        println!("Block number: {block_num}");
-    }
-    if let Some(cost) = result.cost {
-        println!("Cost: {cost}");
-    }
-    if result.errored {
-        println!("Errored: true");
-        if let Some(ref err) = result.system_deploy_error {
-            println!("Deploy error: {err}");
+    match &result.detail {
+        Ok(detail) => {
+            println!("Block number: {}", detail.block_number);
+            println!("Cost: {}", detail.cost);
+            if let Some(failure) = detail.execution_failure() {
+                println!("Errored: true");
+                println!("Deploy error: {failure}");
+            }
         }
+        Err(err) => println!("Execution: unreadable ({err})"),
     }
     match &result.data {
         Ok(data) if data.is_empty() => println!("Data: (none)"),
         Ok(data) => {
             for (i, par) in data.iter().enumerate() {
-                let simplified =
-                    crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
-                println!("Data[{i}]: {simplified}");
+                println!("Data[{i}]: {}", super::show(par));
             }
         }
         Err(err) => println!("Data: unreadable ({err})"),
@@ -557,33 +412,20 @@ pub async fn deploy_and_wait_command(
     println!("Total time: {:.2?}", start.elapsed());
 
     if args.propose {
-        let api = F1r3flyApi::new(&args.private_key, &args.wait.host, args.wait.port)?;
-        match api.propose().await {
-            Ok(ProposeResult::Proposed(hash)) => println!("Block proposed: {hash}"),
-            Ok(ProposeResult::Skipped(reason)) => println!("Propose skipped: {reason}"),
-            Err(e) => println!("Propose failed: {e}"),
-        }
+        propose_after(&manager).await;
     }
 
-    match result.data {
-        Ok(_) => Ok(()),
-        Err(err) => Err(format!(
-            "deploy {} finalized, but its deployId data could not be read: {err}",
-            result.deploy_id
-        )
-        .into()),
-    }
+    result.detail?;
+    result.data?;
+    Ok(())
 }
 
-pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, 40412);
+pub async fn get_deploy_command(args: &GetDeployArgs) -> CliResult {
+    let node = args.node.node()?;
     let start_time = Instant::now();
 
     // Try detail view first (Rust node with PR #472+)
-    if let Ok(Some(detail)) = f1r3fly_api
-        .get_deploy_detail(&args.deploy_id, args.http_port)
-        .await
-    {
+    if let Ok(Some(detail)) = node.get_deploy_detail(&args.deploy_id).await {
         let duration = start_time.elapsed();
         match args.format.as_str() {
             "json" => {
@@ -638,10 +480,7 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
     }
 
     // Fall back to default view (works on all nodes)
-    match f1r3fly_api
-        .get_deploy_default(&args.deploy_id, args.http_port)
-        .await
-    {
+    match node.get_deploy(&args.deploy_id).await {
         Ok(Some(json)) => {
             let duration = start_time.elapsed();
             match args.format.as_str() {
@@ -677,14 +516,14 @@ pub async fn get_deploy_command(args: &GetDeployArgs) -> Result<(), Box<dyn std:
         }
         Err(e) => {
             println!("Error retrieving deploy information: {e}");
-            return Err(e);
+            return Err(e.into());
         }
     }
 
     Ok(())
 }
 
-fn validate_vault_address(address: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn validate_vault_address(address: &str) -> CliResult {
     if !address.starts_with("1111") {
         return Err("Invalid vault address format: must start with '1111'".into());
     }
@@ -697,13 +536,12 @@ fn validate_vault_address(address: &str) -> Result<(), Box<dyn std::error::Error
 }
 
 /// Read data at a deploy ID from a specific block
-pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
-    let f1r3fly_api = F1r3flyApi::new_readonly(&args.host, args.port);
-
-    let pars = f1r3fly_api
+pub async fn get_data_command(args: &GetDataArgs) -> CliResult {
+    let pars = args
+        .node
+        .api()?
         .get_data_at_deploy_id(&args.deploy_id, &args.block_hash)
-        .await
-        .map_err(|e| crate::error::NodeCliError::General(e.to_string()))?;
+        .await?;
 
     if pars.is_empty() {
         println!(
@@ -712,9 +550,7 @@ pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
         );
     } else {
         for (i, par) in pars.iter().enumerate() {
-            let simplified =
-                crate::f1r3fly_api::extract_par_data(par).unwrap_or_else(|| format!("{par:?}"));
-            println!("{simplified}");
+            println!("{}", super::show(par));
             if i < pars.len() - 1 {
                 println!("---");
             }
@@ -729,28 +565,16 @@ pub async fn get_data_command(args: &GetDataArgs) -> crate::error::Result<()> {
 /// Hits the node's `/api/deploy-finalization-status/{sig}` endpoint and
 /// renders the result. State is one of `Finalized`, `Failed`, `Pending`,
 /// `Expired` — see `DeployFinalizationStatus` for terminality semantics.
-pub async fn deploy_status_command(
-    args: &DeployStatusArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn deploy_status_command(args: &DeployStatusArgs) -> CliResult {
     let sig_hex = args.sig.trim_start_matches("0x");
 
-    // Reusing F1r3flyApi just for the HTTP method (port 0 is fine — never used here).
-    let api = F1r3flyApi::new_readonly(&args.host, 0);
+    let node = args.node.node()?;
     let start = Instant::now();
 
-    let status = match api
-        .deploy_finalization_status(sig_hex, args.http_port)
-        .await
-        .map_err(|e| e as Box<dyn std::error::Error>)?
-    {
+    let status = match node.deploy_finalization_status(sig_hex).await? {
         Some(s) => s,
         None => {
-            return Err(format!(
-                "Endpoint /api/deploy-finalization-status not available on {}:{} \
-                 (404). This node may be running an older f1r3node version.",
-                args.host, args.http_port
-            )
-            .into());
+            return Err(node.finalization_status_unserved().await.into());
         }
     };
     let duration = start.elapsed();
@@ -782,14 +606,11 @@ mod tests {
     use f1r3fly_models::rhoapi::expr::ExprInstance;
     use f1r3fly_models::rhoapi::{ETuple, Expr, Par};
 
-    fn finalized(data: Result<Vec<Par>, String>) -> DeployResult {
+    fn finalized(data: crate::Result<Vec<Par>>) -> DeployResult {
         DeployResult {
             deploy_id: "3045".to_string(),
             block_hash: "abcd".to_string(),
-            block_number: Some(46),
-            cost: Some(1),
-            errored: false,
-            system_deploy_error: None,
+            detail: Ok(crate::f1r3fly_api::DeployDetail::finalized("3045", false)),
             data,
         }
     }
@@ -816,57 +637,102 @@ mod tests {
     fn an_unreadable_verdict_is_not_reported_as_a_rejection() {
         let err = ensure_pos_call_succeeded(
             "Withdrawal",
-            &finalized(Err(
-                "reading deployId data at block abcd: timed out".to_string()
-            )),
+            &finalized(Err(crate::Error::transport(
+                "http://localhost:40401",
+                crate::TransportError::TimedOut(std::time::Duration::from_secs(1)),
+            ))),
         )
         .unwrap_err()
         .to_string();
 
         assert!(err.contains("could not be read"), "{err}");
-        assert!(err.contains("timed out"), "{err}");
+        assert!(err.contains("no answer within 1s"), "{err}");
         assert!(!err.contains("rejected"), "{err}");
     }
 
+    fn endpoint(url: &str) -> crate::Endpoint {
+        crate::Endpoint::parse(url).unwrap()
+    }
+
+    fn key() -> SigningKey {
+        SigningKey::from_hex(&"01".repeat(32)).unwrap()
+    }
+
     #[test]
-    fn observer_ports_reach_the_connection_config_independently() {
+    fn endpoint_flags_reach_the_connection_config() {
         use clap::Parser;
 
         let args = DeployAndWaitArgs::try_parse_from([
             "deploy-and-wait",
             "-f",
             "contract.rho",
-            "-k",
-            "00",
-            "--observer-port",
-            "40402",
-            "--observer-http-port",
-            "40403",
+            "--grpc",
+            "https://node.example:443",
+            "--http",
+            "https://node.example:8443",
+            "--observer",
+            "http://observer.example:40403",
         ])
         .unwrap();
-        let config = build_config(&args.wait, &args.private_key, args.check_interval);
-        assert_eq!(config.observer_grpc_port, 40402);
-        assert_eq!(config.observer_http_port, 40403);
-
-        let defaults =
-            DeployAndWaitArgs::try_parse_from(["deploy-and-wait", "-f", "c.rho", "-k", "00"])
-                .unwrap();
-        let config = build_config(
-            &defaults.wait,
-            &defaults.private_key,
-            defaults.check_interval,
+        let config = build_config(&args.wait, key(), args.check_interval).unwrap();
+        assert_eq!(config.grpc, endpoint("https://node.example:443"));
+        assert_eq!(config.http, endpoint("https://node.example:8443"));
+        assert_eq!(
+            config.observer,
+            Some(endpoint("http://observer.example:40403"))
         );
-        assert_eq!(config.observer_grpc_port, 40452);
-        assert_eq!(config.observer_http_port, 40453);
+    }
+
+    #[test]
+    fn without_observer_flag_no_observer_is_polled() {
+        use clap::Parser;
+
+        let args = DeployAndWaitArgs::try_parse_from(["deploy-and-wait", "-f", "c.rho"]).unwrap();
+        let config = build_config(&args.wait, key(), args.check_interval).unwrap();
+        assert_eq!(config.grpc, endpoint("http://localhost:40401"));
+        assert_eq!(config.http, endpoint("http://localhost:40403"));
+        assert_eq!(config.observer, None);
+    }
+
+    #[test]
+    fn port_flags_are_gone_and_endpoints_are_validated() {
+        use clap::Parser;
+
+        for args in [
+            &["deploy-and-wait", "-f", "c.rho", "-p", "40401"][..],
+            &["deploy-and-wait", "-f", "c.rho", "--http-port", "40403"],
+            &["deploy-and-wait", "-f", "c.rho", "--observer-port", "1"],
+            &[
+                "deploy-and-wait",
+                "-f",
+                "c.rho",
+                "--grpc",
+                "localhost:40401",
+            ],
+            &["deploy-and-wait", "-f", "c.rho", "--private-key", "00"],
+            &["deploy-and-wait", "-f", "c.rho", "-k", "00"],
+        ] {
+            assert!(
+                DeployAndWaitArgs::try_parse_from(args).is_err(),
+                "{args:?} was accepted"
+            );
+        }
     }
 
     #[test]
     fn a_read_verdict_decides_the_outcome() {
         assert!(ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(true)))).is_ok());
 
-        let err = ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(false))))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("rejected by PoS"), "{err}");
+        let err = ensure_pos_call_succeeded("Bond", &finalized(Ok(verdict(false)))).unwrap_err();
+        assert!(
+            matches!(
+                err.downcast_ref::<crate::Error>(),
+                Some(crate::Error::ContractRejected {
+                    contract: crate::Contract::ProofOfStake,
+                    ..
+                })
+            ),
+            "{err}"
+        );
     }
 }

@@ -42,8 +42,8 @@ Run one test by name:
 cargo test --release --features integration --test integration -- pos::
 ```
 
-Host ports 40400-40453 must be free — they are the client's own defaults, so
-a shard from another project has to be down first.
+Host ports 40400-40462 must be free, so a shard from another project on 404xx
+has to be down first.
 
 ### The shard
 
@@ -55,17 +55,39 @@ Defined in `tests/integration/topology/`, which the repository owns outright:
 | `it-validator1..3` | genesis validators, stake 100 each | 4041x / 4042x / 4043x |
 | `it-readonly` | observer; the only node serving exploratory deploys | 40452 / 40453 |
 | `it-validator4` | joiner, unbonded at genesis, started by the bonding tests | 40442 / 40443 |
+| `it-tls-proxy` | Caddy (`caddy:2.10-alpine`) terminating TLS in front of validator1; 40462 serves its HTTP API under `/node1` | 40460 / 40461, 40462 |
 
-Every deploying test owns a key funded at genesis in
-`topology/genesis/wallets.txt`, because concurrent deploys from one deployer
-collide. Deploys go only to validators: a node whose validator is not bonded
+Every key is generated per run and none is committed: the deploying accounts'
+keys, the boot and validator keys, the bootstrap's P-256 TLS key and node ID,
+and the proxy's CA and server certificate. The harness writes the genesis bonds
+and wallets, each node's config carrying its validator key
+(`casper.validator-private-key`), the bootstrap key and the certificates into
+`target/integration-shard/`, plus `shard.env` (`IT_SHARD_DIR`,
+`IT_BOOT_NODE_ID`), which compose reads through `--env-file`. To run the
+topology by hand after a harness run:
+
+```bash
+docker compose --env-file target/integration-shard/shard.env \
+  -f tests/integration/topology/compose.yml up -d
+```
+
+The CLI under test gets its key through `FIREFLY_PRIVATE_KEY`, and runs with
+every other `FIREFLY_*` variable from the caller's shell removed and no default
+config file, so neither can change what is tested.
+
+The `routing` group uses the proxy's certificates for a deploy-and-wait
+over TLS with no observer, whose HTTP calls go through the `/node1` base path,
+and to check that an untrusted certificate is refused.
+
+Every deploying test owns a key funded in the genesis the harness writes,
+because concurrent deploys from one deployer collide. Deploys go only to validators: a node whose validator is not bonded
 accepts them and strands them (f1r3node-rust#427).
 
 ### Coverage
 
 | Group | What it holds to account |
 |---|---|
-| `routing` | Which node a command talks to, and on which port |
+| `routing` | Which node a command talks to, on which endpoint, and over TLS |
 | `deploys` | What a deploy reports on its way to a terminal verdict |
 | `transfers` | Amounts moved, rejections, and what the block report says |
 | `pos` | The bond set through a real joiner's whole lifecycle |

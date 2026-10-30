@@ -1,117 +1,96 @@
 //! Deploy and propose operations
 
 use super::F1r3flyApi;
-use blake2::{Blake2b, Digest};
+use crate::deploy::{DeployOptions, SignedDeploy, UnsignedDeploy};
+use crate::error::{Error, Result};
 use f1r3fly_models::casper::v1::deploy_response::Message as DeployResponseMessage;
-use f1r3fly_models::casper::v1::deploy_service_client::DeployServiceClient;
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
-use f1r3fly_models::casper::v1::propose_service_client::ProposeServiceClient;
-use f1r3fly_models::casper::{DeployDataProto, ProposeQuery};
-use f1r3fly_models::ByteString;
-use prost::Message;
-use secp256k1::{Message as Secp256k1Message, Secp256k1};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use typenum::U32;
+use f1r3fly_models::casper::ProposeQuery;
+use std::time::Instant;
 
 use crate::f1r3fly_api::ProposeResult;
 
-const DEPLOY_VALIDITY_WINDOW_BLOCKS: i64 = 50;
+/// The node's answer to a deploy it already holds.
+const ALREADY_KNOWN: &str = "Deploy already known";
 
-impl<'a> F1r3flyApi<'a> {
-    pub async fn deploy(
-        &self,
-        rho_code: &str,
-        use_bigger_phlo_price: bool,
-        language: &str,
-        expiration_timestamp: i64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let phlo_limit: i64 = if use_bigger_phlo_price {
-            5_000_000_000
-        } else {
-            50_000
-        };
-        self.deploy_with_phlo_limit_and_expiration(
-            rho_code,
-            phlo_limit,
-            language,
-            expiration_timestamp,
-        )
-        .await
+impl F1r3flyApi {
+    /// Fix a deploy's fields for signing, anchoring its validity window at the
+    /// node's current tip.
+    pub async fn prepare(&self, term: &str, options: &DeployOptions) -> Result<UnsignedDeploy> {
+        let tip_lookup_start = Instant::now();
+        let valid_after = self.get_current_block_number_monotonic().await?;
+        tracing::debug!(elapsed = ?tip_lookup_start.elapsed(), valid_after, "Tip selection");
+        UnsignedDeploy::new(term, options, valid_after, &self.shard_id)
     }
 
-    /// Deploy with an explicit phlo limit and expiration timestamp.
-    ///
-    /// Same pipeline as [`deploy`](Self::deploy) (monotonic tip selection,
-    /// validity window) but with a caller-chosen phlo limit instead of the
-    /// 50k/5B mapping of the `use_bigger_phlo_price` flag.
-    pub async fn deploy_with_phlo_limit_and_expiration(
-        &self,
-        rho_code: &str,
-        phlo_limit: i64,
-        language: &str,
-        expiration_timestamp: i64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let tip_lookup_start = Instant::now();
-        let current_block = match self.get_current_block_number_monotonic().await {
-            Ok(block_num) => {
-                tracing::info!(block_num, "Current block");
-                tracing::info!(
-                    from = block_num,
-                    to = block_num + DEPLOY_VALIDITY_WINDOW_BLOCKS,
-                    window = DEPLOY_VALIDITY_WINDOW_BLOCKS,
-                    "Setting validity window"
-                );
-                block_num
-            }
-            Err(e) => {
-                tracing::warn!("Could not get current block number ({}), using VABN=0", e);
-                0
-            }
-        };
-        tracing::debug!(elapsed = ?tip_lookup_start.elapsed(), "Tip selection");
-
-        if expiration_timestamp > 0 {
-            tracing::info!(expiration_timestamp, "Deploy expiration timestamp (ms)");
-        }
-
-        let deployment = self.build_deploy_msg(
-            rho_code.to_string(),
-            phlo_limit,
-            language.to_string(),
-            current_block,
-            expiration_timestamp,
-            None,
-        );
-
-        let connect_start = Instant::now();
-        let mut deploy_service_client = DeployServiceClient::connect(self.grpc_url()).await?;
-        tracing::debug!(elapsed = ?connect_start.elapsed(), "gRPC connect");
+    /// Send a signed deploy and return its ID. While the deploy's validity
+    /// window is open, sending a deploy the node already holds also returns
+    /// its ID. After the window closes the node refuses it as expired whether
+    /// or not it landed; `F1r3flyConnectionManager::submit_and_wait` tells
+    /// those cases apart.
+    pub async fn submit(&self, deploy: &SignedDeploy) -> Result<String> {
+        let id = deploy.id();
+        let mut client = self.deploy_client().await?;
 
         let do_deploy_start = Instant::now();
-        let deploy_response = deploy_service_client.do_deploy(deployment).await?;
+        let response = client
+            .do_deploy(deploy.proto().clone())
+            .await
+            .map_err(|status| self.grpc_error(status))?
+            .into_inner();
         tracing::debug!(elapsed = ?do_deploy_start.elapsed(), "do_deploy RPC");
 
-        let deploy_message = deploy_response
-            .get_ref()
-            .message
-            .as_ref()
-            .ok_or("Deploy result not found")?;
-
-        match deploy_message {
-            DeployResponseMessage::Error(service_error) => Err(service_error.clone().into()),
-            DeployResponseMessage::Result(result) => Self::extract_deploy_id(result),
+        match response.message {
+            Some(DeployResponseMessage::Error(error)) => {
+                let message = error.messages.join("; ");
+                if message.contains(ALREADY_KNOWN) && message.contains(&id) {
+                    tracing::debug!(deploy_id = %id, "The node already holds this deploy");
+                    Ok(id)
+                } else {
+                    Err(Error::NodeRejected {
+                        operation: "the deploy",
+                        message,
+                    })
+                }
+            }
+            Some(DeployResponseMessage::Result(result)) => {
+                let answered = Self::extract_deploy_id(&result)?;
+                if answered == id {
+                    Ok(id)
+                } else {
+                    Err(Error::decode(
+                        "deploy response",
+                        format!("the node accepted deploy {answered}, but {id} was sent"),
+                    ))
+                }
+            }
+            None => Err(Error::decode("deploy response", "empty message")),
         }
     }
 
-    pub async fn propose(&self) -> Result<ProposeResult, Box<dyn std::error::Error>> {
-        let mut propose_client = ProposeServiceClient::connect(self.grpc_url()).await?;
+    /// Prepare, sign with this client's key, and submit a new deploy. Every
+    /// call is a new deploy; to resend one, [`submit`](Self::submit) it again.
+    pub async fn deploy(&self, term: &str, options: &DeployOptions) -> Result<String> {
+        let key = self
+            .signing_key
+            .as_ref()
+            .ok_or_else(|| Error::invalid("signing key", "this client was built without one"))?;
+        let deploy = self.prepare(term, options).await?.sign(key);
+        self.submit(&deploy).await
+    }
+
+    pub async fn propose(&self) -> Result<ProposeResult> {
+        let mut propose_client = self.propose_client().await?;
 
         let propose_response = propose_client
             .propose(ProposeQuery { is_async: false })
-            .await?
+            .await
+            .map_err(|status| self.grpc_error(status))?
             .into_inner();
 
-        let message = propose_response.message.ok_or("Missing propose response")?;
+        let message = propose_response
+            .message
+            .ok_or_else(|| Error::decode("propose response", "empty message"))?;
 
         match message {
             ProposeResponseMessage::Result(block_hash) => {
@@ -131,88 +110,16 @@ impl<'a> F1r3flyApi<'a> {
                 if Self::is_recoverable_propose_error(&error_message) {
                     Ok(ProposeResult::Skipped(error_message))
                 } else {
-                    Err(format!("Propose error: {error:?}").into())
+                    Err(Error::NodeRejected {
+                        operation: "the propose",
+                        message: error_message,
+                    })
                 }
             }
         }
     }
 
-    pub async fn full_deploy(
-        &self,
-        rho_code: &str,
-        use_bigger_phlo_price: bool,
-        language: &str,
-        expiration_timestamp: i64,
-    ) -> Result<ProposeResult, Box<dyn std::error::Error>> {
-        self.deploy(
-            rho_code,
-            use_bigger_phlo_price,
-            language,
-            expiration_timestamp,
-        )
-        .await?;
-        self.propose().await
-    }
-
-    pub async fn deploy_with_phlo_limit(
-        &self,
-        rho_code: &str,
-        phlo_limit: i64,
-        language: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        self.deploy_internal(rho_code, phlo_limit, language, 0, None)
-            .await
-    }
-
-    pub async fn deploy_with_timestamp_and_phlo_limit(
-        &self,
-        rho_code: &str,
-        language: &str,
-        timestamp_millis: Option<i64>,
-        phlo_limit: i64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        self.deploy_internal(rho_code, phlo_limit, language, 0, timestamp_millis)
-            .await
-    }
-
-    pub(crate) async fn deploy_internal(
-        &self,
-        rho_code: &str,
-        phlo_limit: i64,
-        language: &str,
-        expiration_timestamp: i64,
-        timestamp_override: Option<i64>,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        // A failed tip lookup must not silently fall back to block 0: the
-        // deploy's validity window would be anchored at genesis and the node
-        // would reject or expire it far from the actual cause.
-        let current_block = self.get_current_block_number().await?;
-
-        let deployment = self.build_deploy_msg(
-            rho_code.to_string(),
-            phlo_limit,
-            language.to_string(),
-            current_block,
-            expiration_timestamp,
-            timestamp_override,
-        );
-
-        let mut client = DeployServiceClient::connect(self.grpc_url()).await?;
-        let deploy_response = client.do_deploy(deployment).await?;
-
-        let deploy_message = deploy_response
-            .get_ref()
-            .message
-            .as_ref()
-            .ok_or("Deploy result not found")?;
-
-        match deploy_message {
-            DeployResponseMessage::Error(service_error) => Err(service_error.clone().into()),
-            DeployResponseMessage::Result(result) => Self::extract_deploy_id(result),
-        }
-    }
-
-    fn extract_deploy_id(result: &str) -> Result<String, Box<dyn std::error::Error>> {
+    fn extract_deploy_id(result: &str) -> Result<String> {
         let cleaned = result.trim();
         if let Some(id) = cleaned.strip_prefix("Success! DeployId is: ") {
             Ok(id.trim().to_string())
@@ -225,7 +132,10 @@ impl<'a> F1r3flyApi<'a> {
                     return Ok(trimmed.to_string());
                 }
             }
-            Err(format!("Could not extract deploy ID from response: {result}").into())
+            Err(Error::decode(
+                "deploy response",
+                format!("no deploy ID in {result:?}"),
+            ))
         } else {
             Ok(cleaned.to_string())
         }
@@ -243,72 +153,4 @@ impl<'a> F1r3flyApi<'a> {
         ];
         RECOVERABLE_PATTERNS.iter().any(|p| normalized.contains(p))
     }
-
-    pub(crate) fn build_deploy_msg(
-        &self,
-        code: String,
-        phlo_limit: i64,
-        language: String,
-        valid_after_block_number: i64,
-        expiration_timestamp: i64,
-        timestamp_override: Option<i64>,
-    ) -> DeployDataProto {
-        let timestamp = timestamp_override.unwrap_or_else(|| {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("Failed to get system time")
-                .as_millis() as i64
-        });
-
-        let projection = DeployDataProto {
-            term: code.clone(),
-            timestamp,
-            phlo_price: 1,
-            phlo_limit,
-            valid_after_block_number,
-            shard_id: "root".into(),
-            language: String::new(),
-            sig: ByteString::new(),
-            deployer: ByteString::new(),
-            sig_algorithm: String::new(),
-            expiration_timestamp,
-        };
-
-        let serialized = projection.encode_to_vec();
-        let digest = blake2b_256_hash(&serialized);
-
-        let signing_key = self
-            .signing_key
-            .as_ref()
-            .expect("build_deploy_msg requires a signing key");
-        let secp = Secp256k1::new();
-        let message = Secp256k1Message::from_digest(digest);
-        let signature = secp.sign_ecdsa(message, signing_key);
-        let sig_bytes = signature.serialize_der().to_vec();
-        let public_key = signing_key.public_key(&secp);
-        let pub_key_bytes = public_key.serialize_uncompressed().to_vec();
-
-        DeployDataProto {
-            term: code,
-            timestamp,
-            phlo_price: 1,
-            phlo_limit,
-            valid_after_block_number,
-            shard_id: "root".into(),
-            language,
-            sig: ByteString::from(sig_bytes),
-            sig_algorithm: "secp256k1".into(),
-            deployer: ByteString::from(pub_key_bytes),
-            expiration_timestamp,
-        }
-    }
-}
-
-fn blake2b_256_hash(data: &[u8]) -> [u8; 32] {
-    let mut blake = Blake2b::<U32>::new();
-    blake.update(data);
-    let hash = blake.finalize();
-    let mut result = [0u8; 32];
-    result.copy_from_slice(&hash);
-    result
 }

@@ -1,4 +1,3 @@
-use serde_json;
 use std::time::Duration;
 
 // Emoji constants
@@ -55,15 +54,6 @@ pub fn print_rocket(message: &str) {
 
 pub fn print_key(key_type: &str, key_value: &str) {
     println!("{EMOJI_KEY} {key_type}: {key_value}");
-}
-
-pub fn print_json_pretty(
-    title: &str,
-    json: &serde_json::Value,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("{EMOJI_INFO} {title}:");
-    println!("{}", serde_json::to_string_pretty(json)?);
-    Ok(())
 }
 
 pub fn print_warning(message: &str) {

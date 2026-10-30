@@ -66,7 +66,7 @@ fn main() -> ExitCode {
     if failed {
         // A node that died takes every test that talks to it down with it, so
         // say so before the individual failures are read as the cause.
-        if let Ok(Some(exited)) = shard.exited_container() {
+        if let Ok(Some(exited)) = shard.exited_service() {
             eprintln!("\n{exited} is no longer running - the failures above follow from that");
         }
         let logs = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/integration-logs");

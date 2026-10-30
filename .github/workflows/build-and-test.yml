@@ -38,7 +38,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
           components: rustfmt, clippy
 
       - name: Install protobuf compiler
@@ -56,6 +56,18 @@ jobs:
         env:
           RUSTFLAGS: "-D warnings -C target-feature=+aes,+sse2"
         run: cargo clippy --all-targets --features cli
+
+      - name: Test release versioning
+        run: scripts/test-version.sh
+
+      # A bare Box<dyn Error> held across an .await makes the future !Send.
+      # Library code returns crate::Error; CLI code boxes with Send + Sync.
+      - name: Reject bare Box<dyn Error>
+        run: |
+          if grep -rnE 'Box<dyn (std::error::)?Error>' src tests; then
+            echo "::error::use crate::Error, or Box<dyn Error + Send + Sync> in CLI code"
+            exit 1
+          fi
 
   deny:
     name: cargo-deny
@@ -115,7 +127,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -178,7 +190,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -236,7 +248,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -276,7 +288,8 @@ jobs:
           retention-days: 7
 
   # The node-backed suite. It owns its shard: bootstrap, three validators, a
-  # read-only observer and a joiner, all defined in tests/integration/topology.
+  # read-only observer, a TLS proxy and a joiner, all defined in
+  # tests/integration/topology.
   integration_tests:
     name: Integration Tests (${{ matrix.arch.name }})
     needs:
@@ -298,7 +311,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2025-06-15
+          toolchain: nightly-2026-02-09
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -342,6 +355,7 @@ jobs:
         shell: bash {0}
         run: |
           docker compose -p rust-client-it \
+            --env-file target/integration-shard/shard.env \
             -f tests/integration/topology/compose.yml \
             --profile joiner down -v --remove-orphans || true
 

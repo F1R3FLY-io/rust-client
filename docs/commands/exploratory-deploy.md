@@ -2,12 +2,14 @@
 
 Execute Rholang code without committing to the blockchain. Read-only.
 
-The code runs against the last finalized block's state (or a specified block). Nothing is persisted. Useful for querying contract state, checking balances, or testing code.
+The code runs against the last finalized block's state (or a specified block). Nothing is persisted. Useful for querying contract state or testing code.
+
+Each value the term sends to the first name it declares (`new return in { return!(...) }`) prints as Rholang source: `5n` is a BigInt, `5u64` a u64, `1/2r` a rational, `"s"` a string, `` `rho:id:x` `` a URI. Anything that is not a value, such as a process, prints as the reason in angle brackets.
 
 ## Usage
 
 ```bash
-node_cli exploratory-deploy -f <FILE> [OPTIONS]
+node_cli exploratory-deploy -f <FILE> --grpc <URL> [OPTIONS]
 ```
 
 ## Flags
@@ -15,23 +17,23 @@ node_cli exploratory-deploy -f <FILE> [OPTIONS]
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--file` | `-f` | required | Rholang file to execute |
-| `--private-key` | `-k` | dev key | Signing key |
-| `--host` | `-H` | `localhost` | Node hostname |
-| `--port` | `-p` | `40412` | gRPC port |
+| `--grpc` | | required (`FIREFLY_READONLY_GRPC_URL`, or a profile's `readonly_grpc`) | gRPC endpoint of a read-only node, `http://` or `https://`, with no path |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--block-hash` | | latest | Execute against a specific block's state |
 | `--use-pre-state` | | false | Use pre-state hash instead of post-state |
 
 ## Example
 
 ```
-$ node_cli exploratory-deploy -f ./rho_examples/stdout.rho -H localhost -p 40452
+$ node_cli exploratory-deploy -f ./rho_examples/stdout.rho --grpc http://localhost:40452
 
 Execution successful!
 Cost:    317 phlogiston
 Time:    70.37ms
 Block hash: 0ffe5c93..., Block number: 48
-Result:
-No data returned
+Result: (none)
 ```
 
 The response now includes the phlogiston cost of execution. For cost-only output, use [estimate-cost](estimate-cost.md).
@@ -41,7 +43,7 @@ The response now includes the phlogiston cost of execution. For cost-only output
 The node's `TokenMetadata` contract (registered at `rho:system:tokenMetadata`) can be queried via exploratory deploy. An example Rholang file is included at `rho_examples/query_token_metadata.rho`:
 
 ```
-$ node_cli exploratory-deploy -H localhost -p 40452 -f rho_examples/query_token_metadata.rho
+$ node_cli exploratory-deploy --grpc http://localhost:40452 -f rho_examples/query_token_metadata.rho
 
 Execution successful!
 Cost:    34218 phlogiston
@@ -61,7 +63,7 @@ These values are baked into genesis and are immutable for the lifetime of the ne
 
 ## Notes
 
-- Must run against a read-only or observer node (validators may reject exploratory deploys)
-- On a standard Docker shard, the observer gRPC port is 40452
+- Must run against a read-only node; only a read-only node serves exploratory deploys
+- On the system-integration single-host Docker shard, the read-only node's gRPC endpoint is `http://localhost:40452`
 - `--block-hash` lets you query historical state at any finalized block
 - `--use-pre-state` queries the state BEFORE the block's deploys executed (useful for debugging)

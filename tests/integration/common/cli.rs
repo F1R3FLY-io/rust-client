@@ -51,6 +51,15 @@ impl Output {
             .unwrap_or_else(|| panic!("no {label:?} in output:\n{}", self.text))
     }
 
+    pub fn expect_not_contains(self, needle: &str) -> Self {
+        assert!(
+            !self.contains(needle),
+            "output contains {needle:?}:\n{}",
+            self.text
+        );
+        self
+    }
+
     pub fn expect_contains(self, needle: &str) -> Self {
         assert!(
             self.contains(needle),
@@ -64,12 +73,14 @@ impl Output {
 /// A `node_cli` invocation against the shard.
 pub struct Cli {
     args: Vec<String>,
+    env: Vec<(&'static str, String)>,
 }
 
 impl Cli {
     pub fn new(command: &str) -> Self {
         Cli {
             args: vec![command.to_string()],
+            env: Vec::new(),
         }
     }
 
@@ -83,62 +94,49 @@ impl Cli {
         self
     }
 
-    /// For commands taking both ports: `-p` is gRPC, `--http-port` is HTTP.
+    /// For commands that reach the node over both gRPC and HTTP.
     pub fn at(self, node: Node) -> Self {
-        self.grpc_at(node)
-            .args(["--http-port".to_string(), node.http_port().to_string()])
+        self.grpc_at(node).http_at(node)
     }
 
-    /// For commands whose only `-p` is the gRPC port.
     pub fn grpc_at(self, node: Node) -> Self {
-        self.args([
-            "-H".to_string(),
-            "localhost".to_string(),
-            "-p".to_string(),
-            node.grpc_port().to_string(),
-        ])
+        self.args(["--grpc".to_string(), node.grpc_endpoint()])
     }
 
-    /// For the query commands, whose only `-p` is the HTTP port.
     pub fn http_at(self, node: Node) -> Self {
-        self.args([
-            "-H".to_string(),
-            "localhost".to_string(),
-            "-p".to_string(),
-            node.http_port().to_string(),
-        ])
+        self.args(["--http".to_string(), node.http_endpoint()])
     }
 
-    /// For commands that name the HTTP port `--http-port` and have no `-p`.
-    pub fn http_port_at(self, node: Node) -> Self {
-        self.args([
-            "-H".to_string(),
-            "localhost".to_string(),
-            "--http-port".to_string(),
-            node.http_port().to_string(),
-        ])
-    }
-
-    /// Add the observer flags, which every deploying command needs: only the
-    /// read-only node serves the endpoints finalization waits on.
+    /// Poll `node` for the verdict alongside the deploy node.
     pub fn observing(self, node: Node) -> Self {
-        self.args([
-            "--observer-host".to_string(),
-            "localhost".to_string(),
-            "--observer-port".to_string(),
-            node.grpc_port().to_string(),
-            "--observer-http-port".to_string(),
-            node.http_port().to_string(),
-        ])
+        self.args(["--observer".to_string(), node.http_endpoint()])
     }
 
-    pub fn key(self, key: &super::keys::Key) -> Self {
-        self.args(["--private-key".to_string(), key.private.to_string()])
+    /// Sign with `key`, passed through the environment as a user would rather
+    /// than on the command line.
+    pub fn key(mut self, key: &super::keys::Key) -> Self {
+        self.env
+            .push(("FIREFLY_PRIVATE_KEY", key.private.to_string()));
+        self
     }
 
+    /// Run with only this invocation's settings: `FIREFLY_*` variables from
+    /// the caller's shell are removed, and the default config file location
+    /// points nowhere, so neither can change what is tested.
     pub fn run(self) -> Output {
-        let output = Command::new(env!("CARGO_BIN_EXE_node_cli"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_node_cli"));
+        for (var, _) in std::env::vars_os() {
+            if var.to_string_lossy().starts_with("FIREFLY_") {
+                command.env_remove(var);
+            }
+        }
+        command.env(
+            "XDG_CONFIG_HOME",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/target/integration-no-config"),
+        );
+        let output = command
             .args(&self.args)
+            .envs(self.env.iter().map(|(var, value)| (var, value)))
             .output()
             .unwrap_or_else(|e| panic!("could not run node_cli {:?}: {e}", self.args));
 

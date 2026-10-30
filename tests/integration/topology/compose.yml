@@ -1,16 +1,21 @@
 # Shard the integration suite runs against: a ceremony bootstrap that is not a
-# validator, three genesis validators, a read-only observer, and a fourth
-# validator held behind the `joiner` profile for the bonding tests.
+# validator, three genesis validators, a read-only observer, a TLS proxy in
+# front of validator1, and a fourth validator held behind the `joiner` profile
+# for the bonding tests.
 #
-# The harness owns this file; run it by hand only to debug a failing suite:
-#   docker compose -f tests/integration/topology/compose.yml up -d
-#   docker compose -f tests/integration/topology/compose.yml --profile joiner up -d
+# Every key is generated per run. The harness writes the genesis files, each
+# node's config with its validator key, the bootstrap's TLS key and the proxy's
+# certificate into IT_SHARD_DIR, and the bootstrap's node ID into
+# IT_BOOT_NODE_ID; both are in $IT_SHARD_DIR/shard.env. To debug a failing
+# suite by hand, after a harness run:
+#   docker compose --env-file target/integration-shard/shard.env \
+#     -f tests/integration/topology/compose.yml up -d
 #
 # Node state lives in the container layer: the shard is created and destroyed
 # per run, so nothing here is meant to survive `down`.
 #
-# Host ports match the client's own defaults, so a shard from another project
-# on 404xx must be down first.
+# Host ports 40400-40462 must be free, so a shard from another project on
+# 404xx must be down first.
 
 name: rust-client-it
 
@@ -20,15 +25,13 @@ x-node: &node
   networks: [shard]
   environment:
     - RUST_LOG
-  volumes:
-    - ./node.conf:/var/lib/f1r3fly/node.conf:ro
-    - ./genesis/bonds.txt:/var/lib/f1r3fly/genesis/bonds.txt:ro
-    - ./genesis/wallets.txt:/var/lib/f1r3fly/genesis/wallets.txt:ro
   logging:
     driver: json-file
     options:
       max-size: 50m
       max-file: "2"
+
+x-bootstrap: &bootstrap --bootstrap=rnode://${IT_BOOT_NODE_ID:?set by the harness in shard.env}@it-boot?protocol=40400&discovery=40404
 
 services:
   # Runs the genesis ceremony. Its key is absent from bonds.txt, so it never
@@ -41,9 +44,8 @@ services:
       - --data-dir=/var/lib/f1r3fly
       - --config-file=/var/lib/f1r3fly/node.conf
       - --host=it-boot
-      - --bootstrap=rnode://1e780e5dfbe0a3d9470a2b414f502d59402e09c2@it-boot?protocol=40400&discovery=40404
+      - *bootstrap
       - --allow-private-addresses
-      - --validator-private-key=5f668a7ee96d944a4494cc947e4005e172d7ab3461ee5538f1f2a45a835e9657
       - --required-signatures
       - "2"
       - --ceremony-master-mode
@@ -54,13 +56,12 @@ services:
       - "40402:40402"
       - "40403:40403"
     volumes:
-      # Every other node dials the node ID derived from this certificate, so
-      # the bootstrap's identity is pinned rather than generated at startup.
-      - ./certs/bootstrap/node.certificate.pem:/var/lib/f1r3fly/node.certificate.pem:ro
-      - ./certs/bootstrap/node.key.pem:/var/lib/f1r3fly/node.key.pem:ro
-      - ./node.conf:/var/lib/f1r3fly/node.conf:ro
-      - ./genesis/bonds.txt:/var/lib/f1r3fly/genesis/bonds.txt:ro
-      - ./genesis/wallets.txt:/var/lib/f1r3fly/genesis/wallets.txt:ro
+      # Every other node dials the node ID derived from this key, so the
+      # bootstrap's identity is set by the harness rather than at startup.
+      - ${IT_SHARD_DIR:?set by the harness in shard.env}/bootstrap/node.key.pem:/var/lib/f1r3fly/node.key.pem:ro
+      - ${IT_SHARD_DIR}/conf/boot.conf:/var/lib/f1r3fly/node.conf:ro
+      - ${IT_SHARD_DIR}/genesis/bonds.txt:/var/lib/f1r3fly/genesis/bonds.txt:ro
+      - ${IT_SHARD_DIR}/genesis/wallets.txt:/var/lib/f1r3fly/genesis/wallets.txt:ro
 
   validator1:
     <<: *node
@@ -71,16 +72,18 @@ services:
       - --data-dir=/var/lib/f1r3fly
       - --config-file=/var/lib/f1r3fly/node.conf
       - --host=it-validator1
-      - --bootstrap=rnode://1e780e5dfbe0a3d9470a2b414f502d59402e09c2@it-boot?protocol=40400&discovery=40404
+      - *bootstrap
       - --allow-private-addresses
       - --genesis-validator
-      - --validator-public-key=04fa70d7be5eb750e0915c0f6d19e7085d18bb1c22d030feb2a877ca2cd226d04438aa819359c56c720142fbc66e9da03a5ab960a3d8b75363a226b7c800f60420
-      - --validator-private-key=357cdc4201a5650830e0bc5a03299a30038d9934ba4c7ab73ec164ad82471ff9
     ports:
       - "40410:40400"
       - "40411:40401"
       - "40412:40402"
       - "40413:40403"
+    volumes:
+      - ${IT_SHARD_DIR}/conf/validator1.conf:/var/lib/f1r3fly/node.conf:ro
+      - ${IT_SHARD_DIR}/genesis/bonds.txt:/var/lib/f1r3fly/genesis/bonds.txt:ro
+      - ${IT_SHARD_DIR}/genesis/wallets.txt:/var/lib/f1r3fly/genesis/wallets.txt:ro
 
   validator2:
     <<: *node
@@ -91,16 +94,18 @@ services:
       - --data-dir=/var/lib/f1r3fly
       - --config-file=/var/lib/f1r3fly/node.conf
       - --host=it-validator2
-      - --bootstrap=rnode://1e780e5dfbe0a3d9470a2b414f502d59402e09c2@it-boot?protocol=40400&discovery=40404
+      - *bootstrap
       - --allow-private-addresses
       - --genesis-validator
-      - --validator-public-key=04837a4cff833e3157e3135d7b40b8e1f33c6e6b5a4342b9fc784230ca4c4f9d356f258debef56ad4984726d6ab3e7709e1632ef079b4bcd653db00b68b2df065f
-      - --validator-private-key=2c02138097d019d263c1d5383fcaddb1ba6416a0f4e64e3a617fe3af45b7851d
     ports:
       - "40420:40400"
       - "40421:40401"
       - "40422:40402"
       - "40423:40403"
+    volumes:
+      - ${IT_SHARD_DIR}/conf/validator2.conf:/var/lib/f1r3fly/node.conf:ro
+      - ${IT_SHARD_DIR}/genesis/bonds.txt:/var/lib/f1r3fly/genesis/bonds.txt:ro
+      - ${IT_SHARD_DIR}/genesis/wallets.txt:/var/lib/f1r3fly/genesis/wallets.txt:ro
 
   validator3:
     <<: *node
@@ -111,19 +116,21 @@ services:
       - --data-dir=/var/lib/f1r3fly
       - --config-file=/var/lib/f1r3fly/node.conf
       - --host=it-validator3
-      - --bootstrap=rnode://1e780e5dfbe0a3d9470a2b414f502d59402e09c2@it-boot?protocol=40400&discovery=40404
+      - *bootstrap
       - --allow-private-addresses
       - --genesis-validator
-      - --validator-public-key=0457febafcc25dd34ca5e5c025cd445f60e5ea6918931a54eb8c3a204f51760248090b0c757c2bdad7b8c4dca757e109f8ef64737d90712724c8216c94b4ae661c
-      - --validator-private-key=b67533f1f99c0ecaedb7d829e430b1c0e605bda10f339f65d5567cb5bd77cbcb
     ports:
       - "40430:40400"
       - "40431:40401"
       - "40432:40402"
       - "40433:40403"
+    volumes:
+      - ${IT_SHARD_DIR}/conf/validator3.conf:/var/lib/f1r3fly/node.conf:ro
+      - ${IT_SHARD_DIR}/genesis/bonds.txt:/var/lib/f1r3fly/genesis/bonds.txt:ro
+      - ${IT_SHARD_DIR}/genesis/wallets.txt:/var/lib/f1r3fly/genesis/wallets.txt:ro
 
   # The only node that serves exploratory deploys, and the one the client's
-  # --observer-* flags point at.
+  # --observer flag points at.
   readonly:
     <<: *node
     container_name: it-readonly
@@ -133,7 +140,7 @@ services:
       - --data-dir=/var/lib/f1r3fly
       - --config-file=/var/lib/f1r3fly/node.conf
       - --host=it-readonly
-      - --bootstrap=rnode://1e780e5dfbe0a3d9470a2b414f502d59402e09c2@it-boot?protocol=40400&discovery=40404
+      - *bootstrap
       - --allow-private-addresses
       - --heartbeat-disabled
     ports:
@@ -141,6 +148,10 @@ services:
       - "40451:40401"
       - "40452:40402"
       - "40453:40403"
+    volumes:
+      - ./node.conf:/var/lib/f1r3fly/node.conf:ro
+      - ${IT_SHARD_DIR}/genesis/bonds.txt:/var/lib/f1r3fly/genesis/bonds.txt:ro
+      - ${IT_SHARD_DIR}/genesis/wallets.txt:/var/lib/f1r3fly/genesis/wallets.txt:ro
 
   # Unbonded at genesis; started by the bonding tests.
   validator4:
@@ -152,15 +163,33 @@ services:
       - --data-dir=/var/lib/f1r3fly
       - --config-file=/var/lib/f1r3fly/node.conf
       - --host=it-validator4
-      - --bootstrap=rnode://1e780e5dfbe0a3d9470a2b414f502d59402e09c2@it-boot?protocol=40400&discovery=40404
+      - *bootstrap
       - --allow-private-addresses
-      - --validator-public-key=04d26c6103d7269773b943d7a9c456f9eb227e0d8b1fe30bccee4fca963f4446e3385d99f6386317f2c1ad36b9e6b0d5f97bb0a0041f05781c60a5ebca124a251d
-      - --validator-private-key=5ff3514bf79a7d18e8dd974c699678ba63b7762ce8d78c532346e52f0ad219cd
     ports:
       - "40440:40400"
       - "40441:40401"
       - "40442:40402"
       - "40443:40403"
+    volumes:
+      - ${IT_SHARD_DIR}/conf/validator4.conf:/var/lib/f1r3fly/node.conf:ro
+      - ${IT_SHARD_DIR}/genesis/bonds.txt:/var/lib/f1r3fly/genesis/bonds.txt:ro
+      - ${IT_SHARD_DIR}/genesis/wallets.txt:/var/lib/f1r3fly/genesis/wallets.txt:ro
+
+  # Terminates TLS for validator1's gRPC (40460) and HTTP (40461) APIs, and
+  # serves the HTTP API under /node1 on 40462, with a certificate the harness
+  # issues per run.
+  tls-proxy:
+    image: caddy:2.10-alpine
+    container_name: it-tls-proxy
+    networks: [shard]
+    depends_on: [validator1]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${IT_SHARD_DIR}/tls:/tls:ro
+    ports:
+      - "40460:40460"
+      - "40461:40461"
+      - "40462:40462"
 
 networks:
   shard:

@@ -1,15 +1,17 @@
 use chrono::{TimeZone, Utc};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
-use tokio_tungstenite::connect_async;
 
 use crate::args::DagArgs;
+use crate::commands::CliResult;
 use crate::dag::{BlockStatus, DagApp, DagBlock, DagEvent};
-use crate::error::NodeCliError;
+use crate::endpoint::connect_websocket;
+use crate::node_http::NodeHttp;
 
 /// Run the DAG visualization command
-pub async fn run_dag(args: &DagArgs) -> Result<(), NodeCliError> {
-    println!("Loading blocks from {}:{}...", args.host, args.http_port);
+pub async fn run_dag(args: &DagArgs) -> CliResult {
+    let node = args.node.node()?;
+    println!("Loading blocks from {}...", node.endpoint());
 
     // Create channel for WebSocket events
     let (tx, rx) = mpsc::channel::<DagEvent>(100);
@@ -19,55 +21,30 @@ pub async fn run_dag(args: &DagArgs) -> Result<(), NodeCliError> {
     app.renderer.show_deploys = args.show_deploys;
 
     // Load initial blocks
-    let blocks = fetch_initial_blocks(&args.host, args.http_port, args.depth).await?;
+    let blocks = fetch_initial_blocks(&node, args.depth).await?;
     app.load_blocks(blocks);
 
     // Set up event receiver if live mode
     if !args.no_live {
         app = app.with_event_receiver(rx);
 
-        // Spawn WebSocket listener (same port as HTTP API)
-        let ws_url = format!("ws://{}:{}/ws/events", args.host, args.http_port);
-        let api_base = format!("http://{}:{}", args.host, args.http_port);
         let tx_clone = tx.clone();
         tokio::spawn(async move {
-            if let Err(e) = run_websocket_listener(ws_url, api_base, tx_clone).await {
+            if let Err(e) = run_websocket_listener(node, tx_clone).await {
                 eprintln!("WebSocket error: {e}");
             }
         });
     }
 
     // Run the TUI
-    app.run()
-        .await
-        .map_err(|e| NodeCliError::io_error(&e.to_string()))?;
+    app.run().await?;
 
     Ok(())
 }
 
 /// Fetch initial blocks from the API
-async fn fetch_initial_blocks(
-    host: &str,
-    port: u16,
-    depth: usize,
-) -> Result<Vec<DagBlock>, NodeCliError> {
-    let url = format!("http://{host}:{port}/api/blocks/{depth}");
-
-    let response = reqwest::get(&url)
-        .await
-        .map_err(|e| NodeCliError::http_error(&e.to_string()))?;
-
-    if !response.status().is_success() {
-        return Err(NodeCliError::http_error(&format!(
-            "Failed to fetch blocks: {}",
-            response.status()
-        )));
-    }
-
-    let body: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| NodeCliError::http_error(&e.to_string()))?;
+async fn fetch_initial_blocks(node: &NodeHttp, depth: usize) -> CliResult<Vec<DagBlock>> {
+    let body = node.get_json(&format!("/api/blocks/{depth}")).await?;
 
     let mut blocks = Vec::new();
 
@@ -145,21 +122,18 @@ fn parse_block_json(json: &serde_json::Value) -> Option<DagBlock> {
 }
 
 /// Fetch a single block by hash from the API with retries
-async fn fetch_block_by_hash(api_base: &str, hash: &str) -> Option<DagBlock> {
+async fn fetch_block_by_hash(node: &NodeHttp, hash: &str) -> Option<DagBlock> {
     // Retry a few times with delays - the block might not be available immediately
     for attempt in 0..3 {
         if attempt > 0 {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
 
-        let url = format!("{api_base}/api/block/{hash}");
-        if let Ok(response) = reqwest::get(&url).await {
-            if let Ok(body) = response.json::<serde_json::Value>().await {
-                // Response format: {"blockInfo": {...}, "deploys": [...]}
-                if let Some(block_info) = body.get("blockInfo") {
-                    if let Some(block) = parse_block_info_json(block_info) {
-                        return Some(block);
-                    }
+        if let Ok(body) = node.get_json(&format!("/api/block/{hash}")).await {
+            // Response format: {"blockInfo": {...}, "deploys": [...]}
+            if let Some(block_info) = body.get("blockInfo") {
+                if let Some(block) = parse_block_info_json(block_info) {
+                    return Some(block);
                 }
             }
         }
@@ -225,14 +199,8 @@ fn parse_block_info_json(info: &serde_json::Value) -> Option<DagBlock> {
 }
 
 /// Run the WebSocket listener for real-time events
-async fn run_websocket_listener(
-    ws_url: String,
-    api_base: String,
-    tx: mpsc::Sender<DagEvent>,
-) -> Result<(), NodeCliError> {
-    let (ws_stream, _) = connect_async(&ws_url)
-        .await
-        .map_err(|e| NodeCliError::websocket_error(&e.to_string()))?;
+async fn run_websocket_listener(node: NodeHttp, tx: mpsc::Sender<DagEvent>) -> CliResult {
+    let ws_stream = connect_websocket(node.endpoint(), "/ws/events").await?;
 
     let (_, mut read) = ws_stream.split();
 
@@ -245,7 +213,7 @@ async fn run_websocket_listener(
                     let enriched_event = match &event {
                         DagEvent::BlockCreated(block) => {
                             if let Some(mut full_block) =
-                                fetch_block_by_hash(&api_base, &block.hash).await
+                                fetch_block_by_hash(&node, &block.hash).await
                             {
                                 full_block.status = BlockStatus::Created;
                                 DagEvent::BlockCreated(Box::new(full_block))
@@ -256,8 +224,7 @@ async fn run_websocket_listener(
                         DagEvent::BlockAdded(hash) => {
                             // Fetch full block and return as BlockCreated with Added status
                             // This ensures we have block_number even if we missed BlockCreated
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
-                            {
+                            if let Some(mut full_block) = fetch_block_by_hash(&node, hash).await {
                                 full_block.status = BlockStatus::Added;
                                 DagEvent::BlockCreated(Box::new(full_block))
                             } else {
@@ -266,8 +233,7 @@ async fn run_websocket_listener(
                         }
                         DagEvent::BlockFinalized(hash) => {
                             // Fetch full block and return as BlockCreated with Finalized status
-                            if let Some(mut full_block) = fetch_block_by_hash(&api_base, hash).await
-                            {
+                            if let Some(mut full_block) = fetch_block_by_hash(&node, hash).await {
                                 full_block.status = BlockStatus::Finalized;
                                 DagEvent::BlockCreated(Box::new(full_block))
                             } else {
@@ -300,9 +266,9 @@ async fn run_websocket_listener(
 /// Parse a WebSocket event into a DagEvent
 /// The node sends events in this format:
 /// {"event": "block-created", "schema-version": 1, "payload": {...}}
-fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
+fn parse_websocket_event(text: &str) -> CliResult<DagEvent> {
     let json: serde_json::Value =
-        serde_json::from_str(text).map_err(|e| NodeCliError::parse_error(&e.to_string()))?;
+        serde_json::from_str(text).map_err(|e| format!("failed to parse event: {e}"))?;
 
     // Get event type (kebab-case)
     let event_type = json.get("event").and_then(|e| e.as_str()).unwrap_or("");
@@ -339,27 +305,22 @@ fn parse_websocket_event(text: &str) -> Result<DagEvent, NodeCliError> {
         | "approved-block-received"
         | "entered-running-state"
         | "node-started" => {
-            return Err(NodeCliError::parse_error("Non-block event, skipping"));
+            return Err("non-block event, skipping".into());
         }
         _ => {}
     }
 
-    Err(NodeCliError::parse_error(&format!(
-        "Unknown event type: {event_type}"
-    )))
+    Err(format!("unknown event type: {event_type}").into())
 }
 
 /// Parse a block from WebSocket event payload (kebab-case fields)
 /// Note: WebSocket events contain seq-num (validator sequence) not block number.
 /// We set block_number to -1 to indicate it needs to be fetched.
-fn parse_event_block(
-    payload: &serde_json::Value,
-    status: BlockStatus,
-) -> Result<DagBlock, NodeCliError> {
+fn parse_event_block(payload: &serde_json::Value, status: BlockStatus) -> CliResult<DagBlock> {
     let hash = payload
         .get("block-hash")
         .and_then(|h| h.as_str())
-        .ok_or_else(|| NodeCliError::parse_error("Missing block-hash"))?
+        .ok_or("block event without block-hash")?
         .to_string();
 
     let creator = payload

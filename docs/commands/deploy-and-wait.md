@@ -6,9 +6,9 @@ This is the primary command for deploying contracts. It handles the full lifecyc
 1. Deploy code via gRPC
 2. Poll the deploy signature via `/api/deploy-finalization-status` until terminal state
 3. Read the `deployId` channel data from the finalized block (using `latest_block_hash` from the status response)
-4. Get deploy execution details (cost, errored)
+4. Get deploy execution details (cost, errored) from the node whose status was the verdict
 
-**Note:** Step 2 queries the observer first, and the deploy node's own HTTP endpoint when the observer does not answer. The status reports whether the deploy's effects are in canonical state, so a deploy dropped during merge of a finalized block is not reported as finalized. The command requires a node that serves the endpoint (f1r3node-rust v0.4.15 or later) and fails immediately otherwise.
+**Note:** Step 2 queries the deploy node, and the observer when `--observer` is given, on every poll, and stops at the first terminal state either reports; a node never changes a verdict once written. The status reports whether the deploy's effects are in canonical state, so a deploy dropped during merge of a finalized block is not reported as finalized. The command requires a deploy node that serves the endpoint (f1r3node-rust v0.4.15 or later) and fails immediately otherwise, unless the observer answers. A 404 for that endpoint is reported as an old node only when the same endpoint answers `/api/status`; otherwise the error is that endpoint's HTTP error, such as from a mistyped base path.
 
 ## Usage
 
@@ -21,17 +21,19 @@ node_cli deploy-and-wait -f <FILE> [OPTIONS]
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--file` | `-f` | required | Rholang file to deploy |
-| `--private-key` | `-k` | dev key | Signing key (64 hex chars) |
-| `--host` | `-H` | `localhost` | Node hostname |
-| `--port` | `-p` | `40412` | gRPC port |
-| `--http-port` | | `40413` | HTTP port for deploy details |
-| `--bigger-phlo` | | false | Use 5B phlo limit instead of 50K |
-| `--propose` | | false | Also propose a block after deploy |
+| `--private-key-file` | | none | File holding the signing key's hex; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
+| `--grpc` | | `http://localhost:40401` | Deploy node's gRPC endpoint, with no path |
+| `--http` | | `http://localhost:40403` | Deploy node's HTTP endpoint, optionally with a base path, polled for finalization status |
+| `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
+| `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
+| `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
+| `--phlo-limit` | | `50000` | Most phlo the deploy may spend |
+| `--phlo-price` | | `1` | Price per phlo, in the native token's base units |
+| `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
+| `--propose` | | false | Also propose a block after deploy; `--grpc` must then be the node's internal API |
 | `--max-wait` | | `300` | Max seconds to wait for finalization |
 | `--check-interval` | | `2` | Seconds between finalization status polls |
-| `--observer-host` | | same as host | Observer node for finalization checks |
-| `--observer-port` | | `40452` | Observer gRPC port |
-| `--observer-http-port` | | `40453` | Observer HTTP port polled for finalization status |
+| `--observer` | | none | HTTP endpoint of a second node, such as the shard's read-only node, polled alongside the deploy node for the verdict |
 | `--expiration` | | none | Expiration timestamp (ms) |
 | `--expires-in` | | none | Expiration duration (seconds) |
 
@@ -67,12 +69,12 @@ Total time:   26.00s
 
 The `stdout!("hello")` contract writes to stdout (visible in node logs) but nothing to `deployId`, so Data shows `(none)`.
 
-When the deploy finalizes but its `deployId` data cannot be read, Data shows `unreadable (<error>)` and the command exits non-zero, so a failed read is never mistaken for a contract that wrote nothing.
+When the deploy finalizes but its `deployId` data or execution details cannot be read, the line shows `unreadable (<error>)` and the command exits non-zero, so a failed read is never mistaken for a contract that wrote nothing or ran cleanly.
 
 ## Example: With propose flag
 
 ```
-$ node_cli deploy-and-wait -f contract.rho --propose
+$ node_cli deploy-and-wait -f contract.rho --propose --grpc http://localhost:40402
 
 Deploying and waiting for finalization...
 Deploy ID:    ...
@@ -85,12 +87,24 @@ Block proposed: abc123...
 
 The deploy must reach a terminal state (`Finalized`, `Failed`, or `Expired`) within `--max-wait` seconds. The status is polled every `--check-interval` seconds.
 
-- `Failed` → command exits with error indicating Rholang execution failure
+- `Failed` → command exits with an error naming the block, cost and execution error
 - `Expired` → command exits with error indicating the deploy never landed canonically
-- Timeout while still `Pending` → command exits with error
+- Timeout while still `Pending` → command exits with error; if a node that saw the deploy in a block reports a failed execution, the error names it
 
 ## Observer Node
 
-Finalization checks run against the observer node (read-only), not the validator. This avoids interfering with block production. Set `--observer-host`, `--observer-port` and `--observer-http-port` if the observer is on a different host or ports. The two ports are independent; neither is derived from the other.
+With `--observer` (env `FIREFLY_OBSERVER_URL`, or a profile's `observer`; see [Configuration](../configuration.md)), finalization checks run against both the deploy node and that node. Without it, only the deploy node is polled.
 
-On a standard Docker shard, the observer is at port 40452 (gRPC) and 40453 (HTTP). For a standalone node with no separate observer, pass the node's own HTTP port as `--observer-http-port`; otherwise every poll first tries port 40453 and falls back to the deploy node.
+On the system-integration single-host Docker shard, deploy to validator1 and observe from the read-only node:
+
+```bash
+node_cli deploy-and-wait -f contract.rho \
+  --grpc http://localhost:40412 --http http://localhost:40413 \
+  --observer http://localhost:40453
+```
+
+## TLS
+
+An `https://` endpoint connects over TLS, trusting the bundled public roots, or only the certificate authorities in `--ca-cert` when given. `--ca-cert` together with any `http://` endpoint of the command, including `--observer`, is an error naming that endpoint.
+
+`--http` and `--observer` may carry a base path, such as `https://proxy.example/node1`, for a node served under a prefix behind a proxy; `--grpc` takes no path and is refused with one. `--connect-timeout` and `--timeout` apply to all three endpoints.

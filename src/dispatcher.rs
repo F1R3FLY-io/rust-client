@@ -1,168 +1,80 @@
 use crate::args::*;
 use crate::commands::*;
-use crate::error::{NodeCliError, Result};
+use crate::error::Error;
+use crate::settings::Parsed;
 use crate::utils::print_error;
 
 /// Central command dispatcher that routes and executes all CLI commands
 pub struct Dispatcher;
 
 impl Dispatcher {
-    /// Dispatch a command to its appropriate handler
-    pub async fn dispatch(cli: &Cli) -> Result<()> {
-        let result = match &cli.command {
-            Commands::Deploy(args) => deploy_command(args).await.map_err(NodeCliError::from),
-            Commands::Propose(args) => propose_command(args).await.map_err(NodeCliError::from),
-            Commands::DeployAndWait(args) => deploy_and_wait_command(args)
-                .await
-                .map_err(NodeCliError::from),
+    /// Run the command, printing its error, if any, with a suggestion.
+    pub async fn dispatch(parsed: &Parsed) -> CliResult {
+        let result = match &parsed.cli.command {
+            Commands::Deploy(args) => deploy_command(args).await,
+            Commands::Propose(args) => propose_command(args).await,
+            Commands::DeployAndWait(args) => deploy_and_wait_command(args).await,
             Commands::GetData(args) => get_data_command(args).await,
-            Commands::IsFinalized(args) => {
-                is_finalized_command(args).await.map_err(NodeCliError::from)
-            }
-            Commands::ExploratoryDeploy(args) => exploratory_deploy_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::EstimateCost(args) => estimate_cost_command(args)
-                .await
-                .map_err(NodeCliError::from),
+            Commands::IsFinalized(args) => is_finalized_command(args).await,
+            Commands::ExploratoryDeploy(args) => exploratory_deploy_command(args).await,
+            Commands::EstimateCost(args) => estimate_cost_command(args).await,
             Commands::GeneratePublicKey(args) => generate_public_key_command(args),
             Commands::GenerateKeyPair(args) => generate_key_pair_command(args),
             Commands::GenerateVaultAddress(args) => generate_vault_address_command(args),
-            Commands::Status(args) => status_command(args).await.map_err(NodeCliError::from),
-            Commands::Blocks(args) => blocks_command(args).await.map_err(NodeCliError::from),
-            Commands::Bonds(args) => bonds_command(args).await.map_err(NodeCliError::from),
-            Commands::ActiveValidators(args) => active_validators_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::WalletBalance(args) => wallet_balance_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::BondStatus(args) => {
-                bond_status_command(args).await.map_err(NodeCliError::from)
-            }
-            Commands::Metrics(args) => metrics_command(args).await.map_err(NodeCliError::from),
-            Commands::BondValidator(args) => bond_validator_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::UnbondValidator(args) => unbond_validator_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::NetworkHealth(args) => network_health_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::LastFinalizedBlock(args) => last_finalized_block_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::ShowMainChain(args) => show_main_chain_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::Transfer(args) => transfer_command(args).await.map_err(NodeCliError::from),
-            Commands::LoadTest(args) => load_test_command(args).await.map_err(NodeCliError::from),
-            Commands::GetDeploy(args) => get_deploy_command(args).await.map_err(NodeCliError::from),
-            Commands::EpochInfo(args) => epoch_info_command(args).await.map_err(NodeCliError::from),
-            Commands::ValidatorStatus(args) => validator_status_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::EpochRewards(args) => epoch_rewards_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::NetworkConsensus(args) => network_consensus_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::GetBlocksByHeight(args) => get_blocks_by_height_command(args)
-                .await
-                .map_err(NodeCliError::from),
+            Commands::Status(args) => status_command(args).await,
+            Commands::Blocks(args) => blocks_command(args).await,
+            Commands::Bonds(args) => bonds_command(args).await,
+            Commands::ActiveValidators(args) => active_validators_command(args).await,
+            Commands::WalletBalance(args) => wallet_balance_command(args).await,
+            Commands::BondStatus(args) => bond_status_command(args).await,
+            Commands::Metrics(args) => metrics_command(args).await,
+            Commands::BondValidator(args) => bond_validator_command(args).await,
+            Commands::UnbondValidator(args) => unbond_validator_command(args).await,
+            Commands::NetworkHealth(args) => network_health_command(args).await,
+            Commands::LastFinalizedBlock(args) => last_finalized_block_command(args).await,
+            Commands::ShowMainChain(args) => show_main_chain_command(args).await,
+            Commands::Transfer(args) => transfer_command(args).await,
+            Commands::LoadTest(args) => load_test_command(args).await,
+            Commands::GetDeploy(args) => get_deploy_command(args).await,
+            Commands::EpochInfo(args) => epoch_info_command(args).await,
+            Commands::ValidatorStatus(args) => validator_status_command(args).await,
+            Commands::EpochRewards(args) => epoch_rewards_command(args).await,
+            Commands::NetworkConsensus(args) => network_consensus_command(args).await,
+            Commands::GetBlocksByHeight(args) => get_blocks_by_height_command(args).await,
             Commands::GetNodeId(args) => get_node_id_command(args),
             Commands::WatchEvents(args) => watch_events_command(args).await,
             Commands::Dag(args) => run_dag(args).await,
-            Commands::BlockTransfers(args) => block_transfers_command(args)
-                .await
-                .map_err(NodeCliError::from),
-            Commands::DeployStatus(args) => deploy_status_command(args)
-                .await
-                .map_err(NodeCliError::from),
+            Commands::BlockTransfers(args) => block_transfers_command(args).await,
+            Commands::DeployStatus(args) => deploy_status_command(args).await,
+            Commands::Config(ConfigArgs {
+                action: ConfigAction::Show(args),
+            }) => config_show_command(args, parsed.profile.as_ref(), &parsed.sources),
         };
 
-        // Handle errors with better formatting
-        if let Err(e) = result {
-            Self::handle_error(&e);
-            return Err(e);
+        if let Err(error) = &result {
+            print_error(&error.to_string());
+            if let Some(suggestion) = error.downcast_ref::<Error>().and_then(suggestion) {
+                eprintln!(" Suggestion: {suggestion}");
+            }
         }
-
-        Ok(())
+        result
     }
+}
 
-    /// Handle errors with appropriate formatting and user-friendly messages
-    fn handle_error(error: &NodeCliError) {
-        match error {
-            NodeCliError::Network(net_err) => {
-                print_error(&format!("Network issue: {net_err}"));
-                eprintln!(" Suggestion: Check your internet connection and node availability");
-            }
-            NodeCliError::Crypto(crypto_err) => {
-                print_error(&format!("Cryptographic issue: {crypto_err}"));
-                eprintln!(" Suggestion: Verify your private/public key format and validity");
-            }
-            NodeCliError::File(file_err) => {
-                print_error(&format!("File operation failed: {file_err}"));
-                eprintln!(" Suggestion: Check file permissions and paths");
-            }
-            NodeCliError::Api(api_err) => {
-                print_error(&format!("API communication failed: {api_err}"));
-                eprintln!(
-                    " Suggestion: Verify the node is running and API endpoints are accessible"
-                );
-            }
-            NodeCliError::Config(config_err) => {
-                print_error(&format!("Configuration issue: {config_err}"));
-                eprintln!(" Suggestion: Check your command arguments and configuration");
-            }
-            NodeCliError::General(msg) => {
-                print_error(msg);
-            }
+fn suggestion(error: &Error) -> Option<&'static str> {
+    match error {
+        Error::Transport { .. } => {
+            Some("check that the node is running and that the endpoint URL is right")
         }
-    }
-
-    /// Get the command name for logging purposes
-    pub fn get_command_name(cli: &Cli) -> &'static str {
-        match &cli.command {
-            Commands::Deploy(_) => "deploy",
-            Commands::Propose(_) => "propose",
-
-            Commands::DeployAndWait(_) => "deploy-and-wait",
-            Commands::IsFinalized(_) => "is-finalized",
-            Commands::ExploratoryDeploy(_) => "exploratory-deploy",
-            Commands::EstimateCost(_) => "estimate-cost",
-            Commands::GeneratePublicKey(_) => "generate-public-key",
-            Commands::GenerateKeyPair(_) => "generate-key-pair",
-            Commands::GenerateVaultAddress(_) => "generate-vault-address",
-            Commands::Status(_) => "status",
-            Commands::Blocks(_) => "blocks",
-            Commands::Bonds(_) => "bonds",
-            Commands::ActiveValidators(_) => "active-validators",
-            Commands::WalletBalance(_) => "wallet-balance",
-            Commands::BondStatus(_) => "bond-status",
-            Commands::Metrics(_) => "metrics",
-            Commands::BondValidator(_) => "bond-validator",
-            Commands::UnbondValidator(_) => "unbond-validator",
-            Commands::NetworkHealth(_) => "network-health",
-            Commands::LastFinalizedBlock(_) => "last-finalized-block",
-            Commands::ShowMainChain(_) => "show-main-chain",
-            Commands::Transfer(_) => "transfer",
-            Commands::LoadTest(_) => "load-test",
-            Commands::GetDeploy(_) => "get-deploy",
-            Commands::EpochInfo(_) => "epoch-info",
-            Commands::ValidatorStatus(_) => "validator-status",
-            Commands::EpochRewards(_) => "epoch-rewards",
-            Commands::NetworkConsensus(_) => "network-consensus",
-            Commands::GetBlocksByHeight(_) => "get-blocks-by-height",
-            Commands::GetNodeId(_) => "get-node-id",
-            Commands::WatchEvents(_) => "watch-events",
-            Commands::Dag(_) => "dag",
-            Commands::BlockTransfers(_) => "block-transfers",
-            Commands::DeployStatus(_) => "deploy-status",
-
-            Commands::GetData(_) => "get-data",
+        Error::Http {
+            code: Some(code), ..
+        } if code == "readonly_node_required" => {
+            Some("this query needs a read-only node; point it at the observer")
         }
+        Error::InvalidInput { .. } | Error::MissingConfig { .. } => {
+            Some("check the command's arguments and environment")
+        }
+        Error::NodeTooOld { .. } => Some("upgrade the node, or point the command at a newer one"),
+        _ => None,
     }
 }

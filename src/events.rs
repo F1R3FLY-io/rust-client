@@ -6,6 +6,7 @@
 //! Uses `f1r3fly_shared::F1r3flyEvent` for type-safe event deserialization,
 //! matching the node's event format exactly.
 
+use crate::endpoint::{connect_websocket, Endpoint};
 use f1r3fly_shared::rust::shared::f1r3fly_event::{DeployEvent as NodeDeployEvent, F1r3flyEvent};
 use futures_util::StreamExt;
 use std::collections::HashMap;
@@ -46,11 +47,10 @@ pub struct NodeEvents {
 }
 
 impl NodeEvents {
-    /// Connect to a node's WebSocket event stream
-    ///
-    /// `ws_url` should be the base WebSocket URL, e.g. `ws://localhost:40403`
-    pub fn connect(ws_url: &str) -> Self {
-        let url = format!("{ws_url}/ws/events");
+    /// Follow the event stream of the node whose HTTP API is `endpoint`,
+    /// reconnecting whenever the connection drops.
+    pub fn connect(endpoint: &Endpoint) -> Self {
+        let endpoint = endpoint.clone();
         let pending: Arc<Mutex<HashMap<String, Arc<Notify>>>> = Arc::default();
         let results: Arc<Mutex<HashMap<String, DeployEvent>>> = Arc::default();
 
@@ -59,9 +59,9 @@ impl NodeEvents {
             let results = results.clone();
             async move {
                 loop {
-                    match tokio_tungstenite::connect_async(&url).await {
-                        Ok((mut stream, _)) => {
-                            tracing::info!("WebSocket connected to {}", url);
+                    match connect_websocket(&endpoint, "/ws/events").await {
+                        Ok(mut stream) => {
+                            tracing::info!("WebSocket connected to {}", endpoint);
                             while let Some(msg) = stream.next().await {
                                 let text = match msg {
                                     Ok(Message::Text(t)) => t,

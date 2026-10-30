@@ -2,6 +2,7 @@
 
 use libtest_mimic::Trial;
 
+use crate::common::chain;
 use crate::common::cli::Cli;
 use crate::common::keys::{self, Key};
 use crate::common::node::Node;
@@ -20,23 +21,53 @@ pub fn trials() -> Vec<Trial> {
             the_block_report_describes_the_transfer();
             Ok(())
         }),
+        Trial::test("transfers::a_balance_is_the_exact_genesis_amount", || {
+            assert_eq!(
+                balance(&keys::IDLE_RECIPIENT.address),
+                keys::FUNDED.parse::<i128>().expect("a genesis amount")
+            );
+            Ok(())
+        }),
+        Trial::test(
+            "transfers::a_vault_the_node_cannot_look_up_is_an_error",
+            || {
+                a_vault_the_node_cannot_look_up_is_an_error();
+                Ok(())
+            },
+        ),
     ]
+}
+
+/// An address with a broken checksum passes the client's format check and
+/// fails the vault's lookup, which must surface as an error, never a number.
+fn a_vault_the_node_cannot_look_up_is_an_error() {
+    let address = &keys::IDLE_RECIPIENT.address;
+    let (body, last) = address.split_at(address.len() - 1);
+    let corrupted = format!("{body}{}", if last == "2" { "3" } else { "2" });
+
+    Cli::new("wallet-balance")
+        .args(["--address", &corrupted])
+        .http_at(Node::ReadOnly)
+        .run()
+        .expect_failure("wallet-balance of an address the vault rejects")
+        .expect_not_contains("Balance for");
 }
 
 const AMOUNT: u64 = 1_000_000;
 
 fn a_transfer_moves_exactly_the_amount() {
-    let before = balance(keys::TRANSFER_RECIPIENT.address);
+    let before = balance(&keys::TRANSFER_RECIPIENT.address);
 
-    transfer(
+    let sent = transfer(
         &keys::TRANSFER_SENDER,
-        keys::TRANSFER_RECIPIENT.address,
+        &keys::TRANSFER_RECIPIENT.address,
         AMOUNT,
     )
     .expect_success("transfer")
     .expect_contains("Transfer complete");
+    chain::finalized_on_read_only(&sent);
 
-    let after = balance(keys::TRANSFER_RECIPIENT.address);
+    let after = balance(&keys::TRANSFER_RECIPIENT.address);
     assert_eq!(
         after - before,
         AMOUNT as i128,
@@ -47,24 +78,27 @@ fn a_transfer_moves_exactly_the_amount() {
 /// A vault rejection is a successful deploy carrying a failure, so the client
 /// has to read the result rather than trust the exit of the deploy itself.
 fn an_overdraft_fails_and_moves_nothing() {
-    let sender = balance(keys::OVERDRAFT_TRANSFER.address);
-    let recipient = balance(keys::IDLE_RECIPIENT.address);
+    let sender = balance(&keys::OVERDRAFT_TRANSFER.address);
+    let recipient = balance(&keys::IDLE_RECIPIENT.address);
 
-    transfer(
+    let refused = transfer(
         &keys::OVERDRAFT_TRANSFER,
-        keys::IDLE_RECIPIENT.address,
+        &keys::IDLE_RECIPIENT.address,
         u64::from(u32::MAX) * 1_000_000,
     )
     .expect_failure("an overdrawing transfer")
     .expect_contains("Insufficient funds");
+    // Without this, a balance read before the deploy settles would pass even
+    // if the transfer had moved tokens.
+    chain::finalized_on_read_only(&refused);
 
     assert_eq!(
-        balance(keys::IDLE_RECIPIENT.address),
+        balance(&keys::IDLE_RECIPIENT.address),
         recipient,
         "a rejected transfer moved tokens"
     );
     assert!(
-        balance(keys::OVERDRAFT_TRANSFER.address) <= sender,
+        balance(&keys::OVERDRAFT_TRANSFER.address) <= sender,
         "a rejected transfer credited the sender"
     );
 }
@@ -73,7 +107,8 @@ fn an_overdraft_fails_and_moves_nothing() {
 /// the chain reads back.
 fn the_block_report_describes_the_transfer() {
     let sent =
-        transfer(&keys::REPORT_SENDER, keys::SPARE.address, AMOUNT).expect_success("transfer");
+        transfer(&keys::REPORT_SENDER, &keys::SPARE.address, AMOUNT).expect_success("transfer");
+    chain::finalized_on_read_only(&sent);
     let block = sent.value_after("Block hash:").to_string();
 
     Cli::new("block-transfers")
@@ -81,8 +116,8 @@ fn the_block_report_describes_the_transfer() {
         .http_at(Node::ReadOnly)
         .run()
         .expect_success("block-transfers")
-        .expect_contains(keys::REPORT_SENDER.address)
-        .expect_contains(keys::SPARE.address)
+        .expect_contains(&keys::REPORT_SENDER.address)
+        .expect_contains(&keys::SPARE.address)
         .expect_contains(&AMOUNT.to_string());
 }
 
@@ -101,7 +136,7 @@ fn transfer(from: &Key, to: &str, amount: u64) -> crate::common::cli::Output {
 fn balance(address: &str) -> i128 {
     let output = Cli::new("wallet-balance")
         .args(["--address", address])
-        .grpc_at(Node::ReadOnly)
+        .http_at(Node::ReadOnly)
         .run()
         .expect_success("wallet-balance");
 

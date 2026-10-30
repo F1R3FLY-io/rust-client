@@ -2,31 +2,102 @@
 ///
 /// Manages connections to F1r3fly nodes with connection reuse and pooling.
 /// Provides a high-level async API for deploying Rholang code and querying state.
-use crate::f1r3fly_api::F1r3flyApi;
+use crate::deploy::{DeployOptions, SignedDeploy, DEFAULT_SHARD_ID};
+use crate::endpoint::Endpoint;
+use crate::error::{Error, Result};
+use crate::f1r3fly_api::{
+    DeployDetail, DeployFinalizationStatus, DeployResult, ExploratoryResult, F1r3flyApi,
+};
+use crate::node_http::NodeHttp;
+use crate::signing_key::SigningKey;
 use crate::utils::CryptoUtils;
 use crate::vault::{build_transfer_rholang, TransferResult};
 use log;
 use secp256k1::PublicKey;
 use std::env;
+use std::str::FromStr;
+use std::time::Duration;
+
+/// A node's own gRPC port, on this host.
+pub const DEFAULT_GRPC_URL: &str = "http://localhost:40401";
+/// A node's own HTTP port, on this host.
+pub const DEFAULT_HTTP_URL: &str = "http://localhost:40403";
+
+fn env_opt(var: &'static str) -> Result<Option<String>> {
+    match env::var(var) {
+        Ok(value) => Ok(Some(value)),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(value)) => {
+            Err(Error::invalid(var, format!("{value:?} is not unicode")))
+        }
+    }
+}
+
+/// `var` parsed, or `default` when it is unset. A set but malformed value is
+/// an error rather than a silent fallback.
+fn env_or<T: FromStr>(var: &'static str, default: T) -> Result<T>
+where
+    T::Err: std::fmt::Display,
+{
+    match env_opt(var)? {
+        Some(value) => value
+            .parse()
+            .map_err(|e| Error::invalid(var, format!("{value:?}: {e}"))),
+        None => Ok(default),
+    }
+}
+
+/// Variables this crate no longer reads, with what replaced each.
+const REMOVED_VARIABLES: [(&str, &str); 6] = [
+    ("FIREFLY_HOST", "FIREFLY_GRPC_URL and FIREFLY_HTTP_URL"),
+    ("FIREFLY_GRPC_PORT", "FIREFLY_GRPC_URL"),
+    ("FIREFLY_HTTP_PORT", "FIREFLY_HTTP_URL"),
+    ("FIREFLY_OBSERVER_HOST", "FIREFLY_OBSERVER_URL"),
+    (
+        "FIREFLY_OBSERVER_GRPC_PORT",
+        "nothing: the observer is polled over HTTP only",
+    ),
+    ("FIREFLY_OBSERVER_HTTP_PORT", "FIREFLY_OBSERVER_URL"),
+];
+
+/// Refuse a set variable that is no longer read, which would otherwise leave
+/// the client quietly talking to the default endpoints.
+fn refuse_removed_variables(is_set: impl Fn(&str) -> bool) -> Result<()> {
+    match REMOVED_VARIABLES.iter().find(|(var, _)| is_set(var)) {
+        Some((var, replacement)) => Err(Error::invalid(
+            var,
+            format!("is no longer read; use {replacement}"),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// A timeout of `var` whole seconds, or `default` when it is unset. Zero is
+/// refused: it would fail every request.
+fn env_timeout(var: &'static str, default: Duration) -> Result<Duration> {
+    match env_or::<u64>(var, default.as_secs())? {
+        0 => Err(Error::invalid(var, "a timeout must be at least 1 second")),
+        secs => Ok(Duration::from_secs(secs)),
+    }
+}
 
 /// Configuration for F1r3fly node connection
 #[derive(Debug, Clone)]
 pub struct ConnectionConfig {
-    pub node_host: String,
-    pub grpc_port: u16,
-    pub http_port: u16,
-    pub signing_key: String,
-    /// Observer node hostname for finalization checks (defaults to node_host)
-    pub observer_host: Option<String>,
-    /// Observer node gRPC port for finalization checks (defaults to 40452)
-    pub observer_grpc_port: u16,
-    /// Observer node HTTP port, for endpoints the validators refuse — a shard
-    /// serves exploratory deploys only from its read-only node (defaults to 40453)
-    pub observer_http_port: u16,
+    /// The deploy node's gRPC API: deploys go here
+    pub grpc: Endpoint,
+    /// The deploy node's HTTP API: finalization status and deploy details
+    pub http: Endpoint,
+    /// A second node's HTTP API, polled alongside the deploy node for a
+    /// deploy's verdict. Without one, only the deploy node is polled.
+    pub observer: Option<Endpoint>,
+    pub signing_key: SigningKey,
     /// Maximum seconds to wait for a deploy to finalize (default: 90)
     pub finalization_timeout_secs: u32,
     /// Seconds between finalization status polls (default: 2)
     pub poll_interval_secs: u64,
+    /// Shard deploys are signed for: the node's `casper.shard-name` (default: `root`)
+    pub shard_id: String,
 }
 
 impl ConnectionConfig {
@@ -34,111 +105,258 @@ impl ConnectionConfig {
     ///
     /// # Environment Variables
     ///
-    /// - `FIREFLY_HOST`: Node hostname (default: "localhost")
-    /// - `FIREFLY_GRPC_PORT`: gRPC port (default: 40401)
-    /// - `FIREFLY_HTTP_PORT`: HTTP port (default: 40403)
-    /// - `FIREFLY_PRIVATE_KEY`: Private key for signing (REQUIRED)
+    /// - `FIREFLY_PRIVATE_KEY_FILE` or `FIREFLY_PRIVATE_KEY`: File holding the
+    ///   signing key's hex, or the hex itself (REQUIRED; exactly one)
+    /// - `FIREFLY_GRPC_URL`: Deploy node's gRPC endpoint (default: [`DEFAULT_GRPC_URL`])
+    /// - `FIREFLY_HTTP_URL`: Deploy node's HTTP endpoint (default: [`DEFAULT_HTTP_URL`])
+    /// - `FIREFLY_OBSERVER_URL`: Observer's HTTP endpoint (default: none)
+    /// - `FIREFLY_CA_CERT`: PEM file of the certificate authorities every
+    ///   `https` endpoint trusts, in place of the bundled public roots
+    /// - `FIREFLY_CONNECT_TIMEOUT`: Seconds a connection may take to establish
+    ///   (default: [`crate::endpoint::DEFAULT_CONNECT_TIMEOUT`])
+    /// - `FIREFLY_REQUEST_TIMEOUT`: Seconds one request may take
+    ///   (default: [`crate::endpoint::DEFAULT_REQUEST_TIMEOUT`])
     /// - `FIREFLY_FINALIZATION_TIMEOUT`: Max seconds to wait for a deploy to finalize (default: 90)
-    pub fn from_env() -> Result<Self, ConnectionError> {
-        let signing_key =
-            env::var("FIREFLY_PRIVATE_KEY").map_err(|_| ConnectionError::MissingPrivateKey)?;
+    /// - `FIREFLY_SHARD_ID`: Shard deploys are signed for (default: "root")
+    pub fn from_env() -> Result<Self> {
+        refuse_removed_variables(|var| env::var_os(var).is_some())?;
+        let signing_key = match (
+            env_opt("FIREFLY_PRIVATE_KEY_FILE")?,
+            env_opt("FIREFLY_PRIVATE_KEY")?,
+        ) {
+            (Some(path), None) => SigningKey::from_file(path.as_ref())?,
+            (None, Some(hex)) => {
+                SigningKey::from_hex(&hex).map_err(|e| Error::invalid("FIREFLY_PRIVATE_KEY", e))?
+            }
+            (Some(_), Some(_)) => {
+                return Err(Error::invalid(
+                    "FIREFLY_PRIVATE_KEY_FILE",
+                    "both it and FIREFLY_PRIVATE_KEY are set; set one",
+                ))
+            }
+            (None, None) => {
+                return Err(Error::MissingConfig {
+                    var: "FIREFLY_PRIVATE_KEY_FILE or FIREFLY_PRIVATE_KEY",
+                })
+            }
+        };
+        let ca_pem = env_opt("FIREFLY_CA_CERT")?
+            .map(|path| {
+                std::fs::read(&path).map_err(|cause| Error::Io {
+                    path: path.into(),
+                    cause,
+                })
+            })
+            .transpose()?;
+        let connect_timeout = env_timeout(
+            "FIREFLY_CONNECT_TIMEOUT",
+            crate::endpoint::DEFAULT_CONNECT_TIMEOUT,
+        )?;
+        let request_timeout = env_timeout(
+            "FIREFLY_REQUEST_TIMEOUT",
+            crate::endpoint::DEFAULT_REQUEST_TIMEOUT,
+        )?;
+        let endpoint = |var: &'static str, url: &str| -> Result<Endpoint> {
+            let endpoint = Endpoint::parse(url)
+                .map_err(|e| Error::invalid(var, e))?
+                .with_connect_timeout(connect_timeout)
+                .with_request_timeout(request_timeout);
+            match &ca_pem {
+                Some(pem) => endpoint.with_ca_certificates(pem.clone()),
+                None => Ok(endpoint),
+            }
+        };
 
         Ok(Self {
-            node_host: env::var("FIREFLY_HOST").unwrap_or_else(|_| "localhost".to_string()),
-            grpc_port: env::var("FIREFLY_GRPC_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(40401),
-            http_port: env::var("FIREFLY_HTTP_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(40403),
+            grpc: endpoint(
+                "FIREFLY_GRPC_URL",
+                &env_or("FIREFLY_GRPC_URL", DEFAULT_GRPC_URL.to_string())?,
+            )?,
+            http: endpoint(
+                "FIREFLY_HTTP_URL",
+                &env_or("FIREFLY_HTTP_URL", DEFAULT_HTTP_URL.to_string())?,
+            )?,
+            observer: env_opt("FIREFLY_OBSERVER_URL")?
+                .map(|url| endpoint("FIREFLY_OBSERVER_URL", &url))
+                .transpose()?,
             signing_key,
-            observer_host: env::var("FIREFLY_OBSERVER_HOST").ok(),
-            observer_grpc_port: env::var("FIREFLY_OBSERVER_GRPC_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(40452),
-            observer_http_port: env::var("FIREFLY_OBSERVER_HTTP_PORT")
-                .ok()
-                .and_then(|p| p.parse().ok())
-                .unwrap_or(40453),
-            finalization_timeout_secs: env::var("FIREFLY_FINALIZATION_TIMEOUT")
-                .ok()
-                .and_then(|t| t.parse().ok())
-                .unwrap_or(90),
+            finalization_timeout_secs: env_or("FIREFLY_FINALIZATION_TIMEOUT", 90)?,
             poll_interval_secs: 2,
+            shard_id: env_or("FIREFLY_SHARD_ID", DEFAULT_SHARD_ID.to_string())?,
         })
     }
 
-    /// Create a new configuration with explicit values
-    pub fn new(node_host: String, grpc_port: u16, http_port: u16, signing_key: String) -> Self {
+    /// A configuration for the deploy node at `grpc` and `http`, with no observer.
+    pub fn new(grpc: Endpoint, http: Endpoint, signing_key: SigningKey) -> Self {
         Self {
-            node_host,
-            grpc_port,
-            http_port,
+            grpc,
+            http,
+            observer: None,
             signing_key,
-            observer_host: None,
-            observer_grpc_port: 40452,
-            observer_http_port: 40453,
             finalization_timeout_secs: 90,
             poll_interval_secs: 2,
+            shard_id: DEFAULT_SHARD_ID.to_string(),
         }
     }
 
-    /// Set observer node for finalization checks and read-only endpoints.
-    ///
-    /// Both ports are explicit: a shard maps them independently, and deriving
-    /// one from the other silently sends requests to the wrong port.
-    pub fn with_observer(mut self, host: String, grpc_port: u16, http_port: u16) -> Self {
-        self.observer_host = Some(host);
-        self.observer_grpc_port = grpc_port;
-        self.observer_http_port = http_port;
+    /// Also poll the node whose HTTP API is `http` for a deploy's verdict.
+    pub fn with_observer(mut self, http: Endpoint) -> Self {
+        self.observer = Some(http);
         self
     }
 }
 
-/// Error types for connection management
-#[derive(Debug)]
-pub enum ConnectionError {
-    /// FIREFLY_PRIVATE_KEY environment variable not set
-    MissingPrivateKey,
-    /// Failed to connect to F1r3fly node
-    ConnectionFailed(String),
-    /// Failed to execute operation
-    OperationFailed(String),
+type StatusAnswer = Result<Option<DeployFinalizationStatus>>;
+
+/// Which of the two polled nodes gave an answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusSource {
+    DeployNode,
+    Observer,
 }
 
-impl std::fmt::Display for ConnectionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MissingPrivateKey => {
-                write!(f, "FIREFLY_PRIVATE_KEY environment variable not set")
+/// What one poll of the deploy node and the observer established.
+#[derive(Debug)]
+enum PollOutcome {
+    Terminal {
+        status: DeployFinalizationStatus,
+        source: StatusSource,
+    },
+    /// `included_by`: a node whose answer names a block carrying the deploy.
+    Pending { included_by: Option<StatusSource> },
+    /// The deploy node cannot serve the endpoint and the observer gave no answer.
+    Unserved,
+}
+
+/// Warn when a node starts failing or fails differently; repeats of the same
+/// failure on later polls go to debug, so an unreachable observer does not
+/// print a warning on every poll.
+fn report_unavailable(
+    source: &str,
+    answer: &StatusAnswer,
+    last_error: &mut Option<String>,
+    deploy_sig_hex: &str,
+    attempt: u32,
+) {
+    match answer {
+        Err(error) => {
+            let error = error.to_string();
+            if last_error.as_ref() == Some(&error) {
+                tracing::debug!(deploy_sig = deploy_sig_hex, attempt, source, %error,
+                    "deploy-finalization-status still unavailable");
+            } else {
+                tracing::warn!(deploy_sig = deploy_sig_hex, attempt, source, %error,
+                    "deploy-finalization-status unavailable; will retry");
+                *last_error = Some(error);
             }
-            Self::ConnectionFailed(e) => write!(f, "Connection failed: {e}"),
-            Self::OperationFailed(e) => write!(f, "Operation failed: {e}"),
         }
+        Ok(_) => *last_error = None,
     }
 }
 
-impl std::error::Error for ConnectionError {}
+/// Terminal states are write-once on a node, so whichever node reports one first
+/// has the verdict. Two nodes reporting different terminal states is an error,
+/// never a choice. A 404 (`Ok(None)`) from the deploy node is conclusive unless
+/// the observer answered. `observer` is `None` when no observer is configured.
+fn poll_outcome(
+    deploy_id: &str,
+    node: StatusAnswer,
+    observer: Option<StatusAnswer>,
+) -> Result<PollOutcome> {
+    let node_unserved = matches!(node, Ok(None));
+    let node = node.ok().flatten();
+    let observer = observer.and_then(|answer| answer.ok().flatten());
+
+    let terminal = |status: &Option<DeployFinalizationStatus>| {
+        status
+            .as_ref()
+            .filter(|status| status.is_terminal())
+            .cloned()
+    };
+    match (terminal(&node), terminal(&observer)) {
+        (Some(from_node), Some(from_observer)) if from_node.state != from_observer.state => {
+            return Err(Error::ConflictingVerdicts {
+                deploy_id: deploy_id.to_string(),
+                node: from_node.state,
+                observer: from_observer.state,
+            });
+        }
+        (Some(status), _) => {
+            return Ok(PollOutcome::Terminal {
+                status,
+                source: StatusSource::DeployNode,
+            })
+        }
+        (None, Some(status)) => {
+            return Ok(PollOutcome::Terminal {
+                status,
+                source: StatusSource::Observer,
+            })
+        }
+        (None, None) => {}
+    }
+
+    if node_unserved && observer.is_none() {
+        return Ok(PollOutcome::Unserved);
+    }
+    let names_block = |status: &Option<DeployFinalizationStatus>| {
+        status
+            .as_ref()
+            .is_some_and(|status| status.latest_block_hash.is_some())
+    };
+    let included_by = if names_block(&node) {
+        Some(StatusSource::DeployNode)
+    } else if names_block(&observer) {
+        Some(StatusSource::Observer)
+    } else {
+        None
+    };
+    Ok(PollOutcome::Pending { included_by })
+}
+
+/// Either node holding the deploy settles it as landed, and either node's
+/// "not found" settles it as not landed. Only when no node answered is it
+/// unknown, which is the deploy node's lookup error. `observer` is `None` when
+/// no observer is configured.
+fn landed(
+    node: Result<Option<DeployDetail>>,
+    observer: Option<Result<Option<DeployDetail>>>,
+) -> Result<bool> {
+    match (node, observer) {
+        (Ok(Some(_)), _) | (_, Some(Ok(Some(_)))) => Ok(true),
+        (Ok(None), _) | (_, Some(Ok(None))) => Ok(false),
+        (Err(error), _) => Err(error),
+    }
+}
 
 /// Manages F1r3fly node connections with connection reuse
 #[derive(Clone)]
 pub struct F1r3flyConnectionManager {
     config: ConnectionConfig,
+    api: F1r3flyApi,
+    node: NodeHttp,
+    observer: Option<NodeHttp>,
 }
 
 impl F1r3flyConnectionManager {
     /// Create a new connection manager from environment variables
-    pub fn from_env() -> Result<Self, ConnectionError> {
-        let config = ConnectionConfig::from_env()?;
-        Ok(Self { config })
+    pub fn from_env() -> Result<Self> {
+        Self::new(ConnectionConfig::from_env()?)
     }
 
     /// Create a new connection manager with explicit configuration
-    pub fn new(config: ConnectionConfig) -> Self {
-        Self { config }
+    pub fn new(config: ConnectionConfig) -> Result<Self> {
+        let api = F1r3flyApi::new(config.grpc.clone())?
+            .with_signing_key(&config.signing_key)
+            .with_shard_id(&config.shard_id);
+        let node = NodeHttp::new(config.http.clone())?;
+        let observer = config.observer.clone().map(NodeHttp::new).transpose()?;
+        Ok(Self {
+            config,
+            api,
+            node,
+            observer,
+        })
     }
 
     /// Get the connection configuration
@@ -146,37 +364,30 @@ impl F1r3flyConnectionManager {
         &self.config
     }
 
-    fn api(&self) -> Result<F1r3flyApi<'_>, ConnectionError> {
-        F1r3flyApi::new(
-            &self.config.signing_key,
-            &self.config.node_host,
-            self.config.grpc_port,
-        )
-        .map_err(|e| ConnectionError::ConnectionFailed(e.to_string()))
+    /// The HTTP API of the node that gave an answer.
+    fn http_of(&self, source: StatusSource) -> &NodeHttp {
+        match source {
+            StatusSource::DeployNode => &self.node,
+            StatusSource::Observer => self
+                .observer
+                .as_ref()
+                .expect("only a configured observer is polled, so only it can be a source"),
+        }
     }
 
-    fn observer_api(&self) -> Result<F1r3flyApi<'_>, ConnectionError> {
-        let host = self
-            .config
-            .observer_host
-            .as_deref()
-            .unwrap_or(&self.config.node_host);
-        F1r3flyApi::new(
-            &self.config.signing_key,
-            host,
-            self.config.observer_grpc_port,
-        )
-        .map_err(|e| ConnectionError::ConnectionFailed(e.to_string()))
+    /// The deploy's detail as `source` serves it over HTTP.
+    async fn deploy_detail(
+        &self,
+        source: StatusSource,
+        deploy_id: &str,
+    ) -> Result<Option<DeployDetail>> {
+        self.http_of(source).get_deploy_detail(deploy_id).await
     }
 
-    /// Execute an exploratory deploy (read-only query)
-    pub async fn query(&self, rholang_code: &str) -> Result<String, ConnectionError> {
-        let api = self.api()?;
-        let (result, _block_info, _cost) = api
-            .exploratory_deploy(rholang_code, None, false)
-            .await
-            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
-        Ok(result)
+    /// Run `rholang_code` read-only against the last finalized block. Only a
+    /// read-only node serves it.
+    pub async fn query(&self, rholang_code: &str) -> Result<ExploratoryResult> {
+        self.api.exploratory_deploy(rholang_code, None, false).await
     }
 
     /// Estimate phlogiston cost of Rholang code via the HTTP
@@ -184,153 +395,95 @@ impl F1r3flyConnectionManager {
         &self,
         rholang_code: &str,
         deployer_pubkey_hex: Option<&str>,
-    ) -> Result<u64, ConnectionError> {
-        let api = self.api()?;
-        let response = api
-            .estimate_cost(
-                rholang_code,
-                deployer_pubkey_hex,
-                None,
-                self.config.http_port,
-            )
+    ) -> Result<u64> {
+        self.node
+            .estimate_cost(rholang_code, deployer_pubkey_hex, None)
             .await
-            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
-        Ok(response)
     }
 
-    /// Deploy Rholang code to the blockchain
-    pub async fn deploy(&self, rholang_code: &str) -> Result<String, ConnectionError> {
-        let api = self.api()?;
-        api.deploy_with_phlo_limit(rholang_code, 500_000, "rholang")
-            .await
-            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))
-    }
-
-    /// Deploy Rholang code with a specific timestamp
-    ///
-    /// Required for insertSigned compatibility where the deploy timestamp
-    /// must match the signature timestamp.
-    pub async fn deploy_with_timestamp(
-        &self,
-        rholang_code: &str,
-        timestamp_millis: i64,
-    ) -> Result<String, ConnectionError> {
-        let api = self.api()?;
-        api.deploy_with_timestamp_and_phlo_limit(
-            rholang_code,
-            "rholang",
-            Some(timestamp_millis),
-            500_000,
-        )
-        .await
-        .map_err(|e| ConnectionError::OperationFailed(e.to_string()))
+    /// Deploy Rholang code without waiting for it to finalize. Returns its ID.
+    pub async fn deploy(&self, rholang_code: &str, options: &DeployOptions) -> Result<String> {
+        self.api.deploy(rholang_code, options).await
     }
 
     /// Wait for a deploy to reach a terminal finalization state (`Finalized` /
     /// `Failed` / `Expired`) via `/api/deploy-finalization-status/{sig}`.
     ///
-    /// Queries the observer first and the deploy node when the observer does not
-    /// answer. Fails immediately when neither node serves the endpoint, and when
-    /// the budget elapses without a terminal state.
+    /// Each poll asks the deploy node and, when one is configured, the
+    /// observer; the first terminal state either reports is the verdict. Fails
+    /// immediately when the deploy node does not serve the endpoint and no
+    /// observer answered, and when the budget elapses without a terminal state.
     pub async fn wait_for_deploy_finalization(
         &self,
         deploy_sig_hex: &str,
         total_timeout_secs: u64,
         poll_interval_secs: u64,
-    ) -> Result<crate::f1r3fly_api::DeployFinalizationStatus, ConnectionError> {
-        let observer_api = self.observer_api()?;
-        let node_api = self.api();
+    ) -> Result<DeployFinalizationStatus> {
+        self.await_verdict(deploy_sig_hex, total_timeout_secs, poll_interval_secs)
+            .await
+            .map(|(status, _)| status)
+    }
+
+    /// [`Self::wait_for_deploy_finalization`], also naming the node whose
+    /// answer was the verdict.
+    async fn await_verdict(
+        &self,
+        deploy_sig_hex: &str,
+        total_timeout_secs: u64,
+        poll_interval_secs: u64,
+    ) -> Result<(DeployFinalizationStatus, StatusSource)> {
         let max_attempts = (total_timeout_secs / poll_interval_secs.max(1)).max(1) as u32;
-        // A `Failed` verdict is written only past the contestability bound
-        // (`deploy-lifespan + max-parent-depth` blocks), while `/api/deploy/{id}`
-        // describes the errored execution as soon as a block carries it.
-        let mut errored_execution: Option<String> = None;
+        let mut execution_failure: Option<String> = None;
+        let mut node_error = None;
+        let mut observer_error = None;
 
         for attempt in 1..=max_attempts {
-            // Map errors to String immediately: the un-Send `Box<dyn Error>`
-            // must not live across the poll sleep below, or every future built
-            // on this loop (transfer, deploy_and_wait) stops being Send.
-            let observer = observer_api
-                .deploy_finalization_status(deploy_sig_hex, self.config.observer_http_port)
-                .await
-                .map_err(|e| e.to_string());
+            let (node, observer) = tokio::join!(
+                self.node.deploy_finalization_status(deploy_sig_hex),
+                self.observer_finalization_status(deploy_sig_hex),
+            );
+            report_unavailable(
+                "deploy node",
+                &node,
+                &mut node_error,
+                deploy_sig_hex,
+                attempt,
+            );
+            if let Some(observer) = &observer {
+                report_unavailable(
+                    "observer",
+                    observer,
+                    &mut observer_error,
+                    deploy_sig_hex,
+                    attempt,
+                );
+            }
 
-            let status = match observer {
-                Ok(Some(status)) => Some(status),
-                observer => {
-                    let node = match &node_api {
-                        Ok(api) => Some(
-                            api.deploy_finalization_status(deploy_sig_hex, self.config.http_port)
-                                .await
-                                .map_err(|e| e.to_string()),
-                        ),
-                        Err(_) => None,
-                    };
-                    match (observer, node) {
-                        (_, Some(Ok(Some(status)))) => Some(status),
-                        (Ok(None), Some(Ok(None)) | None) => {
-                            return Err(ConnectionError::OperationFailed(
-                                "the node does not serve /api/deploy-finalization-status \
-                                 (requires f1r3node-rust v0.4.15 or later)"
-                                    .to_string(),
-                            ));
-                        }
-                        (observer, node) => {
-                            tracing::warn!(
-                                deploy_sig = deploy_sig_hex,
-                                attempt,
-                                observer = ?observer,
-                                node = ?node,
-                                "deploy-finalization-status unavailable; will retry"
-                            );
-                            None
-                        }
-                    }
-                }
-            };
-
-            let included = match status {
-                Some(status) if status.is_terminal() => {
+            let included_by = match poll_outcome(deploy_sig_hex, node, observer)? {
+                PollOutcome::Terminal { status, source } => {
                     tracing::debug!(
                         deploy_sig = deploy_sig_hex,
                         state = %status.state,
+                        ?source,
                         attempt,
                         "Deploy reached terminal state"
                     );
-                    return Ok(status);
+                    return Ok((status, source));
                 }
-                // A Pending answer names the block carrying the deploy, so the
-                // detail read below runs only once there is one to read.
-                Some(status) => status.latest_block_hash.is_some(),
-                None => false,
+                PollOutcome::Unserved => {
+                    return Err(self.node.finalization_status_unserved().await);
+                }
+                PollOutcome::Pending { included_by } => included_by,
             };
 
-            if included && errored_execution.is_none() {
-                let detail = match &node_api {
-                    Ok(api) => api
-                        .get_deploy_detail(deploy_sig_hex, self.config.http_port)
-                        .await
-                        .ok()
-                        .flatten(),
-                    Err(_) => None,
-                };
-
-                if let Some(detail) = detail.filter(|detail| detail.errored) {
-                    let reason = detail
-                        .system_deploy_error
-                        .filter(|error| !error.is_empty())
-                        .map(|error| format!(": {error}"))
-                        .unwrap_or_default();
-                    let description = format!(
-                        "block {} (cost {}){reason}",
-                        detail.block_number, detail.cost
-                    );
+            if let (Some(source), None) = (included_by, &execution_failure) {
+                execution_failure = self.failed_execution(source, deploy_sig_hex).await;
+                if let Some(description) = &execution_failure {
                     tracing::warn!(
                         deploy_sig = deploy_sig_hex,
                         "Deploy executed with an error in {description}; \
-                         waiting for the canonical verdict"
+                         waiting for the verdict"
                     );
-                    errored_execution = Some(description);
                 }
             }
 
@@ -339,12 +492,36 @@ impl F1r3flyConnectionManager {
             }
         }
 
-        let cause = errored_execution
-            .map(|description| format!("executed with an error in {description}; no verdict"))
-            .unwrap_or_else(|| "did not reach terminal state".to_string());
-        Err(ConnectionError::OperationFailed(format!(
-            "Deploy {deploy_sig_hex} {cause} within {total_timeout_secs}s"
-        )))
+        Err(Error::FinalizationTimeout {
+            deploy_id: deploy_sig_hex.to_string(),
+            waited: Duration::from_secs(total_timeout_secs),
+            execution: execution_failure,
+        })
+    }
+
+    /// The observer's answer, or `None` when no observer is configured.
+    async fn observer_finalization_status(&self, deploy_sig_hex: &str) -> Option<StatusAnswer> {
+        match &self.observer {
+            Some(observer) => Some(observer.deploy_finalization_status(deploy_sig_hex).await),
+            None => None,
+        }
+    }
+
+    /// `source`'s description of a failed execution, as `block N (cost C): reason`.
+    async fn failed_execution(&self, source: StatusSource, deploy_sig_hex: &str) -> Option<String> {
+        match self.deploy_detail(source, deploy_sig_hex).await {
+            Ok(Some(detail)) => detail.execution_failure().map(|failure| {
+                format!(
+                    "block {} (cost {}): {failure}",
+                    detail.block_number, detail.cost
+                )
+            }),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(deploy_sig = deploy_sig_hex, %error, "Could not read deploy detail");
+                None
+            }
+        }
     }
 
     /// Deploy Rholang code, wait for canonical finalization, and read result.
@@ -356,41 +533,51 @@ impl F1r3flyConnectionManager {
     pub async fn deploy_and_wait(
         &self,
         rholang_code: &str,
-        bigger_phlo: bool,
-        expiration_timestamp: i64,
-    ) -> Result<crate::f1r3fly_api::DeployResult, ConnectionError> {
-        let phlo_limit: i64 = if bigger_phlo { 5_000_000_000 } else { 50_000 };
-        self.deploy_and_wait_with_phlo_limit(rholang_code, phlo_limit, expiration_timestamp)
-            .await
+        options: &DeployOptions,
+    ) -> Result<DeployResult> {
+        let deploy_id = self.api.deploy(rholang_code, options).await?;
+        tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
+        self.await_result(deploy_id).await
     }
 
-    /// Same as [`deploy_and_wait`](Self::deploy_and_wait) but with an explicit
-    /// phlo limit instead of the 50k/5B `bigger_phlo` mapping. Use when the
-    /// deploy's cost is known to exceed 50k phlo but a 5B limit would demand
-    /// more balance than the deployer holds (e.g. vault transfers).
-    pub async fn deploy_and_wait_with_phlo_limit(
-        &self,
-        rholang_code: &str,
-        phlo_limit: i64,
-        expiration_timestamp: i64,
-    ) -> Result<crate::f1r3fly_api::DeployResult, ConnectionError> {
-        let api = self.api()?;
-
-        // Phase 1: Deploy
-        let deploy_id = api
-            .deploy_with_phlo_limit_and_expiration(
-                rholang_code,
-                phlo_limit,
-                "rholang",
-                expiration_timestamp,
-            )
-            .await
-            .map_err(|e| ConnectionError::OperationFailed(format!("Deploy failed: {e}")))?;
+    /// Send a deploy signed earlier, wait for canonical finalization, and read
+    /// its result. Safe to repeat for a deploy whose fate is unknown, also
+    /// after its validity window has closed: when the node refuses it, a deploy
+    /// that the deploy node or the observer holds in a block is waited on
+    /// rather than reported refused.
+    pub async fn submit_and_wait(&self, deploy: &SignedDeploy) -> Result<DeployResult> {
+        let deploy_id = match self.api.submit(deploy).await {
+            Ok(deploy_id) => deploy_id,
+            Err(refusal @ Error::NodeRejected { .. }) => {
+                let deploy_id = deploy.id();
+                if !self.landed(&deploy_id).await? {
+                    return Err(refusal);
+                }
+                tracing::info!(deploy_id = %deploy_id, %refusal,
+                    "The node refused a deploy that is already in a block");
+                deploy_id
+            }
+            Err(error) => return Err(error),
+        };
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
+        self.await_result(deploy_id).await
+    }
 
-        // Phase 2: Wait for a terminal finalization state
-        let status = self
-            .wait_for_deploy_finalization(
+    /// Whether the deploy node or the observer holds the deploy in a block.
+    async fn landed(&self, deploy_id: &str) -> Result<bool> {
+        let observer = async {
+            match &self.observer {
+                Some(observer) => Some(observer.get_deploy_detail(deploy_id).await),
+                None => None,
+            }
+        };
+        let (node, observer) = tokio::join!(self.node.get_deploy_detail(deploy_id), observer);
+        landed(node, observer)
+    }
+
+    async fn await_result(&self, deploy_id: String) -> Result<DeployResult> {
+        let (status, source) = self
+            .await_verdict(
                 &deploy_id,
                 self.config.finalization_timeout_secs as u64,
                 self.config.poll_interval_secs,
@@ -399,69 +586,71 @@ impl F1r3flyConnectionManager {
         let block_hash = match status.state.as_str() {
             "Finalized" => {
                 let block_hash = status.latest_block_hash.ok_or_else(|| {
-                    ConnectionError::OperationFailed(
-                        "Finalized state without latest_block_hash (node bug)".to_string(),
+                    Error::decode(
+                        "deploy finalization status",
+                        "Finalized without latest_block_hash",
                     )
                 })?;
                 tracing::info!(block_hash = %block_hash, "Deploy canonically finalized");
                 block_hash
             }
             "Failed" => {
-                return Err(ConnectionError::OperationFailed(format!(
-                    "Deploy {deploy_id} failed during execution (Rholang error or insufficient phlo)"
-                )));
+                return Err(Error::DeployFailed {
+                    execution: self.failed_execution(source, &deploy_id).await,
+                    deploy_id,
+                });
             }
-            "Expired" => {
-                return Err(ConnectionError::OperationFailed(format!(
-                    "Deploy {deploy_id} expired without canonical inclusion"
-                )));
-            }
+            "Expired" => return Err(Error::DeployExpired { deploy_id }),
             other => {
-                return Err(ConnectionError::OperationFailed(format!(
-                    "Deploy {deploy_id} reached unexpected state {other}"
-                )));
+                return Err(Error::decode(
+                    "deploy finalization state",
+                    format!("{other} for deploy {deploy_id}"),
+                ));
             }
         };
 
-        // Phase 3: Read deploy result AFTER finalization. A deploy that writes
-        // nothing to deployId reads as an empty payload, so every error is a
+        // Both reads come after finalization, so a failed read must not look
+        // retryable: the deploy is already final. A deploy that writes nothing
+        // to deployId reads as an empty payload, so every data error is a
         // failed read.
-        let data = api
+        let unreadable = |cause: Error| {
+            tracing::warn!(deploy_id = %deploy_id, %block_hash, %cause, "Failed to read the deploy's result");
+            Error::DeployResultUnreadable {
+                deploy_id: deploy_id.clone(),
+                block_hash: block_hash.clone(),
+                cause: Box::new(cause),
+            }
+        };
+        let data = self
+            .api
             .get_data_at_deploy_id(&deploy_id, &block_hash)
             .await
-            .map_err(|e| {
-                tracing::warn!(deploy_id = %deploy_id, error = %e, "Failed to read deployId data");
-                format!("reading deployId data at block {block_hash}: {e}")
-            });
-
-        // Phase 4: Get deploy execution details
-        // May fail on older nodes that don't support ?view=detail
-        let detail = match api
-            .get_deploy_detail(&deploy_id, self.config.http_port)
-            .await
-        {
-            Ok(detail) => detail,
-            Err(e) => {
-                tracing::info!("Deploy detail not available: {}", e);
-                None
-            }
+            .map_err(unreadable);
+        let detail = match self.deploy_detail(source, &deploy_id).await {
+            Ok(Some(detail)) => Ok(detail),
+            Ok(None) => Err(unreadable(Error::decode(
+                "deploy detail",
+                "the node that reported the deploy finalized does not know it",
+            ))),
+            Err(cause) => Err(unreadable(cause)),
         };
 
-        Ok(crate::f1r3fly_api::DeployResult {
+        Ok(DeployResult {
             deploy_id,
             block_hash,
-            block_number: detail.as_ref().map(|d| d.block_number),
-            cost: detail.as_ref().map(|d| d.cost),
-            errored: detail.as_ref().map(|d| d.errored).unwrap_or(false),
-            system_deploy_error: detail
-                .and_then(|d| d.system_deploy_error.filter(|s| !s.is_empty())),
+            detail,
             data,
         })
     }
 
-    /// Get direct access to the underlying F1r3flyApi
-    pub fn get_api(&self) -> Result<F1r3flyApi<'_>, ConnectionError> {
-        self.api()
+    /// The deploy node's gRPC client, signing with this connection's key.
+    pub fn api(&self) -> &F1r3flyApi {
+        &self.api
+    }
+
+    /// The deploy node's HTTP client.
+    pub fn http(&self) -> &NodeHttp {
+        &self.node
     }
 
     // =========================================================================
@@ -473,44 +662,36 @@ impl F1r3flyConnectionManager {
     /// # Arguments
     ///
     /// * `to_address` - Recipient vault address (1111...)
-    /// * `amount_dust` - Amount in dust (1 token = 100,000,000 dust)
+    /// * `amount_dust` - Amount in raw base units
     pub async fn transfer(
         &self,
         to_address: &str,
-        amount_dust: u64,
-    ) -> Result<TransferResult, ConnectionError> {
-        crate::vault::validate_address(to_address).map_err(ConnectionError::OperationFailed)?;
+        amount_dust: num_bigint::BigUint,
+    ) -> Result<TransferResult> {
+        crate::vault::validate_address(to_address)?;
 
         let from_address = self.get_address()?;
 
-        log::info!(
-            "Transferring {} dust ({:.8} tokens) from {} to {}",
-            amount_dust,
-            crate::vault::dust_to_tokens(amount_dust),
-            from_address,
-            to_address
-        );
+        log::info!("Transferring {amount_dust} raw units from {from_address} to {to_address}");
 
-        let rholang = build_transfer_rholang(&from_address, to_address, amount_dust);
+        let rholang = build_transfer_rholang(&from_address, to_address, &amount_dust)?;
 
-        let result = self
-            .deploy_and_wait_with_phlo_limit(&rholang, crate::vault::TRANSFER_PHLO_LIMIT, 0)
-            .await?;
-
-        crate::vault::check_transfer_result(&result).map_err(|e| {
-            ConnectionError::OperationFailed(format!("{e} (deploy {})", result.deploy_id))
-        })?;
+        let options = DeployOptions::default().with_phlo_limit(crate::vault::TRANSFER_PHLO_LIMIT);
+        let result = self.deploy_and_wait(&rholang, &options).await?;
+        let deploy_id = result.deploy_id.clone();
+        let block_hash = result.block_hash.clone();
+        crate::vault::check_transfer_result(result)?;
 
         tracing::info!(
-        deploy_id = %result.deploy_id,
+        deploy_id = %deploy_id,
         to_address,
-        amount_dust,
+        amount_dust = %amount_dust,
         "Transfer complete"
         );
 
         Ok(TransferResult {
-            deploy_id: result.deploy_id,
-            block_hash: result.block_hash,
+            deploy_id,
+            block_hash,
             from_address,
             to_address: to_address.to_string(),
             amount_dust,
@@ -518,49 +699,300 @@ impl F1r3flyConnectionManager {
     }
 
     /// Get the vault address for this connection's signing key
-    pub fn get_address(&self) -> Result<String, ConnectionError> {
-        let public_key = self.get_public_key()?;
-        let pubkey_hex = hex::encode(public_key.serialize_uncompressed());
-        CryptoUtils::generate_vault_address(&pubkey_hex)
-            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))
+    pub fn get_address(&self) -> Result<String> {
+        CryptoUtils::generate_vault_address(&self.get_public_key_hex())
     }
 
     /// Get the public key for this connection's signing key
-    pub fn get_public_key(&self) -> Result<PublicKey, ConnectionError> {
-        let secret_key = CryptoUtils::decode_private_key(&self.config.signing_key)
-            .map_err(|e| ConnectionError::OperationFailed(e.to_string()))?;
-        Ok(CryptoUtils::derive_public_key(&secret_key))
+    pub fn get_public_key(&self) -> PublicKey {
+        self.config.signing_key.public_key()
     }
 
     /// Get the public key as hex string (uncompressed format)
-    pub fn get_public_key_hex(&self) -> Result<String, ConnectionError> {
-        let public_key = self.get_public_key()?;
-        Ok(hex::encode(public_key.serialize_uncompressed()))
+    pub fn get_public_key_hex(&self) -> String {
+        hex::encode(self.get_public_key().serialize_uncompressed())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::TransportError;
 
     #[test]
     fn test_config_from_env_missing_key() {
         env::remove_var("FIREFLY_PRIVATE_KEY");
-        let result = ConnectionConfig::from_env();
-        assert!(result.is_err());
+        env::remove_var("FIREFLY_PRIVATE_KEY_FILE");
         assert!(matches!(
-            result.unwrap_err(),
-            ConnectionError::MissingPrivateKey
+            ConnectionConfig::from_env(),
+            Err(Error::MissingConfig {
+                var: "FIREFLY_PRIVATE_KEY_FILE or FIREFLY_PRIVATE_KEY"
+            })
         ));
     }
 
     #[test]
-    fn test_config_new() {
-        let config =
-            ConnectionConfig::new("example.com".to_string(), 9000, 9001, "my_key".to_string());
-        assert_eq!(config.node_host, "example.com");
-        assert_eq!(config.grpc_port, 9000);
-        assert_eq!(config.http_port, 9001);
-        assert_eq!(config.signing_key, "my_key");
+    fn a_removed_variable_is_refused_with_its_replacement() {
+        assert!(refuse_removed_variables(|_| false).is_ok());
+        let error = refuse_removed_variables(|var| var == "FIREFLY_HTTP_PORT").unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidInput { what: "FIREFLY_HTTP_PORT", ref detail }
+                if detail.contains("FIREFLY_HTTP_URL")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_malformed_variable_is_an_error_not_the_default() {
+        assert!(matches!(
+            env_or::<u16>("PATH", 40401),
+            Err(Error::InvalidInput { what: "PATH", .. })
+        ));
+        assert_eq!(
+            env_or::<u16>("NODE_CLI_TEST_SURELY_UNSET_VARIABLE", 40401).unwrap(),
+            40401
+        );
+    }
+
+    fn assert_send<T: Send>(_: &T) {}
+
+    fn endpoint(url: &str) -> Endpoint {
+        Endpoint::parse(url).unwrap()
+    }
+
+    fn key() -> SigningKey {
+        SigningKey::from_hex(&"01".repeat(32)).unwrap()
+    }
+
+    #[test]
+    fn public_futures_are_send() {
+        let manager = F1r3flyConnectionManager::new(ConnectionConfig::new(
+            endpoint(DEFAULT_GRPC_URL),
+            endpoint(DEFAULT_HTTP_URL),
+            key(),
+        ))
+        .unwrap();
+        assert_send(&manager.transfer("1111", 1u8.into()));
+        assert_send(&manager.deploy_and_wait("Nil", &DeployOptions::default()));
+        assert_send(&manager.wait_for_deploy_finalization("sig", 1, 1));
+        assert_send(&manager.query("Nil"));
+        let api = manager.api();
+        assert_send(&api.exploratory_deploy("Nil", None, false));
+        assert_send(&api.propose());
+        assert_send(&api.show_main_chain(1));
+        assert_send(&manager.http().explore_deploy("Nil"));
+    }
+
+    #[test]
+    fn a_new_config_has_no_observer() {
+        let config = ConnectionConfig::new(
+            endpoint("https://node.example:40401"),
+            endpoint("https://node.example:40403"),
+            key(),
+        );
+        assert_eq!(config.observer, None);
+        let observed = config.with_observer(endpoint("http://observer:40453"));
+        assert_eq!(observed.observer, Some(endpoint("http://observer:40453")));
+        assert!(!format!("{observed:?}").contains(&"01".repeat(32)));
+    }
+
+    fn status(state: &str, block: Option<&str>) -> StatusAnswer {
+        Ok(Some(DeployFinalizationStatus {
+            state: state.to_string(),
+            rejection_count: 0,
+            latest_block_hash: block.map(str::to_string),
+        }))
+    }
+
+    fn timed_out(endpoint: &str) -> StatusAnswer {
+        Err(Error::transport(
+            endpoint,
+            TransportError::TimedOut(Duration::from_secs(1)),
+        ))
+    }
+
+    fn unreachable() -> StatusAnswer {
+        timed_out("http://observer:40453")
+    }
+
+    fn poll_outcome(node: StatusAnswer, observer: StatusAnswer) -> Result<PollOutcome> {
+        super::poll_outcome("sig", node, Some(observer))
+    }
+
+    #[test]
+    fn without_an_observer_the_deploy_node_alone_decides() {
+        assert!(matches!(
+            super::poll_outcome("sig", status("Finalized", Some("b1")), None),
+            Ok(PollOutcome::Terminal {
+                source: StatusSource::DeployNode,
+                ..
+            })
+        ));
+        assert!(matches!(
+            super::poll_outcome("sig", Ok(None), None),
+            Ok(PollOutcome::Unserved)
+        ));
+        assert!(matches!(
+            super::poll_outcome("sig", unreachable(), None),
+            Ok(PollOutcome::Pending { included_by: None })
+        ));
+        let lookup_failed = || unreachable().map(|_| None);
+        assert!(!super::landed(Ok(None), None).unwrap());
+        assert!(super::landed(Ok(Some(DeployDetail::finalized("sig", false))), None).unwrap());
+        assert!(matches!(
+            super::landed(lookup_failed(), None),
+            Err(Error::Transport { .. })
+        ));
+    }
+
+    #[test]
+    fn a_terminal_state_from_the_deploy_node_ends_the_wait_while_the_observer_is_pending() {
+        let outcome = poll_outcome(status("Failed", Some("b1")), status("Pending", Some("b1")));
+        assert!(
+            matches!(outcome, Ok(PollOutcome::Terminal { ref status, source: StatusSource::DeployNode })
+                if status.state == "Failed"),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_terminal_state_from_the_observer_ends_the_wait_while_the_node_is_unreachable() {
+        let outcome = poll_outcome(unreachable(), status("Finalized", Some("b1")));
+        assert!(
+            matches!(outcome, Ok(PollOutcome::Terminal { ref status, source: StatusSource::Observer })
+                if status.state == "Finalized"),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_verdict_from_the_observer_is_read_back_from_the_observer() {
+        let outcome = poll_outcome(
+            status("Pending", Some("b1")),
+            status("Finalized", Some("b1")),
+        );
+        assert!(
+            matches!(
+                outcome,
+                Ok(PollOutcome::Terminal {
+                    source: StatusSource::Observer,
+                    ..
+                })
+            ),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn agreeing_verdicts_are_read_back_from_the_deploy_node() {
+        let outcome = poll_outcome(
+            status("Finalized", Some("b1")),
+            status("Finalized", Some("b1")),
+        );
+        assert!(
+            matches!(
+                outcome,
+                Ok(PollOutcome::Terminal {
+                    source: StatusSource::DeployNode,
+                    ..
+                })
+            ),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn conflicting_terminal_states_are_an_error() {
+        let outcome = poll_outcome(
+            status("Failed", Some("b1")),
+            status("Finalized", Some("b1")),
+        );
+        assert!(
+            matches!(outcome, Err(Error::ConflictingVerdicts { ref node, ref observer, .. })
+                if node == "Failed" && observer == "Finalized"),
+            "{outcome:?}"
+        );
+    }
+
+    #[test]
+    fn a_deploy_node_that_does_not_serve_the_endpoint_is_conclusive_when_the_observer_is_unreachable(
+    ) {
+        assert!(matches!(
+            poll_outcome(Ok(None), unreachable()),
+            Ok(PollOutcome::Unserved)
+        ));
+        assert!(matches!(
+            poll_outcome(Ok(None), Ok(None)),
+            Ok(PollOutcome::Unserved)
+        ));
+    }
+
+    #[test]
+    fn an_answering_observer_keeps_the_wait_alive_when_the_deploy_node_does_not_serve_the_endpoint()
+    {
+        assert!(matches!(
+            poll_outcome(Ok(None), status("Pending", None)),
+            Ok(PollOutcome::Pending { included_by: None })
+        ));
+    }
+
+    #[test]
+    fn a_refused_deploy_has_landed_when_either_node_holds_it() {
+        let held = || Ok(Some(DeployDetail::finalized("sig", false)));
+        let lookup_failed = || unreachable().map(|_| None);
+        assert!(super::landed(held(), Some(lookup_failed())).unwrap());
+        assert!(super::landed(lookup_failed(), Some(held())).unwrap());
+        assert!(super::landed(Ok(None), Some(held())).unwrap());
+    }
+
+    #[test]
+    fn a_refused_deploy_has_not_landed_when_a_node_does_not_know_it() {
+        let lookup_failed = || unreachable().map(|_| None);
+        assert!(!super::landed(Ok(None), Some(lookup_failed())).unwrap());
+        assert!(!super::landed(lookup_failed(), Some(Ok(None))).unwrap());
+    }
+
+    #[test]
+    fn whether_a_refused_deploy_landed_is_unknown_when_neither_node_answers() {
+        let lookup_failed = || unreachable().map(|_| None);
+        assert!(matches!(
+            super::landed(lookup_failed(), Some(lookup_failed())),
+            Err(Error::Transport { .. })
+        ));
+    }
+
+    #[test]
+    fn a_failure_is_remembered_until_the_node_answers_again() {
+        let first = unreachable().unwrap_err().to_string();
+        let mut last = None;
+        report_unavailable("observer", &unreachable(), &mut last, "sig", 1);
+        assert_eq!(last.as_deref(), Some(first.as_str()));
+        report_unavailable("observer", &unreachable(), &mut last, "sig", 2);
+        assert_eq!(last.as_deref(), Some(first.as_str()));
+        report_unavailable("observer", &status("Pending", None), &mut last, "sig", 3);
+        assert_eq!(last, None);
+        let other = timed_out("http://elsewhere:40453");
+        report_unavailable("observer", &other, &mut last, "sig", 4);
+        assert_eq!(last, Some(other.unwrap_err().to_string()));
+    }
+
+    #[test]
+    fn a_pending_answer_naming_a_block_names_the_node_that_saw_it() {
+        assert!(matches!(
+            poll_outcome(status("Pending", None), status("Pending", Some("b1"))),
+            Ok(PollOutcome::Pending {
+                included_by: Some(StatusSource::Observer)
+            })
+        ));
+        assert!(matches!(
+            poll_outcome(status("Pending", Some("b1")), unreachable()),
+            Ok(PollOutcome::Pending {
+                included_by: Some(StatusSource::DeployNode)
+            })
+        ));
+        assert!(matches!(
+            poll_outcome(unreachable(), unreachable()),
+            Ok(PollOutcome::Pending { included_by: None })
+        ));
     }
 }
