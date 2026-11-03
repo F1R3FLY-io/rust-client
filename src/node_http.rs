@@ -337,4 +337,64 @@ mod tests {
             Error::Http { status: 404, ref url, .. } if url.ends_with("/api/status")
         ));
     }
+
+    #[tokio::test]
+    async fn explore_deploy_preserves_old_and_new_integer_responses() {
+        use crate::rho_value::RhoValue;
+        use serde_json::json;
+
+        for string_integers in [false, true] {
+            let data = |value: serde_json::Value| {
+                if string_integers {
+                    json!(value.to_string())
+                } else {
+                    value
+                }
+            };
+            let body = json!({
+                "expr": [{"ExprTuple": {"data": [
+                    {"ExprInt": {"data": data(json!(42))}},
+                    {"ExprInt": {"data": data(json!(9007199254740993i64))}},
+                    {"ExprUint64": {"data": data(json!(u64::MAX))}}
+                ]}}],
+                "block": {"blockHash": "aabb", "blockNumber": 7},
+                "cost": 12
+            })
+            .to_string();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let response_task = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0u8; 1024];
+                let read = socket.read(&mut request).await.unwrap();
+                assert!(String::from_utf8_lossy(&request[..read])
+                    .starts_with("POST /api/explore-deploy "));
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            });
+            let endpoint = Endpoint::parse(&format!("http://{address}")).unwrap();
+            let result = NodeHttp::new(endpoint)
+                .unwrap()
+                .explore_deploy(
+                    "new return in { return!((42, 9007199254740993, 18446744073709551615u64)) }",
+                )
+                .await
+                .unwrap();
+            response_task.await.unwrap();
+            assert_eq!(result.block.hash, "aabb");
+            assert_eq!(result.block.number, 7);
+            assert_eq!(result.cost, 12);
+            assert_eq!(
+                result.value().unwrap(),
+                &RhoValue::Tuple(vec![
+                    RhoValue::Int(42),
+                    RhoValue::Int(9007199254740993),
+                    RhoValue::Uint64(u64::MAX),
+                ])
+            );
+        }
+    }
 }
