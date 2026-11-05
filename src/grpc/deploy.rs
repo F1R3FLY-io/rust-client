@@ -2,7 +2,7 @@
 
 use super::F1r3flyApi;
 use crate::deploy::{DeployOptions, SignedDeploy, UnsignedDeploy};
-use crate::error::{Error, Result};
+use crate::error::{DeployAdmissionReason, Error, Result};
 use f1r3fly_models::casper::v1::deploy_response::Message as DeployResponseMessage;
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
 use f1r3fly_models::casper::ProposeQuery;
@@ -47,10 +47,7 @@ impl F1r3flyApi {
                     tracing::debug!(deploy_id = %id, "The node already holds this deploy");
                     Ok(id)
                 } else {
-                    Err(Error::NodeRejected {
-                        operation: "the deploy",
-                        message,
-                    })
+                    Err(deploy_refusal(&id, &error.messages))
                 }
             }
             Some(DeployResponseMessage::Result(result)) => {
@@ -152,5 +149,64 @@ impl F1r3flyApi {
             "not enough new blocks",
         ];
         RECOVERABLE_PATTERNS.iter().any(|p| normalized.contains(p))
+    }
+}
+
+fn deploy_refusal(deploy_id: &str, messages: &[String]) -> Error {
+    let reason = messages.iter().find_map(|message| {
+        let code = message.trim().split(':').next()?;
+        match code {
+            "deploy_pool_busy" => Some(DeployAdmissionReason::PoolBusy),
+            "deploy_admission_busy" => Some(DeployAdmissionReason::AdmissionBusy),
+            _ => None,
+        }
+    });
+    let message = messages.join("; ");
+    match reason {
+        Some(reason) => Error::DeployAdmissionRefused {
+            deploy_id: deploy_id.to_string(),
+            reason,
+            message,
+        },
+        None => Error::NodeRejected {
+            operation: "the deploy",
+            message,
+        },
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn deploy_service_envelope_preserves_the_admission_reason_and_signed_id() {
+        for (code, expected) in [
+            ("deploy_pool_busy", DeployAdmissionReason::PoolBusy),
+            (
+                "deploy_admission_busy",
+                DeployAdmissionReason::AdmissionBusy,
+            ),
+        ] {
+            let messages = vec![format!("{code}: deploy was not accepted")];
+            assert!(matches!(deploy_refusal("signed-id", &messages),
+                Error::DeployAdmissionRefused { deploy_id, reason, message }
+                if deploy_id == "signed-id" && reason == expected && message == messages[0]));
+        }
+    }
+
+    #[test]
+    fn unrelated_refusals_and_code_mentions_do_not_become_admission_refusals() {
+        for message in [
+            "unknown error",
+            "deploy_pool_busy_extra: failed",
+            "unknown_error: deploy_pool_busy",
+            "timeout",
+        ] {
+            assert!(matches!(
+                deploy_refusal("id", &[message.into()]),
+                Error::NodeRejected { .. }
+            ));
+        }
     }
 }
