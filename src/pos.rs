@@ -179,7 +179,8 @@ fn map<T>(
 /// The PoS verdict goes to the deploy's `deployId` channel; read it with
 /// [`parse_pos_call_result`].
 pub fn build_bond_rholang(stake: &BigUint) -> Result<String> {
-    let stake = crate::vault::amount_literal(stake)?;
+    crate::vault::validate_amount(stake)?;
+    let stake = format!("{stake}n");
     Ok(format!(
         r#"new deployId(`rho:system:deployId`), deployerId(`rho:system:deployerId`), rl(`rho:registry:lookup`), poSCh, resultCh in {{
  rl!(`rho:system:pos`, *poSCh) |
@@ -508,12 +509,16 @@ mod tests {
 
     #[test]
     fn bond_term_passes_the_stake_to_pos() {
-        let term = build_bond_rholang(&BigUint::from(1000u32)).unwrap();
-        assert!(
-            term.contains(r#"@PoS!("bond", *deployerId, 1000, *resultCh)"#),
-            "{term}"
-        );
-        assert!(term.contains("deployId!(result)"), "{term}");
+        for stake in [0, 100, 1000, i64::MAX as u64] {
+            let term = build_bond_rholang(&BigUint::from(stake)).unwrap();
+            assert!(
+                term.contains(&format!(
+                    r#"@PoS!("bond", *deployerId, {stake}n, *resultCh)"#
+                )),
+                "{term}"
+            );
+            assert!(term.contains("deployId!(result)"), "{term}");
+        }
     }
 
     #[test]
