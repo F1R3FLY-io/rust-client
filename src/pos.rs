@@ -179,7 +179,8 @@ fn map<T>(
 /// The PoS verdict goes to the deploy's `deployId` channel; read it with
 /// [`parse_pos_call_result`].
 pub fn build_bond_rholang(stake: &BigUint) -> Result<String> {
-    let stake = crate::vault::amount_literal(stake)?;
+    crate::vault::validate_amount(stake)?;
+    let stake = format!("{stake}n");
     Ok(format!(
         r#"new deployId(`rho:system:deployId`), deployerId(`rho:system:deployerId`), rl(`rho:registry:lookup`), poSCh, resultCh in {{
  rl!(`rho:system:pos`, *poSCh) |
@@ -247,7 +248,7 @@ mod tests {
 
     /// Shape of a live node's explore-deploy response to `POS_SNAPSHOT_QUERY`.
     fn response(bonds: Value, active: Value, pending: Value, withdrawers: Value) -> Value {
-        let quarantine = json!({"ExprInt": {"data": 50000}});
+        let quarantine = json!({"ExprInt": {"data": "50000"}});
         with_state(
             json!([{"ExprTuple": {"data": [bonds, active, pending, withdrawers, quarantine]}}]),
         )
@@ -268,7 +269,12 @@ mod tests {
     fn bonds(entries: &[(&str, i64)]) -> Value {
         let data: serde_json::Map<String, Value> = entries
             .iter()
-            .map(|(key, stake)| (key.to_string(), json!({"ExprInt": {"data": stake}})))
+            .map(|(key, stake)| {
+                (
+                    key.to_string(),
+                    json!({"ExprInt": {"data": stake.to_string()}}),
+                )
+            })
             .collect();
         json!({"ExprMap": {"data": data}})
     }
@@ -290,7 +296,7 @@ mod tests {
         let stake = (BigUint::from(1u8) << 200usize) + BigUint::from(1u8);
         let bonds = json!({"ExprMap": {"data": {V4: {"ExprBigInt": {"data": stake.to_string()}}}}});
         let withdrawers = json!({"ExprMap": {"data": {V1: {"ExprTuple": {"data": [
-            {"ExprBigInt": {"data": stake.to_string()}}, {"ExprInt": {"data": 49610}}
+            {"ExprBigInt": {"data": stake.to_string()}}, {"ExprInt": {"data": "49610"}}
         ]}}}}});
         let snapshot = snapshot(response(bonds, active(&[V4]), empty_map(), withdrawers)).unwrap();
         assert_eq!(snapshot.stake(V4), Some(stake.clone()));
@@ -345,9 +351,9 @@ mod tests {
 
     #[test]
     fn parses_pending_and_applied_withdrawals() {
-        let pending = json!({"ExprMap": {"data": {V4: {"ExprInt": {"data": 49610}}}}});
+        let pending = json!({"ExprMap": {"data": {V4: {"ExprInt": {"data": "49610"}}}}});
         let withdrawers = json!({"ExprMap": {"data": {V1: {"ExprTuple": {"data": [
-            {"ExprInt": {"data": 1000}}, {"ExprInt": {"data": 49610}}
+            {"ExprInt": {"data": "1000"}}, {"ExprInt": {"data": "49610"}}
         ]}}}}});
         let snapshot = snapshot(response(
             bonds(&[(V4, 1000)]),
@@ -510,7 +516,7 @@ mod tests {
     fn bond_term_passes_the_stake_to_pos() {
         let term = build_bond_rholang(&BigUint::from(1000u32)).unwrap();
         assert!(
-            term.contains(r#"@PoS!("bond", *deployerId, 1000, *resultCh)"#),
+            term.contains(r#"@PoS!("bond", *deployerId, 1000n, *resultCh)"#),
             "{term}"
         );
         assert!(term.contains("deployId!(result)"), "{term}");

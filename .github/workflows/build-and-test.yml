@@ -17,11 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The node the client is developed against. A red run here is re-run against
-  # the previous immutable dev-v...-g<sha> tag: green there means the node
-  # changed, not the client. The job records the digest it pulled, because the
-  # node's own /api/status cannot identify its build (f1r3node-rust#428).
-  FIREFLY_NODE_IMAGE: f1r3flyindustries/f1r3fly-rust:dev
+  # Node 0ccc315d8, matching the protocol crate revisions in Cargo.toml.
+  FIREFLY_NODE_IMAGE: f1r3flyindustries/f1r3fly-rust@sha256:4eab74400b569aff7718d63b5551e97a2df6e568ff4799bce4366ac8545f7646
 
 jobs:
   # Format and lint checks: fast, runs in parallel with build_base.

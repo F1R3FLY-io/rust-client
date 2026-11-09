@@ -199,11 +199,19 @@ impl RhoValue {
                     .collect::<Result<_>>()?,
             ),
             "ExprBool" => RhoValue::Bool(data()?.as_bool().ok_or_else(|| malformed(json))?),
-            "ExprInt" => RhoValue::Int(i64::try_from(int("i64")?).map_err(|_| narrow("i64"))?),
+            "ExprInt" => RhoValue::Int(
+                f1r3fly_shared::rust::decimal::parse_signed(&text("data")?)
+                    .map_err(|e| Error::decode("value", e))?
+                    .try_into()
+                    .map_err(|_| narrow("i64"))?,
+            ),
             "ExprInt32" => RhoValue::Int32(i32::try_from(int("i32")?).map_err(|_| narrow("i32"))?),
-            "ExprUint64" => {
-                RhoValue::Uint64(u64::try_from(int("u64")?).map_err(|_| narrow("u64"))?)
-            }
+            "ExprUint64" => RhoValue::Uint64(
+                f1r3fly_shared::rust::decimal::parse_unsigned(&text("data")?)
+                    .map_err(|e| Error::decode("value", e))?
+                    .try_into()
+                    .map_err(|_| narrow("u64"))?,
+            ),
             "ExprUint32" => {
                 RhoValue::Uint32(u32::try_from(int("u32")?).map_err(|_| narrow("u32"))?)
             }
@@ -665,7 +673,7 @@ mod tests {
             {"ExprUnforg": {"data": {"UnforgDeployer": {"data": "04ab"}}}},
             {"ExprUnforg": {"data": "UnforgSysAuthToken"}},
             {"ExprBundle": {"data": {"ExprUnknown": {"type_name": "Nil"}}, "read": true, "write": false}},
-            {"ExprPar": {"data": [{"ExprInt": {"data": 1}}, {"ExprInt32": {"data": -2}}]}}
+            {"ExprPar": {"data": [{"ExprInt": {"data": "1"}}, {"ExprInt32": {"data": -2}}]}}
         ]}}))
         .unwrap();
         assert_eq!(

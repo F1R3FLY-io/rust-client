@@ -1,3 +1,4 @@
+mod amount;
 // Library modules
 pub mod connection_manager;
 pub mod deploy;

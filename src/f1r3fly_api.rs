@@ -129,8 +129,8 @@ pub struct NodeStatus {
     pub shard_id: String,
     pub peers: i32,
     pub nodes: i32,
-    #[serde(rename = "minPhloPrice")]
-    pub min_phlo_price: i64,
+    #[serde(rename = "minPhloPrice", with = "crate::amount")]
+    pub min_phlo_price: num_bigint::BigUint,
     #[serde(rename = "nativeTokenName", default)]
     pub native_token_name: String,
     #[serde(rename = "nativeTokenSymbol", default)]
@@ -177,8 +177,8 @@ pub struct DeployDetail {
     pub term: Option<String>,
     #[serde(rename = "systemDeployError", default)]
     pub system_deploy_error: Option<String>,
-    #[serde(rename = "phloPrice", default)]
-    pub phlo_price: Option<i64>,
+    #[serde(rename = "phloPrice", default, with = "crate::amount::option")]
+    pub phlo_price: Option<num_bigint::BigUint>,
     #[serde(rename = "phloLimit", default)]
     pub phlo_limit: Option<i64>,
     #[serde(rename = "sigAlgorithm", default)]

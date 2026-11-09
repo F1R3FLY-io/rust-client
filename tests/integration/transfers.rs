@@ -1,6 +1,7 @@
 //! Group C - moving tokens between vaults.
 
 use libtest_mimic::Trial;
+use num_bigint::BigUint;
 
 use crate::common::chain;
 use crate::common::cli::Cli;
@@ -9,6 +10,10 @@ use crate::common::node::Node;
 
 pub fn trials() -> Vec<Trial> {
     vec![
+        Trial::test("transfers::wide_amount_and_fee_are_exact", || {
+            wide_amount_and_fee_are_exact();
+            Ok(())
+        }),
         Trial::test("transfers::a_transfer_moves_exactly_the_amount", || {
             a_transfer_moves_exactly_the_amount();
             Ok(())
@@ -24,7 +29,7 @@ pub fn trials() -> Vec<Trial> {
         Trial::test("transfers::a_balance_is_the_exact_genesis_amount", || {
             assert_eq!(
                 balance(&keys::IDLE_RECIPIENT.address),
-                keys::FUNDED.parse::<i128>().expect("a genesis amount")
+                keys::FUNDED.parse::<BigUint>().expect("a genesis amount")
             );
             Ok(())
         }),
@@ -69,8 +74,8 @@ fn a_transfer_moves_exactly_the_amount() {
 
     let after = balance(&keys::TRANSFER_RECIPIENT.address);
     assert_eq!(
-        after - before,
-        AMOUNT as i128,
+        &after - &before,
+        BigUint::from(AMOUNT),
         "recipient balance moved by the wrong amount ({before} then {after})"
     );
 }
@@ -133,7 +138,7 @@ fn transfer(from: &Key, to: &str, amount: u64) -> crate::common::cli::Output {
 }
 
 /// The vault balance of an address, read through the read-only node.
-fn balance(address: &str) -> i128 {
+fn balance(address: &str) -> BigUint {
     let output = Cli::new("wallet-balance")
         .args(["--address", address])
         .http_at(Node::ReadOnly)
@@ -145,4 +150,66 @@ fn balance(address: &str) -> i128 {
         .value_after(&label)
         .parse()
         .unwrap_or_else(|e| panic!("balance is not a number ({e}):\n{}", output.text))
+}
+
+/// Exercise values beyond u128 through signing, execution, refunding and reads.
+fn wide_amount_and_fee_are_exact() {
+    use crate::common::node::get_json;
+    use node_cli::f1r3fly_api::{DeployDetail, NodeStatus};
+
+    let status: NodeStatus = serde_json::from_value(
+        get_json(&Node::ReadOnly.http_url("/api/status")).expect("status response"),
+    )
+    .unwrap();
+    assert_eq!(status.native_token_decimals, Some(18));
+    assert_eq!(status.min_phlo_price, BigUint::from(1u8));
+    let amount = BigUint::from(1u8) << 150usize;
+    let price = BigUint::from(1u8) << 128usize;
+    let sender_before = balance(&keys::WIDE_SENDER.address);
+    let recipient_before = balance(&keys::WIDE_RECIPIENT.address);
+    let sent = Cli::new("transfer")
+        .args(["--to-address", &keys::WIDE_RECIPIENT.address])
+        .arg("--whole-tokens")
+        .args([
+            "--amount",
+            &node_cli::vault::dust_to_tokens(&amount, 18).unwrap(),
+        ])
+        .args(["--phlo-price", &price.to_string()])
+        .key(&keys::WIDE_SENDER)
+        .at(Node::Validator1)
+        .observing(Node::ReadOnly)
+        .args(["--max-wait", "120"])
+        .run()
+        .expect_success("wide transfer")
+        .expect_contains("Transfer complete");
+    chain::finalized_on_read_only(&sent);
+    let detail: DeployDetail = serde_json::from_value(
+        get_json(
+            &Node::ReadOnly.http_url(&format!("/api/deploy/{}", sent.value_after("Deploy ID:"))),
+        )
+        .expect("deploy detail"),
+    )
+    .unwrap();
+    assert_eq!(detail.phlo_price, Some(price.clone()));
+    let limit = u64::try_from(detail.phlo_limit.expect("signed limit")).unwrap();
+    assert!(
+        detail.cost < limit,
+        "the deploy must have unused phlo to test refunding"
+    );
+    let charge = &price * detail.cost;
+    assert_eq!(
+        balance(&keys::WIDE_RECIPIENT.address) - recipient_before,
+        amount
+    );
+    // Unused phlo is not charged: the finalized balance delta includes only actual cost.
+    assert_eq!(
+        sender_before - balance(&keys::WIDE_SENDER.address),
+        &amount + &charge
+    );
+    Cli::new("block-transfers")
+        .arg(&detail.block_hash)
+        .http_at(Node::ReadOnly)
+        .run()
+        .expect_success("wide transfer report")
+        .expect_contains(&amount.to_string());
 }
