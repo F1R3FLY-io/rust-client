@@ -48,6 +48,13 @@ pub enum Error {
         message: String,
     },
 
+    #[error("deploy {deploy_id} was not accepted ({reason}): {message}")]
+    DeployAdmissionRefused {
+        deploy_id: String,
+        reason: DeployAdmissionReason,
+        message: String,
+    },
+
     /// The node's answer did not have the expected shape.
     #[error("unexpected {what} from the node: {detail}")]
     Decode { what: &'static str, detail: String },
@@ -121,6 +128,28 @@ pub enum Error {
     /// A system contract executed the call and answered with a rejection.
     #[error("{contract} rejected the call: {reason}")]
     ContractRejected { contract: Contract, reason: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeployAdmissionReason {
+    PoolBusy,
+    AdmissionBusy,
+}
+
+impl DeployAdmissionReason {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::PoolBusy => "deploy_pool_busy",
+            Self::AdmissionBusy => "deploy_admission_busy",
+        }
+    }
+}
+
+impl fmt::Display for DeployAdmissionReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.code())
+    }
 }
 
 /// Why a request did not complete at the transport level.
