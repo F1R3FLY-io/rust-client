@@ -77,6 +77,7 @@ impl UnsignedDeploy {
         if options.phlo_price < 1 {
             return Err(Error::invalid("phlo price", options.phlo_price));
         }
+        let phlo_price = phlo_price_wire(options.phlo_price)?;
         if let Some(expiration) = options.expiration.filter(|e| *e <= 0) {
             return Err(Error::invalid("expiration", expiration));
         }
@@ -84,7 +85,7 @@ impl UnsignedDeploy {
             data: DeployDataProto {
                 term: term.into(),
                 timestamp: options.timestamp.unwrap_or_else(next_timestamp),
-                phlo_price: options.phlo_price,
+                phlo_price,
                 phlo_limit,
                 valid_after_block_number,
                 shard_id: shard_id.into(),
@@ -187,6 +188,15 @@ impl SignedDeploy {
     }
 }
 
+/// The phlo price on the wire: 32 big-endian bytes, the node's `TokenAmount`
+/// form (f1r3node-rust #881). Prices are positive, so the value fits `u64`.
+fn phlo_price_wire(price: i64) -> Result<ByteString> {
+    let value = u64::try_from(price).map_err(|_| Error::invalid("phlo price", price))?;
+    let mut wire = [0u8; 32];
+    wire[24..].copy_from_slice(&value.to_be_bytes());
+    Ok(ByteString::from(wire.to_vec()))
+}
+
 fn digest(data: &DeployDataProto) -> [u8; 32] {
     let projection = DeployDataProto {
         language: String::new(),
@@ -258,7 +268,7 @@ mod tests {
         let expected = DeployDataProto {
             term: "new x in { x!(1) }".into(),
             timestamp: 1_000,
-            phlo_price: 1,
+            phlo_price: phlo_price_wire(1).unwrap(),
             phlo_limit: 50_000,
             valid_after_block_number: 7,
             shard_id: "root".into(),
@@ -378,6 +388,22 @@ mod tests {
             unsigned(Some(1_234)).digest(),
             unsigned(Some(1_234)).digest()
         );
+    }
+
+    #[test]
+    fn the_phlo_price_travels_as_thirty_two_big_endian_bytes() {
+        let signed = unsigned(Some(1_000)).sign(&key());
+        let mut expected = [0u8; 32];
+        expected[31] = 1;
+        assert_eq!(signed.proto().phlo_price.as_ref(), &expected[..]);
+
+        let mut wide = [0u8; 32];
+        wide[24..].copy_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
+        assert_eq!(
+            phlo_price_wire(0x0102_0304_0506_0708).unwrap().as_ref(),
+            &wide[..]
+        );
+        assert!(phlo_price_wire(-1).is_err());
     }
 
     #[test]

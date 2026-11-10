@@ -341,6 +341,26 @@ These conversions return errors for excess precision or amounts above
 `BigUint` amounts and return `node_cli::Result<String>` after checking bounds.
 Quarantine heights remain ordinary integers.
 
+The HTTP value decoder accepts canonical decimal strings for `ExprInt.data`
+and `ExprUint64.data`, as returned by node PR
+[#896](https://github.com/F1R3FLY-io/f1r3node-rust/pull/896).
+It also accepts legacy JSON integer values without floating-point conversion.
+The `Int` and `Uint64` variants retain their checked 64-bit ranges, including
+inside nested collections. This transport change does not widen stake limits.
+
+`minPhloPrice` in `/api/status` and `phloPrice` in deploy responses arrive as
+canonical decimal strings from node PRs
+[#947](https://github.com/F1R3FLY-io/f1r3node-rust/pull/947) and
+[#881](https://github.com/F1R3FLY-io/f1r3node-rust/pull/881). The client reads
+both the string form and the JSON number older nodes sent, holding the result
+as `num_bigint::BigInt` so prices above 64 bits stay exact.
+
+A signed deploy carries its phlo price as 32 big-endian bytes, the node's
+`TokenAmount` wire form introduced by node PR
+[#881](https://github.com/F1R3FLY-io/f1r3node-rust/pull/881). The signed
+digest still covers the same projection: signature, deployer, algorithm and
+language fields are empty when the bytes are hashed.
+
 Transfer reports describe attempted amounts, including rejected transfers.
 With the `cli` feature, `commands::events::TransferEvent.amount` uses signed
 `num_bigint::BigInt` to preserve negative and oversized attempts. Outgoing
