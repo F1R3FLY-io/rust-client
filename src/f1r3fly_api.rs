@@ -118,6 +118,46 @@ pub struct Balance {
     pub block: BlockRef,
 }
 
+/// A phlo price as nodes report it: a canonical decimal string
+/// (f1r3node-rust #947, #881) or the JSON number older nodes sent.
+fn json_phlo_price(value: &serde_json::Value) -> Option<num_bigint::BigInt> {
+    match value {
+        serde_json::Value::String(text) => {
+            let canonical = !text.is_empty()
+                && text.bytes().all(|b| b.is_ascii_digit())
+                && (*text == "0" || !text.starts_with('0'));
+            if canonical {
+                text.parse().ok()
+            } else {
+                None
+            }
+        }
+        serde_json::Value::Number(number) => number
+            .as_i64()
+            .map(num_bigint::BigInt::from)
+            .or_else(|| number.as_u64().map(num_bigint::BigInt::from)),
+        _ => None,
+    }
+}
+
+fn deserialize_phlo_price<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<num_bigint::BigInt, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    json_phlo_price(&value).ok_or_else(|| serde::de::Error::custom("invalid phlo price"))
+}
+
+fn deserialize_optional_phlo_price<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<num_bigint::BigInt>, D::Error> {
+    match Option::<serde_json::Value>::deserialize(d)? {
+        Some(value) => json_phlo_price(&value)
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom("invalid phlo price")),
+        None => Ok(None),
+    }
+}
+
 /// Node status from `/api/status`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeStatus {
@@ -129,8 +169,8 @@ pub struct NodeStatus {
     pub shard_id: String,
     pub peers: i32,
     pub nodes: i32,
-    #[serde(rename = "minPhloPrice")]
-    pub min_phlo_price: i64,
+    #[serde(rename = "minPhloPrice", deserialize_with = "deserialize_phlo_price")]
+    pub min_phlo_price: num_bigint::BigInt,
     #[serde(rename = "nativeTokenName", default)]
     pub native_token_name: String,
     #[serde(rename = "nativeTokenSymbol", default)]
@@ -177,8 +217,12 @@ pub struct DeployDetail {
     pub term: Option<String>,
     #[serde(rename = "systemDeployError", default)]
     pub system_deploy_error: Option<String>,
-    #[serde(rename = "phloPrice", default)]
-    pub phlo_price: Option<i64>,
+    #[serde(
+        rename = "phloPrice",
+        default,
+        deserialize_with = "deserialize_optional_phlo_price"
+    )]
+    pub phlo_price: Option<num_bigint::BigInt>,
     #[serde(rename = "phloLimit", default)]
     pub phlo_limit: Option<i64>,
     #[serde(rename = "sigAlgorithm", default)]
@@ -272,6 +316,88 @@ pub enum ProposeResult {
 #[cfg(test)]
 mod tests {
     use super::execution_failure;
+    use crate::f1r3fly_api::{DeployDetail, NodeStatus};
+    use num_bigint::BigInt;
+    use serde_json::json;
+
+    #[test]
+    fn phlo_prices_read_strings_numbers_and_big_integers_exactly() {
+        let big: BigInt = BigInt::from(1) << 200;
+        let big_text = big.to_string();
+        let status_with = |min: serde_json::Value| {
+            json!({
+                "version": "0", "address": "a", "networkId": "n", "shardId": "root",
+                "peers": 0, "nodes": 0, "minPhloPrice": min
+            })
+        };
+        let detail_with = |price: serde_json::Value| {
+            json!({
+                "phloPrice": price,
+                "deployId": "d", "blockHash": "b", "blockNumber": 1,
+                "timestamp": 0, "cost": 0, "errored": false, "isFinalized": true
+            })
+        };
+        for (text, value) in [
+            ("1", BigInt::from(1)),
+            ("0", BigInt::from(0)),
+            (big_text.as_str(), big.clone()),
+            (
+                "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+                BigInt::from(2).pow(256) - 1,
+            ),
+        ] {
+            let status: NodeStatus = serde_json::from_value(status_with(json!(text))).unwrap();
+            assert_eq!(status.min_phlo_price, value);
+            let detail: DeployDetail = serde_json::from_value(detail_with(json!(text))).unwrap();
+            assert_eq!(detail.phlo_price, Some(value));
+        }
+        for (number, value) in [
+            (json!(1), BigInt::from(1)),
+            (json!(u64::MAX), BigInt::from(u64::MAX)),
+        ] {
+            let status: NodeStatus = serde_json::from_value(status_with(number.clone())).unwrap();
+            assert_eq!(status.min_phlo_price, value);
+            let detail: DeployDetail = serde_json::from_value(detail_with(number)).unwrap();
+            assert_eq!(detail.phlo_price, Some(value));
+        }
+    }
+
+    #[test]
+    fn phlo_prices_reject_malformed_strings() {
+        let status_with = |min: serde_json::Value| {
+            json!({
+                "version": "0", "address": "a", "networkId": "n", "shardId": "root",
+                "peers": 0, "nodes": 0, "minPhloPrice": min
+            })
+        };
+        let detail_with = |price: serde_json::Value| {
+            json!({
+                "phloPrice": price,
+                "deployId": "d", "blockHash": "b", "blockNumber": 1,
+                "timestamp": 0, "cost": 0, "errored": false, "isFinalized": true
+            })
+        };
+        for text in ["", "01", "+1", "-1", " 1", "1 ", "1.0", "1e3", "0x1"] {
+            assert!(
+                serde_json::from_value::<NodeStatus>(status_with(json!(text))).is_err(),
+                "{text:?} decoded as a phlo price"
+            );
+            assert!(
+                serde_json::from_value::<DeployDetail>(detail_with(json!(text))).is_err(),
+                "{text:?} decoded as a phlo price"
+            );
+        }
+    }
+
+    #[test]
+    fn an_absent_phlo_price_stays_absent() {
+        let detail: DeployDetail = serde_json::from_value(json!({
+            "deployId": "d", "blockHash": "b", "blockNumber": 1,
+            "timestamp": 0, "cost": 0, "errored": false, "isFinalized": true
+        }))
+        .unwrap();
+        assert_eq!(detail.phlo_price, None);
+    }
 
     #[test]
     fn a_system_deploy_error_is_a_failure_even_when_not_flagged_errored() {

@@ -167,6 +167,11 @@ impl RhoValue {
         let field = |name: &str| body.get(name).ok_or_else(|| malformed(json));
         let data = || field("data");
         let int = |range: &'static str| -> Result<i128> {
+            if let Some(text) = data()?.as_str() {
+                return i128::try_from(canonical_bigint(text)?).map_err(|_| {
+                    Error::decode("value", format!("{json} is out of range for {range}"))
+                });
+            }
             data()?
                 .as_i64()
                 .map(i128::from)
@@ -678,6 +683,59 @@ mod tests {
             value.elements().unwrap()[8].get("k").unwrap().as_str(),
             Some("v")
         );
+    }
+
+    #[test]
+    fn node_json_integer_strings_preserve_exact_values_and_legacy_numbers() {
+        for value in [i64::MIN, -1, 0, 42, (1i64 << 53) + 1, i64::MAX] {
+            for data in [json!(value), json!(value.to_string())] {
+                assert_eq!(
+                    RhoValue::from_node_json(&json!({"ExprInt": {"data": data}})).unwrap(),
+                    RhoValue::Int(value)
+                );
+            }
+        }
+        for value in [0u64, 42, (1u64 << 63), u64::MAX] {
+            for data in [json!(value), json!(value.to_string())] {
+                assert_eq!(
+                    RhoValue::from_node_json(&json!({"ExprUint64": {"data": data}})).unwrap(),
+                    RhoValue::Uint64(value)
+                );
+            }
+        }
+        let nested = json!({"ExprTuple": {"data": [
+            {"ExprList": {"data": [{"ExprInt": {"data": "9007199254740993"}}]}},
+            {"ExprMap": {"data": {"stake": {"ExprUint64": {"data": "18446744073709551615"}}}}}
+        ]}});
+        let values = RhoValue::from_node_json(&nested).unwrap();
+        assert_eq!(
+            values.elements().unwrap()[0].elements().unwrap()[0],
+            RhoValue::Int(9007199254740993)
+        );
+        assert_eq!(
+            values.elements().unwrap()[1].get("stake"),
+            Some(&RhoValue::Uint64(u64::MAX))
+        );
+    }
+
+    #[test]
+    fn node_json_integer_strings_reject_malformed_and_out_of_range_values() {
+        for text in ["", "01", "-0", "+1", "1.0", "1e3", " 1", "1 "] {
+            for tag in ["ExprInt", "ExprUint64"] {
+                assert!(RhoValue::from_node_json(&json!({tag: {"data": text}})).is_err());
+            }
+        }
+        for (tag, text) in [
+            ("ExprInt", "9223372036854775808"),
+            ("ExprInt", "-9223372036854775809"),
+            ("ExprUint64", "-1"),
+            ("ExprUint64", "18446744073709551616"),
+        ] {
+            assert!(RhoValue::from_node_json(&json!({tag: {"data": text}})).is_err());
+        }
+        for data in [json!(null), json!(true), json!(1.5), json!([])] {
+            assert!(RhoValue::from_node_json(&json!({"ExprInt": {"data": data}})).is_err());
+        }
     }
 
     #[test]
