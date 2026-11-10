@@ -353,7 +353,8 @@ canonical decimal strings from node PRs
 [#947](https://github.com/F1R3FLY-io/f1r3node-rust/pull/947) and
 [#881](https://github.com/F1R3FLY-io/f1r3node-rust/pull/881). The client reads
 both the string form and the JSON number older nodes sent, holding the result
-as `num_bigint::BigInt` so prices above 64 bits stay exact.
+as `num_bigint::BigUint` so prices above 64 bits stay exact. Prices above
+uint256 are rejected.
 
 A signed deploy carries its phlo price as 32 big-endian bytes, the node's
 `TokenAmount` wire form introduced by node PR

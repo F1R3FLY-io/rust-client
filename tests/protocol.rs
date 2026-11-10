@@ -10,7 +10,7 @@ use prost::Message;
 use serde_json::json;
 
 #[test]
-fn status_and_deploy_prices_are_canonical_uint256_strings() {
+fn status_and_deploy_prices_are_uint256_and_strictly_parsed() {
     let mut status = json!({"version": {}, "address": "node", "networkId": "test",
         "shardId": "root", "peers": 0, "nodes": 0, "minPhloPrice": "1"});
     let mut detail = json!({"deployId": "signature", "blockHash": "ab", "blockNumber": 1, "timestamp": 1,

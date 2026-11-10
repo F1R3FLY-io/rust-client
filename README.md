@@ -96,14 +96,15 @@ the previous monetary wire format are unsupported.
 
 `DeployOptions.phlo_price`, `NodeStatus.min_phlo_price`, and
 `DeployDetail.phlo_price` use `BigUint` (the last is optional). HTTP monetary
-values use canonical decimal strings; protobuf deploy prices use exactly 32
+values use canonical decimal strings (legacy JSON integers up to u64 are still
+accepted on read); protobuf deploy prices use exactly 32
 unsigned big-endian bytes. Prices must be positive and both the price and
 `phlo_limit * phlo_price` must fit uint256. The CLI still defaults to
 `--phlo-price 1`. Phlo units, heights and timestamps remain ordinary integers.
 Stored deploys using the old price encoding are rejected; they are never
 silently rewritten or signed again.
 
-Rholang HTTP `ExprInt` and `ExprUint64` values are decoded from decimal strings,
-including nested values. Failed-transfer reports retain signed, arbitrary-size
+Rholang HTTP `ExprInt` and `ExprUint64` values are decoded from canonical decimal
+strings or legacy JSON integers, including nested values. Failed-transfer reports retain signed, arbitrary-size
 attempted amounts. Existing bond calls always send a BigInt literal, even for
 small stakes. Whole-token conversion remains exact for 18-decimal tokens.

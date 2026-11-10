@@ -120,11 +120,14 @@ pub struct Balance {
 
 /// A phlo price as nodes report it: a canonical uint256 decimal string
 /// (f1r3node-rust #947, #881) or the JSON number older nodes sent.
-fn json_phlo_price(value: &serde_json::Value) -> Option<num_bigint::BigUint> {
+fn json_phlo_price(value: &serde_json::Value) -> Result<num_bigint::BigUint, String> {
     match value {
-        serde_json::Value::String(text) => crate::amount::parse(text).ok(),
-        serde_json::Value::Number(number) => number.as_u64().map(num_bigint::BigUint::from),
-        _ => None,
+        serde_json::Value::String(text) => crate::amount::parse(text).map_err(|e| e.to_string()),
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .map(num_bigint::BigUint::from)
+            .ok_or_else(|| format!("phlo price {number} is not an unsigned integer")),
+        _ => Err(format!("invalid phlo price {value}")),
     }
 }
 
@@ -132,7 +135,7 @@ fn deserialize_phlo_price<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<num_bigint::BigUint, D::Error> {
     let value = serde_json::Value::deserialize(d)?;
-    json_phlo_price(&value).ok_or_else(|| serde::de::Error::custom("invalid phlo price"))
+    json_phlo_price(&value).map_err(serde::de::Error::custom)
 }
 
 fn deserialize_optional_phlo_price<'de, D: serde::Deserializer<'de>>(
@@ -141,7 +144,7 @@ fn deserialize_optional_phlo_price<'de, D: serde::Deserializer<'de>>(
     match Option::<serde_json::Value>::deserialize(d)? {
         Some(value) => json_phlo_price(&value)
             .map(Some)
-            .ok_or_else(|| serde::de::Error::custom("invalid phlo price")),
+            .map_err(serde::de::Error::custom),
         None => Ok(None),
     }
 }
