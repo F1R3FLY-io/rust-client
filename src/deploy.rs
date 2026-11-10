@@ -397,6 +397,23 @@ mod tests {
     }
 
     #[test]
+    fn the_phlo_price_travels_as_thirty_two_big_endian_bytes() {
+        let signed = unsigned(Some(1_000)).sign(&key());
+        let mut expected = [0u8; 32];
+        expected[31] = 1;
+        assert_eq!(signed.proto().phlo_price.as_ref(), &expected[..]);
+
+        let mut wide = [0u8; 32];
+        wide[24..].copy_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
+        let options = DeployOptions {
+            phlo_price: BigUint::from(0x0102_0304_0506_0708u64),
+            ..DeployOptions::default()
+        };
+        let deploy = UnsignedDeploy::new("Nil", &options, 1, DEFAULT_SHARD_ID).unwrap();
+        assert_eq!(deploy.sign(&key()).proto().phlo_price.as_ref(), &wide[..]);
+    }
+
+    #[test]
     fn out_of_range_options_are_rejected() {
         let try_new = |options: DeployOptions| UnsignedDeploy::new("Nil", &options, 1, "root");
         assert!(try_new(DeployOptions::default().with_phlo_limit(u64::MAX)).is_err());

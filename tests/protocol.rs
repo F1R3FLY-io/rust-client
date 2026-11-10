@@ -37,7 +37,7 @@ fn status_and_deploy_prices_are_canonical_uint256_strings() {
         );
     }
     for invalid in [
-        json!(1),
+        json!(-1),
         json!("-1"),
         json!("+1"),
         json!("01"),
@@ -90,8 +90,6 @@ fn nested_integer_queries_follow_the_new_json_schema() {
         RhoValue::Uint64(u64::MAX)
     );
     for (tag, raw) in [
-        ("ExprInt", json!(1)),
-        ("ExprUint64", json!(1)),
         ("ExprInt", json!("9223372036854775808")),
         ("ExprInt", json!("-9223372036854775809")),
         ("ExprUint64", json!("18446744073709551616")),

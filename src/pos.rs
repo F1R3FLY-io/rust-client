@@ -514,12 +514,16 @@ mod tests {
 
     #[test]
     fn bond_term_passes_the_stake_to_pos() {
-        let term = build_bond_rholang(&BigUint::from(1000u32)).unwrap();
-        assert!(
-            term.contains(r#"@PoS!("bond", *deployerId, 1000n, *resultCh)"#),
-            "{term}"
-        );
-        assert!(term.contains("deployId!(result)"), "{term}");
+        for stake in [0, 100, 1000, i64::MAX as u64] {
+            let term = build_bond_rholang(&BigUint::from(stake)).unwrap();
+            assert!(
+                term.contains(&format!(
+                    r#"@PoS!("bond", *deployerId, {stake}n, *resultCh)"#
+                )),
+                "{term}"
+            );
+            assert!(term.contains("deployId!(result)"), "{term}");
+        }
     }
 
     #[test]

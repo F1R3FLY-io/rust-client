@@ -1,7 +1,7 @@
 //! Canonical uint256 monetary values at node RPC and signing boundaries.
 use f1r3fly_shared::rust::token_amount::TokenAmount;
 use num_bigint::BigUint;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 
 use crate::error::{Error, Result};
 
@@ -35,10 +35,6 @@ pub(crate) fn serialize<S: Serializer>(value: &BigUint, s: S) -> Result<S::Ok, S
         .serialize(s)
 }
 
-pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<BigUint, D::Error> {
-    parse(&String::deserialize(d)?).map_err(serde::de::Error::custom)
-}
-
 pub(crate) mod option {
     use super::*;
 
@@ -52,13 +48,5 @@ pub(crate) mod option {
             .transpose()
             .map_err(serde::ser::Error::custom)?
             .serialize(s)
-    }
-
-    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
-        d: D,
-    ) -> Result<Option<BigUint>, D::Error> {
-        Option::<String>::deserialize(d)?
-            .map(|s| parse(&s).map_err(serde::de::Error::custom))
-            .transpose()
     }
 }
