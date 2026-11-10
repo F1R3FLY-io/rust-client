@@ -37,6 +37,8 @@ pub static DEPLOY_A: Role = Role::new(Key::generate);
 pub static DEPLOY_B: Role = Role::new(Key::generate);
 pub static DEPLOY_C: Role = Role::new(Key::generate);
 pub static REPORT_SENDER: Role = Role::new(Key::generate);
+pub static WIDE_SENDER: Role = Role::new(Key::generate);
+pub static WIDE_RECIPIENT: Role = Role::new(Key::generate);
 pub static TRANSFER_SENDER: Role = Role::new(Key::generate);
 pub static TRANSFER_RECIPIENT: Role = Role::new(Key::generate);
 /// Funded with far less than the others, so a transfer of an ordinary amount
@@ -77,8 +79,18 @@ pub const FUNDED: &str = "50000000000000000";
 const SCARCELY_FUNDED: &str = "1000000";
 
 /// Each vault funded at genesis: its role's name, key and balance.
-pub fn genesis_wallets() -> [(&'static str, &'static Key, &'static str); 17] {
+pub fn genesis_wallets() -> [(&'static str, &'static Key, &'static str); 19] {
     [
+        (
+            "wide-sender",
+            &WIDE_SENDER,
+            "1725436586697640946858688965569256363112777243042596638790631055949824",
+        ),
+        (
+            "wide-recipient",
+            &WIDE_RECIPIENT,
+            "1725436586697640946858688965569256363112777243042596638790631055949824",
+        ),
         ("profile-deploy", &PROFILE_DEPLOY, FUNDED),
         ("deploy-a", &DEPLOY_A, FUNDED),
         ("deploy-b", &DEPLOY_B, FUNDED),

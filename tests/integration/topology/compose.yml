@@ -20,7 +20,7 @@
 name: rust-client-it
 
 x-node: &node
-  image: ${FIREFLY_NODE_IMAGE:-f1r3flyindustries/f1r3fly-rust:dev}
+  image: ${FIREFLY_NODE_IMAGE:-f1r3flyindustries/f1r3fly-rust@sha256:4eab74400b569aff7718d63b5551e97a2df6e568ff4799bce4366ac8545f7646}
   user: root
   networks: [shard]
   environment:

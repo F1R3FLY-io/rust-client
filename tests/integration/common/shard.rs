@@ -219,8 +219,9 @@ fn write_shard_files(dir: &Path, topology: &Path) -> Result<(), String> {
     write(
         dir.join("shard.env"),
         &format!(
-            "IT_SHARD_DIR={}\nIT_BOOT_NODE_ID={boot_node_id}\n",
-            dir.display()
+            "IT_SHARD_DIR={}\nIT_BOOT_NODE_ID={boot_node_id}\nFIREFLY_NODE_IMAGE={}\n",
+            dir.display(),
+            image()
         ),
     )
 }
@@ -300,7 +301,7 @@ impl Drop for Shard {
 
 pub fn image() -> String {
     std::env::var("FIREFLY_NODE_IMAGE")
-        .unwrap_or_else(|_| "f1r3flyindustries/f1r3fly-rust:dev".to_string())
+        .unwrap_or_else(|_| "f1r3flyindustries/f1r3fly-rust@sha256:4eab74400b569aff7718d63b5551e97a2df6e568ff4799bce4366ac8545f7646".to_string())
 }
 
 fn topology_dir() -> PathBuf {

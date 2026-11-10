@@ -10,6 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use blake2::{Blake2b, Digest};
 use f1r3fly_models::casper::DeployDataProto;
 use f1r3fly_models::ByteString;
+use f1r3fly_shared::rust::token_amount::TokenAmount;
+use num_bigint::BigUint;
 use prost::Message as _;
 use secp256k1::ecdsa::Signature;
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
@@ -20,7 +22,7 @@ use crate::error::{Error, Result};
 /// Phlo limit of a deploy when the caller does not choose one.
 pub const DEFAULT_PHLO_LIMIT: u64 = 50_000;
 /// Phlo price of a deploy when the caller does not choose one.
-pub const DEFAULT_PHLO_PRICE: i64 = 1;
+pub const DEFAULT_PHLO_PRICE: u64 = 1;
 /// Shard a client signs for when it is not configured with another.
 pub const DEFAULT_SHARD_ID: &str = "root";
 
@@ -31,7 +33,7 @@ const LANGUAGE: &str = "rholang";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeployOptions {
     pub phlo_limit: u64,
-    pub phlo_price: i64,
+    pub phlo_price: BigUint,
     /// Unix milliseconds after which the deploy is invalid; `None` never expires.
     pub expiration: Option<i64>,
     /// Exact Unix-millisecond timestamp to sign, for contracts that check it,
@@ -43,7 +45,7 @@ impl Default for DeployOptions {
     fn default() -> Self {
         DeployOptions {
             phlo_limit: DEFAULT_PHLO_LIMIT,
-            phlo_price: DEFAULT_PHLO_PRICE,
+            phlo_price: DEFAULT_PHLO_PRICE.into(),
             expiration: None,
             timestamp: None,
         }
@@ -74,10 +76,8 @@ impl UnsignedDeploy {
     ) -> Result<Self> {
         let phlo_limit = i64::try_from(options.phlo_limit)
             .map_err(|_| Error::invalid("phlo limit", options.phlo_limit))?;
-        if options.phlo_price < 1 {
-            return Err(Error::invalid("phlo price", options.phlo_price));
-        }
-        let phlo_price = phlo_price_wire(options.phlo_price)?;
+        let price = crate::amount::token(&options.phlo_price)?;
+        validate_charge(&price, phlo_limit)?;
         if let Some(expiration) = options.expiration.filter(|e| *e <= 0) {
             return Err(Error::invalid("expiration", expiration));
         }
@@ -85,7 +85,7 @@ impl UnsignedDeploy {
             data: DeployDataProto {
                 term: term.into(),
                 timestamp: options.timestamp.unwrap_or_else(next_timestamp),
-                phlo_price,
+                phlo_price: price.to_wire().to_vec().into(),
                 phlo_limit,
                 valid_after_block_number,
                 shard_id: shard_id.into(),
@@ -161,6 +161,9 @@ impl SignedDeploy {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let data =
             DeployDataProto::decode(bytes).map_err(|e| Error::invalid("stored deploy", e))?;
+        let price = TokenAmount::from_wire(&data.phlo_price)
+            .map_err(|e| Error::invalid("stored deploy phlo price (new protocol required)", e))?;
+        validate_charge(&price, data.phlo_limit)?;
         if data.sig_algorithm != SIG_ALGORITHM {
             return Err(Error::invalid(
                 "stored deploy",
@@ -188,13 +191,16 @@ impl SignedDeploy {
     }
 }
 
-/// The phlo price on the wire: 32 big-endian bytes, the node's `TokenAmount`
-/// form (f1r3node-rust #881). Prices are positive, so the value fits `u64`.
-fn phlo_price_wire(price: i64) -> Result<ByteString> {
-    let value = u64::try_from(price).map_err(|_| Error::invalid("phlo price", price))?;
-    let mut wire = [0u8; 32];
-    wire[24..].copy_from_slice(&value.to_be_bytes());
-    Ok(ByteString::from(wire.to_vec()))
+fn validate_charge(price: &TokenAmount, limit: i64) -> Result<()> {
+    if price.is_zero() {
+        return Err(Error::invalid("phlo price", "must be positive"));
+    }
+    if limit < 0 {
+        return Err(Error::invalid("phlo limit", "must be non-negative"));
+    }
+    TokenAmount::new(price.as_bigint() * limit)
+        .map_err(|e| Error::invalid("maximum phlo charge", e))?;
+    Ok(())
 }
 
 fn digest(data: &DeployDataProto) -> [u8; 32] {
@@ -268,7 +274,7 @@ mod tests {
         let expected = DeployDataProto {
             term: "new x in { x!(1) }".into(),
             timestamp: 1_000,
-            phlo_price: phlo_price_wire(1).unwrap(),
+            phlo_price: TokenAmount::from(1).to_wire().to_vec().into(),
             phlo_limit: 50_000,
             valid_after_block_number: 7,
             shard_id: "root".into(),
@@ -399,11 +405,12 @@ mod tests {
 
         let mut wide = [0u8; 32];
         wide[24..].copy_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
-        assert_eq!(
-            phlo_price_wire(0x0102_0304_0506_0708).unwrap().as_ref(),
-            &wide[..]
-        );
-        assert!(phlo_price_wire(-1).is_err());
+        let options = DeployOptions {
+            phlo_price: BigUint::from(0x0102_0304_0506_0708u64),
+            ..DeployOptions::default()
+        };
+        let deploy = UnsignedDeploy::new("Nil", &options, 1, DEFAULT_SHARD_ID).unwrap();
+        assert_eq!(deploy.sign(&key()).proto().phlo_price.as_ref(), &wide[..]);
     }
 
     #[test]
@@ -411,7 +418,7 @@ mod tests {
         let try_new = |options: DeployOptions| UnsignedDeploy::new("Nil", &options, 1, "root");
         assert!(try_new(DeployOptions::default().with_phlo_limit(u64::MAX)).is_err());
         assert!(try_new(DeployOptions {
-            phlo_price: 0,
+            phlo_price: 0u8.into(),
             ..DeployOptions::default()
         })
         .is_err());

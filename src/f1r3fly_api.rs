@@ -118,42 +118,33 @@ pub struct Balance {
     pub block: BlockRef,
 }
 
-/// A phlo price as nodes report it: a canonical decimal string
+/// A phlo price as nodes report it: a canonical uint256 decimal string
 /// (f1r3node-rust #947, #881) or the JSON number older nodes sent.
-fn json_phlo_price(value: &serde_json::Value) -> Option<num_bigint::BigInt> {
+fn json_phlo_price(value: &serde_json::Value) -> Result<num_bigint::BigUint, String> {
     match value {
-        serde_json::Value::String(text) => {
-            let canonical = !text.is_empty()
-                && text.bytes().all(|b| b.is_ascii_digit())
-                && (*text == "0" || !text.starts_with('0'));
-            if canonical {
-                text.parse().ok()
-            } else {
-                None
-            }
-        }
+        serde_json::Value::String(text) => crate::amount::parse(text).map_err(|e| e.to_string()),
         serde_json::Value::Number(number) => number
-            .as_i64()
-            .map(num_bigint::BigInt::from)
-            .or_else(|| number.as_u64().map(num_bigint::BigInt::from)),
-        _ => None,
+            .as_u64()
+            .map(num_bigint::BigUint::from)
+            .ok_or_else(|| format!("phlo price {number} is not an unsigned integer")),
+        _ => Err(format!("invalid phlo price {value}")),
     }
 }
 
 fn deserialize_phlo_price<'de, D: serde::Deserializer<'de>>(
     d: D,
-) -> Result<num_bigint::BigInt, D::Error> {
+) -> Result<num_bigint::BigUint, D::Error> {
     let value = serde_json::Value::deserialize(d)?;
-    json_phlo_price(&value).ok_or_else(|| serde::de::Error::custom("invalid phlo price"))
+    json_phlo_price(&value).map_err(serde::de::Error::custom)
 }
 
 fn deserialize_optional_phlo_price<'de, D: serde::Deserializer<'de>>(
     d: D,
-) -> Result<Option<num_bigint::BigInt>, D::Error> {
+) -> Result<Option<num_bigint::BigUint>, D::Error> {
     match Option::<serde_json::Value>::deserialize(d)? {
         Some(value) => json_phlo_price(&value)
             .map(Some)
-            .ok_or_else(|| serde::de::Error::custom("invalid phlo price")),
+            .map_err(serde::de::Error::custom),
         None => Ok(None),
     }
 }
@@ -169,8 +160,12 @@ pub struct NodeStatus {
     pub shard_id: String,
     pub peers: i32,
     pub nodes: i32,
-    #[serde(rename = "minPhloPrice", deserialize_with = "deserialize_phlo_price")]
-    pub min_phlo_price: num_bigint::BigInt,
+    #[serde(
+        rename = "minPhloPrice",
+        serialize_with = "crate::amount::serialize",
+        deserialize_with = "deserialize_phlo_price"
+    )]
+    pub min_phlo_price: num_bigint::BigUint,
     #[serde(rename = "nativeTokenName", default)]
     pub native_token_name: String,
     #[serde(rename = "nativeTokenSymbol", default)]
@@ -220,9 +215,10 @@ pub struct DeployDetail {
     #[serde(
         rename = "phloPrice",
         default,
+        serialize_with = "crate::amount::option::serialize",
         deserialize_with = "deserialize_optional_phlo_price"
     )]
-    pub phlo_price: Option<num_bigint::BigInt>,
+    pub phlo_price: Option<num_bigint::BigUint>,
     #[serde(rename = "phloLimit", default)]
     pub phlo_limit: Option<i64>,
     #[serde(rename = "sigAlgorithm", default)]
@@ -317,12 +313,12 @@ pub enum ProposeResult {
 mod tests {
     use super::execution_failure;
     use crate::f1r3fly_api::{DeployDetail, NodeStatus};
-    use num_bigint::BigInt;
+    use num_bigint::BigUint;
     use serde_json::json;
 
     #[test]
     fn phlo_prices_read_strings_numbers_and_big_integers_exactly() {
-        let big: BigInt = BigInt::from(1) << 200;
+        let big: BigUint = BigUint::from(1u32) << 200;
         let big_text = big.to_string();
         let status_with = |min: serde_json::Value| {
             json!({
@@ -338,12 +334,12 @@ mod tests {
             })
         };
         for (text, value) in [
-            ("1", BigInt::from(1)),
-            ("0", BigInt::from(0)),
+            ("1", BigUint::from(1u32)),
+            ("0", BigUint::from(0u32)),
             (big_text.as_str(), big.clone()),
             (
                 "115792089237316195423570985008687907853269984665640564039457584007913129639935",
-                BigInt::from(2).pow(256) - 1,
+                BigUint::from(2u32).pow(256) - 1u32,
             ),
         ] {
             let status: NodeStatus = serde_json::from_value(status_with(json!(text))).unwrap();
@@ -352,8 +348,8 @@ mod tests {
             assert_eq!(detail.phlo_price, Some(value));
         }
         for (number, value) in [
-            (json!(1), BigInt::from(1)),
-            (json!(u64::MAX), BigInt::from(u64::MAX)),
+            (json!(1), BigUint::from(1u32)),
+            (json!(u64::MAX), BigUint::from(u64::MAX)),
         ] {
             let status: NodeStatus = serde_json::from_value(status_with(number.clone())).unwrap();
             assert_eq!(status.min_phlo_price, value);
@@ -377,7 +373,18 @@ mod tests {
                 "timestamp": 0, "cost": 0, "errored": false, "isFinalized": true
             })
         };
-        for text in ["", "01", "+1", "-1", " 1", "1 ", "1.0", "1e3", "0x1"] {
+        for text in [
+            "",
+            "01",
+            "+1",
+            "-1",
+            " 1",
+            "1 ",
+            "1.0",
+            "1e3",
+            "0x1",
+            "115792089237316195423570985008687907853269984665640564039457584007913129639936",
+        ] {
             assert!(
                 serde_json::from_value::<NodeStatus>(status_with(json!(text))).is_err(),
                 "{text:?} decoded as a phlo price"

@@ -400,8 +400,8 @@ pub struct DeployWaitArgs {
 #[derive(Args, Debug)]
 pub struct DeployOptionsArgs {
     /// Price per phlo, in the native token's base units
-    #[arg(long = "phlo-price", default_value_t = crate::deploy::DEFAULT_PHLO_PRICE)]
-    pub phlo_price: i64,
+    #[arg(long = "phlo-price", default_value = "1", value_parser = crate::amount::parse_price)]
+    pub phlo_price: num_bigint::BigUint,
 
     /// Shard the deploy is signed for: the target node's casper.shard-name
     #[arg(long = "shard-id", env = "FIREFLY_SHARD_ID", default_value = crate::deploy::DEFAULT_SHARD_ID)]
@@ -434,7 +434,7 @@ impl DeployOptionsArgs {
         };
         crate::deploy::DeployOptions {
             phlo_limit,
-            phlo_price: self.phlo_price,
+            phlo_price: self.phlo_price.clone(),
             expiration,
             timestamp: None,
         }

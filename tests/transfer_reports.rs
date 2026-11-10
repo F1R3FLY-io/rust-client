@@ -64,7 +64,7 @@ async fn failed_transfer_does_not_abort_the_block_report() {
                 {
                     "fromAddr": "sender",
                     "toAddr": "recipient",
-                    "amount": -1,
+                    "amount": "-1",
                     "success": false,
                     "failReason": "Amount must be positive value"
                 },

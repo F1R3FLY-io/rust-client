@@ -248,7 +248,7 @@ mod tests {
 
     /// Shape of a live node's explore-deploy response to `POS_SNAPSHOT_QUERY`.
     fn response(bonds: Value, active: Value, pending: Value, withdrawers: Value) -> Value {
-        let quarantine = json!({"ExprInt": {"data": 50000}});
+        let quarantine = json!({"ExprInt": {"data": "50000"}});
         with_state(
             json!([{"ExprTuple": {"data": [bonds, active, pending, withdrawers, quarantine]}}]),
         )
@@ -269,7 +269,12 @@ mod tests {
     fn bonds(entries: &[(&str, i64)]) -> Value {
         let data: serde_json::Map<String, Value> = entries
             .iter()
-            .map(|(key, stake)| (key.to_string(), json!({"ExprInt": {"data": stake}})))
+            .map(|(key, stake)| {
+                (
+                    key.to_string(),
+                    json!({"ExprInt": {"data": stake.to_string()}}),
+                )
+            })
             .collect();
         json!({"ExprMap": {"data": data}})
     }
@@ -291,7 +296,7 @@ mod tests {
         let stake = (BigUint::from(1u8) << 200usize) + BigUint::from(1u8);
         let bonds = json!({"ExprMap": {"data": {V4: {"ExprBigInt": {"data": stake.to_string()}}}}});
         let withdrawers = json!({"ExprMap": {"data": {V1: {"ExprTuple": {"data": [
-            {"ExprBigInt": {"data": stake.to_string()}}, {"ExprInt": {"data": 49610}}
+            {"ExprBigInt": {"data": stake.to_string()}}, {"ExprInt": {"data": "49610"}}
         ]}}}}});
         let snapshot = snapshot(response(bonds, active(&[V4]), empty_map(), withdrawers)).unwrap();
         assert_eq!(snapshot.stake(V4), Some(stake.clone()));
@@ -346,9 +351,9 @@ mod tests {
 
     #[test]
     fn parses_pending_and_applied_withdrawals() {
-        let pending = json!({"ExprMap": {"data": {V4: {"ExprInt": {"data": 49610}}}}});
+        let pending = json!({"ExprMap": {"data": {V4: {"ExprInt": {"data": "49610"}}}}});
         let withdrawers = json!({"ExprMap": {"data": {V1: {"ExprTuple": {"data": [
-            {"ExprInt": {"data": 1000}}, {"ExprInt": {"data": 49610}}
+            {"ExprInt": {"data": "1000"}}, {"ExprInt": {"data": "49610"}}
         ]}}}}});
         let snapshot = snapshot(response(
             bonds(&[(V4, 1000)]),

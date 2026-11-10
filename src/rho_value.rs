@@ -670,7 +670,7 @@ mod tests {
             {"ExprUnforg": {"data": {"UnforgDeployer": {"data": "04ab"}}}},
             {"ExprUnforg": {"data": "UnforgSysAuthToken"}},
             {"ExprBundle": {"data": {"ExprUnknown": {"type_name": "Nil"}}, "read": true, "write": false}},
-            {"ExprPar": {"data": [{"ExprInt": {"data": 1}}, {"ExprInt32": {"data": -2}}]}}
+            {"ExprPar": {"data": [{"ExprInt": {"data": "1"}}, {"ExprInt32": {"data": -2}}]}}
         ]}}))
         .unwrap();
         assert_eq!(

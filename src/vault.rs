@@ -196,11 +196,7 @@ pub fn parse_amount(value: &str) -> Result<BigUint> {
 
 /// Decode an unsigned uint256 amount, not a potentially rejected transfer attempt.
 pub fn json_amount(value: &serde_json::Value) -> Option<BigUint> {
-    match value {
-        serde_json::Value::String(text) => parse_amount(text).ok(),
-        serde_json::Value::Number(number) => number.as_u64().map(BigUint::from),
-        _ => None,
-    }
+    crate::amount::parse(value.as_str()?).ok()
 }
 
 pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigUint, D::Error> {
@@ -212,22 +208,7 @@ pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigU
 /// Never use this decoder to validate outgoing transfers or stored balances.
 #[cfg(feature = "cli")]
 pub(crate) fn json_reported_amount(value: &serde_json::Value) -> Option<num_bigint::BigInt> {
-    use num_bigint::BigInt;
-
-    match value {
-        serde_json::Value::String(text) => {
-            let digits = text.strip_prefix('-').unwrap_or(text);
-            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-                return None;
-            }
-            text.parse().ok()
-        }
-        serde_json::Value::Number(number) => number
-            .as_i64()
-            .map(BigInt::from)
-            .or_else(|| number.as_u64().map(BigInt::from)),
-        _ => None,
-    }
+    f1r3fly_shared::rust::decimal::parse_signed(value.as_str()?).ok()
 }
 
 #[cfg(feature = "cli")]
@@ -293,11 +274,9 @@ mod reported_amount_tests {
     #[test]
     fn reported_amounts_preserve_signed_and_unsigned_integers() {
         for value in [
-            json!(0),
-            json!(-1),
-            json!(i64::MIN),
-            json!(i64::MAX),
-            json!(u64::MAX),
+            json!(i64::MIN.to_string()),
+            json!(i64::MAX.to_string()),
+            json!(u64::MAX.to_string()),
             json!("0"),
             json!("-1"),
             json!("18446744073709551617"),
@@ -339,6 +318,10 @@ mod reported_amount_tests {
             json!("1 "),
             json!("NaN"),
             json!("１"),
+            json!(1),
+            json!(-1),
+            json!("01"),
+            json!("-0"),
             json!(1.0),
             json!(1.5),
             json!(true),
@@ -383,7 +366,7 @@ mod bigint_tests {
             BigUint::from(100000001u32)
         );
         assert_eq!(
-            json_amount(&serde_json::json!(u64::MAX)),
+            json_amount(&serde_json::json!(u64::MAX.to_string())),
             Some(u64::MAX.into())
         );
         assert!(json_amount(&serde_json::json!(-1)).is_none());
