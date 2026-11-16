@@ -154,12 +154,8 @@ impl F1r3flyApi {
 
 fn deploy_refusal(deploy_id: &str, messages: &[String]) -> Error {
     let reason = messages.iter().find_map(|message| {
-        let code = message.trim().split(':').next()?;
-        match code {
-            "deploy_pool_busy" => Some(DeployAdmissionReason::PoolBusy),
-            "deploy_admission_busy" => Some(DeployAdmissionReason::AdmissionBusy),
-            _ => None,
-        }
+        let (code, _) = message.trim().split_once(':')?;
+        DeployAdmissionReason::from_code(code)
     });
     let message = messages.join("; ");
     match reason {
@@ -181,17 +177,27 @@ mod admission_tests {
 
     #[test]
     fn deploy_service_envelope_preserves_the_admission_reason_and_signed_id() {
-        for (code, expected) in [
-            ("deploy_pool_busy", DeployAdmissionReason::PoolBusy),
+        for (code, expected, retryable) in [
+            ("deploy_pool_busy", DeployAdmissionReason::PoolBusy, true),
             (
                 "deploy_admission_busy",
                 DeployAdmissionReason::AdmissionBusy,
+                true,
+            ),
+            ("deploy_too_large", DeployAdmissionReason::TooLarge, false),
+            ("deploy_expired", DeployAdmissionReason::Expired, false),
+            (
+                "invalid_deploy_window",
+                DeployAdmissionReason::OutsideWindow,
+                true,
             ),
         ] {
             let messages = vec![format!("{code}: deploy was not accepted")];
             assert!(matches!(deploy_refusal("signed-id", &messages),
                 Error::DeployAdmissionRefused { deploy_id, reason, message }
                 if deploy_id == "signed-id" && reason == expected && message == messages[0]));
+            assert_eq!(expected.code(), code);
+            assert_eq!(expected.is_retryable(), retryable, "{code}");
         }
     }
 
@@ -201,6 +207,8 @@ mod admission_tests {
             "unknown error",
             "deploy_pool_busy_extra: failed",
             "unknown_error: deploy_pool_busy",
+            "deploy_expired",
+            "Deploy has expired: expirationTimestamp=Some(1) is in the past.",
             "timeout",
         ] {
             assert!(matches!(

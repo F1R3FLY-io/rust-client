@@ -135,6 +135,9 @@ pub enum Error {
 pub enum DeployAdmissionReason {
     PoolBusy,
     AdmissionBusy,
+    TooLarge,
+    Expired,
+    OutsideWindow,
 }
 
 impl DeployAdmissionReason {
@@ -142,7 +145,30 @@ impl DeployAdmissionReason {
         match self {
             Self::PoolBusy => "deploy_pool_busy",
             Self::AdmissionBusy => "deploy_admission_busy",
+            Self::TooLarge => "deploy_too_large",
+            Self::Expired => "deploy_expired",
+            Self::OutsideWindow => "invalid_deploy_window",
         }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        [
+            Self::PoolBusy,
+            Self::AdmissionBusy,
+            Self::TooLarge,
+            Self::Expired,
+            Self::OutsideWindow,
+        ]
+        .into_iter()
+        .find(|reason| reason.code() == code)
+    }
+
+    /// Whether resubmitting the same signed deploy later can succeed.
+    pub fn is_retryable(self) -> bool {
+        matches!(
+            self,
+            Self::PoolBusy | Self::AdmissionBusy | Self::OutsideWindow
+        )
     }
 }
 

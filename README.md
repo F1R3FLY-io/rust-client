@@ -89,6 +89,16 @@ An unset variable takes its default; a set but malformed one, such as a URL with
 
 ## Deploy admission refusals
 
-For nodes with [bounded admission (#789)](https://github.com/F1R3FLY-io/f1r3node-rust/pull/789), `submit` returns `Error::DeployAdmissionRefused` with the original signed deploy ID and `DeployAdmissionReason::PoolBusy` or `AdmissionBusy` when the existing gRPC service-error envelope explicitly reports that code. These requests were not accepted. Callers may wait and resubmit the same `SignedDeploy`; `deploy` creates a newly signed deploy. No automatic submission retry is added.
+For nodes with [bounded admission (#789)](https://github.com/F1R3FLY-io/f1r3node-rust/pull/789), `submit` returns `Error::DeployAdmissionRefused` with the original signed deploy ID when the gRPC service-error message starts with one of these codes. The node did not accept the deploy.
+
+| Reason | Code | `is_retryable()` | Meaning |
+|---|---|---|---|
+| `PoolBusy` | `deploy_pool_busy` | Yes | The node's retained record or byte budget is full |
+| `AdmissionBusy` | `deploy_admission_busy` | Yes | The submission limit is reached, or admission state kept changing |
+| `OutsideWindow` | `invalid_deploy_window` | Yes | The validity height is too far ahead; it becomes valid as the chain advances |
+| `TooLarge` | `deploy_too_large` | No | The deploy record is larger than the node's whole byte budget |
+| `Expired` | `deploy_expired` | No | The validity window or expiration timestamp has closed |
+
+For a retryable reason, wait and resubmit the same `SignedDeploy`. For `TooLarge` or `Expired`, the same deploy cannot be accepted; build a new one. `deploy` always creates a newly signed deploy. No automatic submission retry is added.
 
 Transport timeouts and unrecognised service errors retain their existing types and do not prove non-acceptance. `submit_and_wait` returns a typed admission refusal without starting finalization polling. Reconcile an unknown outcome by the original deploy ID before deciding to submit again.
