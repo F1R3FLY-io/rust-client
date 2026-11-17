@@ -410,3 +410,36 @@ jobs:
           omitBodyDuringUpdate: true
           bodyFile: CHANGELOG.md
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # GitHub tells only the last editor of the cron line about a failed scheduled
+  # run, so a failed nightly run against node :dev opens or updates an issue.
+  nightly_failure:
+    name: Report Nightly Failure
+    if: failure() && github.event_name == 'schedule'
+    needs:
+      - lint
+      - deny
+      - markdown_link_check
+      - build_base
+      - build
+      - unit_tests
+      - integration_tests
+    permissions:
+      issues: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or update the nightly failure issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly run against node :dev is failing"
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "Failed again: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "The scheduled run against \`f1r3flyindustries/f1r3fly-rust:dev\` failed: $RUN_URL
+
+          Re-run without an image override, against \`tests/integration/node-image.txt\`, to tell a node change from a client one; see docs/testing.md."
+          fi

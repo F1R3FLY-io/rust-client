@@ -41,6 +41,8 @@ matching the protocol dependencies in `Cargo.toml`. The harness records its
 selection in `shard.env` for Compose. PR and branch checks use this pin.
 The Build and Test workflow also runs nightly against the moving node `:dev`
 image on amd64 and arm64 to detect upstream changes independently of PR gating.
+A failed nightly run opens the issue "Nightly run against node :dev is failing",
+or comments on it while it is open.
 Manual workflow runs can set the `node_image` input to reproduce those checks;
 locally set `FIREFLY_NODE_IMAGE=f1r3flyindustries/f1r3fly-rust:dev`.
 
