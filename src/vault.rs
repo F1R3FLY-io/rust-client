@@ -165,10 +165,7 @@ pub fn validate_address(address: &str) -> Result<()> {
 }
 
 pub fn validate_amount(value: &BigUint) -> Result<()> {
-    if value.bits() > 256 {
-        return Err(Error::invalid("amount", "exceeds uint256"));
-    }
-    Ok(())
+    crate::amount::token(value).map(|_| ())
 }
 
 pub fn amount_literal(value: &BigUint) -> Result<String> {
@@ -180,27 +177,14 @@ pub fn amount_literal(value: &BigUint) -> Result<String> {
     })
 }
 
+/// A uint256 amount in base units, written as a canonical decimal.
 pub fn parse_amount(value: &str) -> Result<BigUint> {
-    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(Error::invalid(
-            "amount",
-            format!("{value:?} is not an unsigned decimal integer"),
-        ));
-    }
-    let amount = value
-        .parse::<BigUint>()
-        .map_err(|e| Error::invalid("amount", e))?;
-    validate_amount(&amount)?;
-    Ok(amount)
+    crate::amount::uint256(value).map_err(|e| Error::invalid("amount", e))
 }
 
 /// Decode an unsigned uint256 amount, not a potentially rejected transfer attempt.
 pub fn json_amount(value: &serde_json::Value) -> Option<BigUint> {
-    match value {
-        serde_json::Value::String(text) => crate::amount::parse(text).ok(),
-        serde_json::Value::Number(number) => number.as_u64().map(BigUint::from),
-        _ => None,
-    }
+    crate::amount::json_uint256(value).ok()
 }
 
 pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigUint, D::Error> {
@@ -212,14 +196,7 @@ pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigU
 /// Never use this decoder to validate outgoing transfers or stored balances.
 #[cfg(feature = "cli")]
 pub(crate) fn json_reported_amount(value: &serde_json::Value) -> Option<num_bigint::BigInt> {
-    match value {
-        serde_json::Value::String(text) => f1r3fly_shared::rust::decimal::parse_signed(text).ok(),
-        serde_json::Value::Number(number) => number
-            .as_i64()
-            .map(num_bigint::BigInt::from)
-            .or_else(|| number.as_u64().map(num_bigint::BigInt::from)),
-        _ => None,
-    }
+    crate::amount::json_integer(value).ok()
 }
 
 #[cfg(feature = "cli")]
@@ -247,12 +224,16 @@ pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint> {
             format!("{tokens:?} is malformed or has more than {decimals} decimal places"),
         ));
     }
-    parse_amount(&format!(
+    let digits = format!(
         "{}{}{}",
         whole,
         fraction,
         "0".repeat(decimals as usize - fraction.len())
-    ))
+    );
+    match digits.trim_start_matches('0') {
+        "" => Ok(BigUint::default()),
+        significant => parse_amount(significant),
+    }
 }
 
 pub fn dust_to_tokens(dust: &BigUint, decimals: u32) -> Result<String> {
@@ -399,17 +380,26 @@ mod bigint_tests {
 
     #[test]
     fn invalid_amounts_do_not_round_or_wrap() {
-        for value in ["", "-1", "+1", "1.0", "1e18", " 1"] {
+        for value in ["", "-1", "+1", "1.0", "1e18", " 1", "01", "00"] {
             assert!(parse_amount(value).is_err(), "{value}");
         }
         for value in [".1", "1.", "1.2.3", "NaN", "0.0000000000000000001"] {
             assert!(tokens_to_dust(value, 18).is_err(), "{value}");
         }
         assert!(tokens_to_dust("1", 78).is_err());
-        assert_eq!(
-            tokens_to_dust("1.00000001", 8).unwrap(),
-            BigUint::from(100000001u32)
-        );
+        for (tokens, decimals, dust) in [
+            ("1.00000001", 8, 100000001u64),
+            ("0.000000000000000001", 18, 1),
+            ("0.5", 1, 5),
+            ("0", 18, 0),
+            ("0.0", 1, 0),
+        ] {
+            assert_eq!(
+                tokens_to_dust(tokens, decimals).unwrap(),
+                BigUint::from(dust),
+                "{tokens}"
+            );
+        }
         assert_eq!(
             json_amount(&serde_json::json!(u64::MAX.to_string())),
             Some(u64::MAX.into())

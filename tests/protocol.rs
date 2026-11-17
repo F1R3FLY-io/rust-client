@@ -100,10 +100,6 @@ fn nested_integer_queries_follow_the_new_json_schema() {
     ] {
         assert!(RhoValue::from_node_json(&json!({tag: {"data": raw}})).is_err());
     }
-    assert_eq!(
-        node_cli::vault::tokens_to_dust("0.000000000000000001", 18).unwrap(),
-        BigUint::from(1u8)
-    );
 }
 
 #[test]

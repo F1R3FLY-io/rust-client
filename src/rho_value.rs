@@ -167,16 +167,11 @@ impl RhoValue {
         let field = |name: &str| body.get(name).ok_or_else(|| malformed(json));
         let data = || field("data");
         let int = |range: &'static str| -> Result<i128> {
-            if let Some(text) = data()?.as_str() {
-                return i128::try_from(canonical_bigint(text)?).map_err(|_| {
-                    Error::decode("value", format!("{json} is out of range for {range}"))
-                });
-            }
-            data()?
-                .as_i64()
-                .map(i128::from)
-                .or_else(|| data().ok()?.as_u64().map(i128::from))
-                .ok_or_else(|| Error::decode("value", format!("{range} expected, got {json}")))
+            let value = crate::amount::json_integer(data()?).map_err(|e| {
+                Error::decode("value", format!("{range} expected, got {json}: {e}"))
+            })?;
+            i128::try_from(value)
+                .map_err(|_| Error::decode("value", format!("{json} is out of range for {range}")))
         };
         let narrow = |range: &'static str| -> Error {
             Error::decode("value", format!("{json} is out of range for {range}"))
@@ -291,13 +286,7 @@ fn hex_field(text: &str, json: &Value) -> Result<Vec<u8>> {
 
 /// The node writes a BigInt as its canonical decimal string; anything else is malformed.
 fn canonical_bigint(text: &str) -> Result<BigInt> {
-    let value = text
-        .parse::<BigInt>()
-        .map_err(|e| Error::decode("BigInt", format!("{text}: {e}")))?;
-    if value.to_string() != text {
-        return Err(Error::decode("BigInt", format!("{text} is not canonical")));
-    }
-    Ok(value)
+    crate::amount::signed(text).map_err(|e| Error::decode("BigInt", e))
 }
 
 impl TryFrom<&Par> for RhoValue {

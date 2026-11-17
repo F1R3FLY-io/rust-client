@@ -121,14 +121,7 @@ pub struct Balance {
 /// A phlo price as nodes report it: a canonical uint256 decimal string
 /// (f1r3node-rust #947, #881) or the JSON number older nodes sent.
 fn json_phlo_price(value: &serde_json::Value) -> Result<num_bigint::BigUint, String> {
-    match value {
-        serde_json::Value::String(text) => crate::amount::parse(text).map_err(|e| e.to_string()),
-        serde_json::Value::Number(number) => number
-            .as_u64()
-            .map(num_bigint::BigUint::from)
-            .ok_or_else(|| format!("phlo price {number} is not an unsigned integer")),
-        _ => Err(format!("invalid phlo price {value}")),
-    }
+    crate::amount::json_uint256(value).map_err(|e| format!("invalid phlo price: {e}"))
 }
 
 fn deserialize_phlo_price<'de, D: serde::Deserializer<'de>>(
