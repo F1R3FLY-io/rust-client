@@ -278,16 +278,31 @@ fn execution_failure(errored: bool, system_deploy_error: Option<&str>) -> Option
 /// - `"Pending"` — not yet canonical-finalized, not expired. Keep polling.
 /// - `"Expired"` — `valid_after_block_number + deploy_lifespan` elapsed
 ///   (LFB-anchored) without a clean canonical inclusion. Terminal.
+/// - `"Rejected"` — a deploy queue accepted the deploy, and the node refused
+///   it when the queue released it; `detail` says why. Terminal. A node never
+///   answers it.
+///
+/// A deploy queue also reports `queue_state` (`queued`, `submitted`,
+/// `in-block`, or the terminal state in lower case) and `detail`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployFinalizationStatus {
     pub state: String,
     pub rejection_count: u32,
     pub latest_block_hash: Option<String>,
+    /// Where a deploy queue holds the deploy; absent from a node's answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_state: Option<String>,
+    /// The node's error kind and message for a `Rejected` deploy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 impl DeployFinalizationStatus {
     pub fn is_terminal(&self) -> bool {
-        matches!(self.state.as_str(), "Finalized" | "Failed" | "Expired")
+        matches!(
+            self.state.as_str(),
+            "Finalized" | "Failed" | "Expired" | "Rejected"
+        )
     }
 }
 

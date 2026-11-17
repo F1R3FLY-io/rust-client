@@ -43,14 +43,17 @@ Query time:       12.4ms
 | `Failed` | yes | Rholang execution itself failed (insufficient phlo, contract error, etc.); effects will never apply |
 | `Pending` | no | Not yet canonical-finalized and not expired; keep polling |
 | `Expired` | yes | `valid_after_block_number + deploy_lifespan` elapsed without canonical inclusion |
+| `Rejected` | yes | Only from a deploy queue: the node refused the deploy when the queue released it; `detail` says why |
 
 ## Response fields
 
 | Field | Description |
 |-------|-------------|
-| `state` | One of the four states above |
+| `state` | One of the states above |
 | `rejection_count` | Number of finalized blocks where the sig appears in `body.rejected_deploys`; non-zero means the deploy is contending |
 | `latest_block_hash` | Highest-block-number canonical block containing the sig (clean or rejected); `null` until first inclusion |
+| `queue_state` | Only from a deploy queue: `queued`, `submitted`, `in-block`, or the terminal state in lower case |
+| `detail` | Only from a deploy queue: the node's error kind and message for a `Rejected` deploy |
 
 ## Polling guidance
 

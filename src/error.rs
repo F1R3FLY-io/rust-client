@@ -48,11 +48,19 @@ pub enum Error {
         message: String,
     },
 
+    /// The node or the deploy queue in front of it refused the deploy without
+    /// accepting it. [`DeployAdmissionReason::is_retryable`] says whether the
+    /// same signed deploy can be sent again.
     #[error("deploy {deploy_id} was not accepted ({reason}): {message}")]
     DeployAdmissionRefused {
         deploy_id: String,
         reason: DeployAdmissionReason,
         message: String,
+        /// How long the deploy queue asks the client to wait before sending
+        /// again, from its `retry-after` metadata.
+        retry_after: Option<Duration>,
+        /// What holds deploys back, for a full deploy queue.
+        congestion: Option<QueueCongestion>,
     },
 
     /// The node's answer did not have the expected shape.
@@ -98,6 +106,16 @@ pub enum Error {
     #[error("deploy {deploy_id} expired without canonical inclusion")]
     DeployExpired { deploy_id: String },
 
+    /// A deploy queue accepted the deploy, and the node refused it when the
+    /// queue released it, such as a term that does not compile. The deploy
+    /// never executed.
+    #[error("deploy {deploy_id} was rejected by the node{}", describe(.detail))]
+    DeployRejected {
+        deploy_id: String,
+        /// The node's error kind and message, as the queue recorded them.
+        detail: Option<String>,
+    },
+
     /// No node reported a verdict for the deploy within the wait budget.
     #[error("deploy {deploy_id} reached no verdict within {}s{}", .waited.as_secs(), describe(.execution))]
     FinalizationTimeout {
@@ -130,17 +148,33 @@ pub enum Error {
     ContractRejected { contract: Contract, reason: String },
 }
 
+/// Why the node or its deploy queue did not accept a deploy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DeployAdmissionReason {
+    /// The node's retained record or byte budget is full.
     PoolBusy,
+    /// The node's submission limit is reached, or its admission state kept
+    /// changing.
     AdmissionBusy,
+    /// The deploy is larger than the node's whole byte budget.
     TooLarge,
+    /// The validity window or expiration timestamp has closed.
     Expired,
+    /// The validity height is too far ahead of the chain.
     OutsideWindow,
+    /// The deploy queue cannot land this deploy before its window closes.
+    QueueFull,
+    /// This deployer holds its full share of the deploy queue.
+    DeployerShareFull,
+    /// The deploy queue is not connected to its node.
+    QueueNodeUnavailable,
+    /// The deploy queue is shutting down.
+    QueueStopped,
 }
 
 impl DeployAdmissionReason {
+    /// The machine-readable code the node or the deploy queue documents.
     pub fn code(self) -> &'static str {
         match self {
             Self::PoolBusy => "deploy_pool_busy",
@@ -148,6 +182,9 @@ impl DeployAdmissionReason {
             Self::TooLarge => "deploy_too_large",
             Self::Expired => "deploy_expired",
             Self::OutsideWindow => "invalid_deploy_window",
+            Self::QueueFull | Self::DeployerShareFull => "deploy_queue_full",
+            Self::QueueNodeUnavailable => "node_unavailable",
+            Self::QueueStopped => "deploy_queue_stopped",
         }
     }
 
@@ -158,18 +195,45 @@ impl DeployAdmissionReason {
             Self::TooLarge,
             Self::Expired,
             Self::OutsideWindow,
+            Self::QueueFull,
+            Self::QueueNodeUnavailable,
+            Self::QueueStopped,
         ]
         .into_iter()
         .find(|reason| reason.code() == code)
     }
 
     /// Whether resubmitting the same signed deploy later can succeed.
+    ///
+    /// `QueueFull` is not: the queue admits a deploy only if it lands with
+    /// time to spare in its validity window, so sign a new deploy with a
+    /// current `validAfterBlockNumber` after the `retry_after` wait.
     pub fn is_retryable(self) -> bool {
         matches!(
             self,
-            Self::PoolBusy | Self::AdmissionBusy | Self::OutsideWindow
+            Self::PoolBusy
+                | Self::AdmissionBusy
+                | Self::OutsideWindow
+                | Self::DeployerShareFull
+                | Self::QueueNodeUnavailable
+                | Self::QueueStopped
         )
     }
+}
+
+/// What holds deploys back when a deploy queue refuses one as full.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum QueueCongestion {
+    /// The validator takes fewer deploys than arrive.
+    Validator,
+    /// The validator has created no block while the shard moved on. Send the
+    /// deploy to another validator's queue rather than wait.
+    ValidatorIdle,
+    /// The shard's finality trails the tip; every queue holds deploys back.
+    Shard,
+    /// The signed deploys the queue holds fill its storage budget.
+    Storage,
 }
 
 impl fmt::Display for DeployAdmissionReason {

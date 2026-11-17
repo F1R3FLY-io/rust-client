@@ -101,4 +101,19 @@ For nodes with [bounded admission (#789)](https://github.com/F1R3FLY-io/f1r3node
 
 For a retryable reason, wait and resubmit the same `SignedDeploy`. For `TooLarge` or `Expired`, the same deploy cannot be accepted; build a new one. `deploy` always creates a newly signed deploy. No automatic submission retry is added.
 
-Transport timeouts and unrecognised service errors retain their existing types and do not prove non-acceptance. `submit_and_wait` returns a typed admission refusal without starting finalization polling. Reconcile an unknown outcome by the original deploy ID before deciding to submit again.
+Transport timeouts and unrecognised service errors retain their existing types and do not prove non-acceptance. `submit_and_wait` returns a typed admission refusal without starting finalization polling, except `Expired`: as for an older node's expiry refusal, it first checks whether the deploy is already in a block and waits for that verdict. Reconcile an unknown outcome by the original deploy ID before deciding to submit again.
+
+### Deploy queue
+
+A [deploy queue (#990)](https://github.com/F1R3FLY-io/f1r3node-rust/pull/990) can serve a validator's client ports. It answers the node's own refusals as above, and its capacity and availability refusals as gRPC statuses, which `submit` also returns as `Error::DeployAdmissionRefused`. `retry_after` carries the queue's `retry-after` wait. The queue did not hold the deploy.
+
+| Reason | Code | gRPC status | `is_retryable()` | Client action |
+|---|---|---|---|---|
+| `QueueFull` | `deploy_queue_full` | `RESOURCE_EXHAUSTED` | No | Wait `retry_after`, then sign a new deploy with a current `validAfterBlockNumber`. With `congestion == ValidatorIdle`, send it to another validator instead of waiting |
+| `DeployerShareFull` | `deploy_queue_full` | `RESOURCE_EXHAUSTED` | Yes | This deployer holds its share of the queue; wait `retry_after`. If the window has closed meanwhile, the queue answers `deploy_expired` |
+| `QueueNodeUnavailable` | `node_unavailable` | `UNAVAILABLE` | Yes | Wait `retry_after` and send the same deploy again |
+| `QueueStopped` | `deploy_queue_stopped` | `UNAVAILABLE` | Yes | Send the same deploy again later |
+
+`congestion` names what holds a full queue back: `Validator`, `ValidatorIdle`, `Shard` (finality trails the tip) or `Storage`. Other gRPC statuses, including a plain `UNAVAILABLE` from a dropped connection and the queue's `INTERNAL` store error, stay `Error::Grpc` with an unknown outcome.
+
+A queue's status answer adds `queue_state` and `detail` to `DeployFinalizationStatus`, and a terminal `Rejected` state: the node refused the deploy when the queue released it, such as a term that does not compile. `submit_and_wait` and `deploy_and_wait` return `Error::DeployRejected` with that detail. The deploy never executed.

@@ -4,7 +4,7 @@
 /// Provides a high-level async API for deploying Rholang code and querying state.
 use crate::deploy::{DeployOptions, SignedDeploy, DEFAULT_SHARD_ID};
 use crate::endpoint::Endpoint;
-use crate::error::{Error, Result};
+use crate::error::{DeployAdmissionReason, Error, Result};
 use crate::f1r3fly_api::{
     DeployDetail, DeployFinalizationStatus, DeployResult, ExploratoryResult, F1r3flyApi,
 };
@@ -548,7 +548,15 @@ impl F1r3flyConnectionManager {
     pub async fn submit_and_wait(&self, deploy: &SignedDeploy) -> Result<DeployResult> {
         let deploy_id = match self.api.submit(deploy).await {
             Ok(deploy_id) => deploy_id,
-            Err(refusal @ Error::NodeRejected { .. }) => {
+            // After the window closes the node refuses a deploy as expired
+            // whether or not it landed, so an expiry refusal is checked too.
+            Err(
+                refusal @ (Error::NodeRejected { .. }
+                | Error::DeployAdmissionRefused {
+                    reason: DeployAdmissionReason::Expired,
+                    ..
+                }),
+            ) => {
                 let deploy_id = deploy.id();
                 if !self.landed(&deploy_id).await? {
                     return Err(refusal);
@@ -601,6 +609,12 @@ impl F1r3flyConnectionManager {
                 });
             }
             "Expired" => return Err(Error::DeployExpired { deploy_id }),
+            "Rejected" => {
+                return Err(Error::DeployRejected {
+                    deploy_id,
+                    detail: status.detail,
+                })
+            }
             other => {
                 return Err(Error::decode(
                     "deploy finalization state",
@@ -801,7 +815,44 @@ mod tests {
             state: state.to_string(),
             rejection_count: 0,
             latest_block_hash: block.map(str::to_string),
+            queue_state: None,
+            detail: None,
         }))
+    }
+
+    #[test]
+    fn a_deploy_queue_rejection_is_terminal_and_keeps_its_detail() {
+        let rejected: DeployFinalizationStatus = serde_json::from_value(serde_json::json!({
+            "state": "Rejected",
+            "rejection_count": 0,
+            "latest_block_hash": null,
+            "queue_state": "rejected",
+            "detail": "rholang_bad_term: syntax error"
+        }))
+        .unwrap();
+        assert!(rejected.is_terminal());
+        assert_eq!(rejected.queue_state.as_deref(), Some("rejected"));
+        assert_eq!(
+            rejected.detail.as_deref(),
+            Some("rholang_bad_term: syntax error")
+        );
+
+        let outcome = poll_outcome(Ok(Some(rejected)), status("Pending", None));
+        assert!(
+            matches!(outcome, Ok(PollOutcome::Terminal { ref status, source: StatusSource::DeployNode })
+                if status.state == "Rejected"),
+            "{outcome:?}"
+        );
+
+        let from_node: DeployFinalizationStatus = serde_json::from_value(serde_json::json!({
+            "state": "Pending", "rejection_count": 0, "latest_block_hash": null
+        }))
+        .unwrap();
+        assert!(!from_node.is_terminal());
+        assert_eq!(from_node.queue_state, None);
+        assert!(!serde_json::to_string(&from_node)
+            .unwrap()
+            .contains("queue_state"));
     }
 
     fn timed_out(endpoint: &str) -> StatusAnswer {

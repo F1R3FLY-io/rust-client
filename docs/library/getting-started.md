@@ -285,10 +285,11 @@ variant rather than the message:
 | `Http` | The node answered HTTP with an error status; `code` carries its error code, such as `readonly_node_required` | Depends on `code` |
 | `Grpc` | A gRPC call ended with a non-OK status | Depends on the status |
 | `NodeRejected` | The node handled the request and refused it, such as a deploy with a bad signature | No |
+| `DeployAdmissionRefused` | The node or its deploy queue did not accept the deploy; `reason`, `retry_after` and `congestion` say why | When `reason.is_retryable()`, resend the same `SignedDeploy` after `retry_after`; otherwise sign a new deploy |
 | `Decode` | The node's answer did not have the expected shape | No |
 | `InvalidInput`, `MissingConfig` | An argument or environment variable was wrong or missing | No |
 | `Io` | A local file could not be read or written | No |
-| `DeployFailed`, `DeployExpired` | The deploy's terminal verdict | No; a new deploy is a new transaction |
+| `DeployFailed`, `DeployExpired`, `DeployRejected` | The deploy's terminal verdict | No; a new deploy is a new transaction |
 | `DeployResultUnreadable` | The deploy finalized, but its result could not be read | Read the result again by deploy ID; never resubmit, its effects are final |
 | `FinalizationTimeout` | No verdict within the wait; the deploy may still finalize | Wait again, do not redeploy |
 | `ConflictingVerdicts`, `NodeTooOld` | The nodes disagree, or cannot serve the call | No |

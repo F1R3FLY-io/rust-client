@@ -2,11 +2,11 @@
 
 use super::F1r3flyApi;
 use crate::deploy::{DeployOptions, SignedDeploy, UnsignedDeploy};
-use crate::error::{DeployAdmissionReason, Error, Result};
+use crate::error::{DeployAdmissionReason, Error, QueueCongestion, Result};
 use f1r3fly_models::casper::v1::deploy_response::Message as DeployResponseMessage;
 use f1r3fly_models::casper::v1::propose_response::Message as ProposeResponseMessage;
 use f1r3fly_models::casper::ProposeQuery;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::f1r3fly_api::ProposeResult;
 
@@ -36,7 +36,9 @@ impl F1r3flyApi {
         let response = client
             .do_deploy(deploy.proto().clone())
             .await
-            .map_err(|status| self.grpc_error(status))?
+            .map_err(|status| {
+                queue_refusal(&id, &status).unwrap_or_else(|| self.grpc_error(status))
+            })?
             .into_inner();
         tracing::debug!(elapsed = ?do_deploy_start.elapsed(), "do_deploy RPC");
 
@@ -163,6 +165,8 @@ fn deploy_refusal(deploy_id: &str, messages: &[String]) -> Error {
             deploy_id: deploy_id.to_string(),
             reason,
             message,
+            retry_after: None,
+            congestion: None,
         },
         None => Error::NodeRejected {
             operation: "the deploy",
@@ -171,9 +175,174 @@ fn deploy_refusal(deploy_id: &str, messages: &[String]) -> Error {
     }
 }
 
+/// A deploy queue's capacity or availability refusal, which it answers as a
+/// gRPC status rather than a service error. The queue did not hold the
+/// deploy. Other statuses, such as a plain `UNAVAILABLE` from a dropped
+/// connection, leave the outcome unknown and are not classified here.
+fn queue_refusal(deploy_id: &str, status: &tonic::Status) -> Option<Error> {
+    const SHARE_FULL: &str = "deploy queue is full for this deployer";
+    const QUEUE_FULL: &str = "deploy queue is full:";
+    const NODE_UNAVAILABLE: &str = "deploy queue is not connected to its node";
+    const STOPPED: &str = "deploy queue is shutting down";
+
+    let message = status.message();
+    let reason = match status.code() {
+        tonic::Code::ResourceExhausted if message.starts_with(SHARE_FULL) => {
+            DeployAdmissionReason::DeployerShareFull
+        }
+        tonic::Code::ResourceExhausted if message.starts_with(QUEUE_FULL) => {
+            DeployAdmissionReason::QueueFull
+        }
+        tonic::Code::Unavailable if message.starts_with(NODE_UNAVAILABLE) => {
+            DeployAdmissionReason::QueueNodeUnavailable
+        }
+        tonic::Code::Unavailable if message.starts_with(STOPPED) => {
+            DeployAdmissionReason::QueueStopped
+        }
+        _ => return None,
+    };
+    let congestion = match reason {
+        DeployAdmissionReason::QueueFull => queue_congestion(&message[QUEUE_FULL.len()..]),
+        _ => None,
+    };
+    let retry_after = status
+        .metadata()
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|secs| secs.trim().parse::<u64>().ok())
+        .map(Duration::from_secs);
+    Some(Error::DeployAdmissionRefused {
+        deploy_id: deploy_id.to_string(),
+        reason,
+        message: message.to_string(),
+        retry_after,
+        congestion,
+    })
+}
+
+/// The cause a full queue names right after its `deploy queue is full:` prefix.
+fn queue_congestion(cause: &str) -> Option<QueueCongestion> {
+    let cause = cause.trim_start();
+    [
+        (
+            "the validator has created no block",
+            QueueCongestion::ValidatorIdle,
+        ),
+        (
+            "the validator is taking fewer deploys",
+            QueueCongestion::Validator,
+        ),
+        ("the shard's finality", QueueCongestion::Shard),
+        (
+            "the signed deploys the queue holds",
+            QueueCongestion::Storage,
+        ),
+    ]
+    .into_iter()
+    .find_map(|(prefix, congestion)| cause.starts_with(prefix).then_some(congestion))
+}
+
 #[cfg(test)]
 mod admission_tests {
     use super::*;
+
+    fn with_retry_after(mut status: tonic::Status, secs: &str) -> tonic::Status {
+        status
+            .metadata_mut()
+            .insert("retry-after", secs.parse().unwrap());
+        status
+    }
+
+    #[test]
+    fn deploy_queue_statuses_become_refusals_with_their_wait_and_cause() {
+        for (message, congestion) in [
+            (
+                "deploy queue is full: the validator is taking fewer deploys than arrive, so the \
+                 deploys ahead of this one would not land before its validity window closes; \
+                 sign it again with a current validAfterBlockNumber and retry in 12s",
+                QueueCongestion::Validator,
+            ),
+            (
+                "deploy queue is full: the validator has created no block while the shard moved \
+                 on, so ...",
+                QueueCongestion::ValidatorIdle,
+            ),
+            (
+                "deploy queue is full: the shard's finality is holding the validator back, so ...",
+                QueueCongestion::Shard,
+            ),
+            (
+                "deploy queue is full: the signed deploys the queue holds fill its storage \
+                 budget, so ...",
+                QueueCongestion::Storage,
+            ),
+        ] {
+            let status = with_retry_after(tonic::Status::resource_exhausted(message), "12");
+            let refusal = queue_refusal("signed-id", &status).expect("a queue refusal");
+            assert!(
+                matches!(&refusal, Error::DeployAdmissionRefused {
+                    deploy_id, reason: DeployAdmissionReason::QueueFull, retry_after, congestion: found, ..
+                } if deploy_id == "signed-id"
+                    && *retry_after == Some(Duration::from_secs(12))
+                    && *found == Some(congestion)),
+                "{refusal:?}"
+            );
+        }
+        assert!(!DeployAdmissionReason::QueueFull.is_retryable());
+    }
+
+    #[test]
+    fn deploy_queue_share_and_availability_refusals_allow_the_same_deploy() {
+        for (status, expected) in [
+            (
+                with_retry_after(
+                    tonic::Status::resource_exhausted(
+                        "deploy queue is full for this deployer: it holds 4 of the 4 deploys one \
+                         deployer may hold, so that other deployers keep room; retry in 3s",
+                    ),
+                    "3",
+                ),
+                DeployAdmissionReason::DeployerShareFull,
+            ),
+            (
+                with_retry_after(
+                    tonic::Status::unavailable(
+                        "deploy queue is not connected to its node; retry in 5s",
+                    ),
+                    "5",
+                ),
+                DeployAdmissionReason::QueueNodeUnavailable,
+            ),
+            (
+                tonic::Status::unavailable("deploy queue is shutting down"),
+                DeployAdmissionReason::QueueStopped,
+            ),
+        ] {
+            let refusal = queue_refusal("id", &status).expect("a queue refusal");
+            assert!(
+                matches!(refusal, Error::DeployAdmissionRefused { reason, congestion: None, .. }
+                    if reason == expected),
+                "{refusal:?}"
+            );
+            assert!(expected.is_retryable());
+        }
+        assert_eq!(
+            DeployAdmissionReason::DeployerShareFull.code(),
+            "deploy_queue_full"
+        );
+    }
+
+    #[test]
+    fn other_grpc_statuses_keep_an_unknown_outcome() {
+        for status in [
+            tonic::Status::unavailable("connection refused"),
+            tonic::Status::resource_exhausted("message length too large"),
+            tonic::Status::internal("queue store failed"),
+            tonic::Status::unknown("deploy queue is full: the shard's finality"),
+        ] {
+            assert!(queue_refusal("id", &status).is_none(), "{status:?}");
+        }
+    }
 
     #[test]
     fn deploy_service_envelope_preserves_the_admission_reason_and_signed_id() {
@@ -194,7 +363,7 @@ mod admission_tests {
         ] {
             let messages = vec![format!("{code}: deploy was not accepted")];
             assert!(matches!(deploy_refusal("signed-id", &messages),
-                Error::DeployAdmissionRefused { deploy_id, reason, message }
+                Error::DeployAdmissionRefused { deploy_id, reason, message, .. }
                 if deploy_id == "signed-id" && reason == expected && message == messages[0]));
             assert_eq!(expected.code(), code);
             assert_eq!(expected.is_retryable(), retryable, "{code}");
