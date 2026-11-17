@@ -162,7 +162,6 @@ fn wide_amount_and_fee_are_exact() {
     )
     .unwrap();
     assert_eq!(status.native_token_decimals, Some(18));
-    assert_eq!(status.min_phlo_price, BigUint::from(1u8));
     let amount = BigUint::from(1u8) << 150usize;
     let price = BigUint::from(1u8) << 128usize;
     let sender_before = balance(&keys::WIDE_SENDER.address);

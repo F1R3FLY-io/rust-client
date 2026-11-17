@@ -56,6 +56,24 @@ async fn block_transfers_against(body: String, extra_args: &[&str]) -> (Output, 
 
 #[tokio::test]
 async fn failed_transfer_does_not_abort_the_block_report() {
+    for amount in [json!(-1), json!("-1")] {
+        for success_amount in [json!(u64::MAX), json!("18446744073709551617")] {
+            assert_failed_transfer_report(amount.clone(), success_amount).await;
+        }
+    }
+}
+
+async fn assert_failed_transfer_report(
+    amount: serde_json::Value,
+    success_amount: serde_json::Value,
+) {
+    let expected_success = format!(
+        "Amount: {}",
+        success_amount
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| success_amount.to_string())
+    );
     let body = json!({
         "blockInfo": {"blockNumber": 42},
         "deploys": [{
@@ -64,14 +82,14 @@ async fn failed_transfer_does_not_abort_the_block_report() {
                 {
                     "fromAddr": "sender",
                     "toAddr": "recipient",
-                    "amount": "-1",
+                    "amount": amount,
                     "success": false,
                     "failReason": "Amount must be positive value"
                 },
                 {
                     "fromAddr": "sender",
                     "toAddr": "recipient",
-                    "amount": "18446744073709551617",
+                    "amount": success_amount,
                     "success": true,
                     "failReason": ""
                 }
@@ -88,7 +106,7 @@ async fn failed_transfer_does_not_abort_the_block_report() {
     for expected in [
         "Amount: -1",
         "Status: Failed: Amount must be positive value",
-        "Amount: 18446744073709551617",
+        &expected_success,
         "Status: Success",
         "Total deploys in block: 1",
         "Deploys with transfers: 1",

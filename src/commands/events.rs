@@ -515,8 +515,8 @@ mod bigint_tests {
                 "deploys": [{
                     "deploy-id": "test-deploy",
                     "transfers": [
-                        {"from-addr": "sender", "to-addr": "recipient", "amount": "1000", "success": true},
-                        {"from-addr": "sender", "to-addr": "recipient", "amount": "-1", "success": false},
+                        {"from-addr": "sender", "to-addr": "recipient", "amount": 1000, "success": true},
+                        {"from-addr": "sender", "to-addr": "recipient", "amount": -1, "success": false},
                         {"from-addr": "sender", "to-addr": "recipient", "amount": "18446744073709551617", "success": true}
                     ]
                 }]
@@ -543,8 +543,12 @@ mod bigint_tests {
     }
 
     #[test]
-    fn reads_signed_decimal_transfer_events() {
+    fn reads_signed_decimal_and_legacy_integer_transfer_events() {
         for (amount, success) in [
+            (serde_json::json!(1000), true),
+            (serde_json::json!(-1), false),
+            (serde_json::json!(i64::MIN), false),
+            (serde_json::json!(u64::MAX), true),
             (serde_json::json!("1000"), true),
             (serde_json::json!("-1"), false),
             (

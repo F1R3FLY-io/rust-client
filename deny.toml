@@ -24,6 +24,11 @@ ignore = [
   "RUSTSEC-2021-0141", # dotenv (transitive via openai-api-rs)
   "RUSTSEC-2024-0436", # paste proc-macro (transitive via node crates)
   "RUSTSEC-2025-0141", # bincode 1.x (transitive via node crates; bincode 2.0 is breaking)
+  # Maintenance-only advisory; no patched chrono version exists. The client
+  # exposes chrono in its registry/DAG APIs and pinned node dependencies require
+  # it too (rspace_plus_plus and x509-certificate). Accept while coordinating that API
+  # migration; re-evaluate with the next node pin. Other chrono advisories remain checked.
+  "RUSTSEC-2026-0543",
 ]
 
 # ---------------------------------------------------------------------------

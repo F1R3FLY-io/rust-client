@@ -87,24 +87,13 @@ The library's `ConnectionConfig::from_env` reads these, and fails if both key va
 
 An unset variable takes its default; a set but malformed one, such as a URL without an `http` or `https` scheme, is an error. So is `FIREFLY_CA_CERT` with any `http://` endpoint, and any removed variable (`FIREFLY_HOST`, `FIREFLY_GRPC_PORT`, `FIREFLY_HTTP_PORT`, `FIREFLY_OBSERVER_HOST`, `FIREFLY_OBSERVER_GRPC_PORT`, `FIREFLY_OBSERVER_HTTP_PORT`); the error names its replacement.
 
-
 ### Current node protocol
 
-This client targets f1r3node-rust dev `0ccc315d84b32d668e8db49cd56ba3c576693e15`.
-Its protocol dependencies and integration image are pinned together. Nodes using
-the previous monetary wire format are unsupported.
+The client uses uint256 Phlo prices and the current deploy wire format. See
+the [library guide](docs/library/getting-started.md#deploy-and-wait) for price types,
+limits, and signing, and its [amount documentation](docs/library/getting-started.md#exact-token-amounts)
+for response compatibility. Release 0.3.0 includes breaking Rust API changes;
+old saved deploys are rejected without rewriting or re-signing.
 
-`DeployOptions.phlo_price`, `NodeStatus.min_phlo_price`, and
-`DeployDetail.phlo_price` use `BigUint` (the last is optional). HTTP monetary
-values use canonical decimal strings (legacy JSON integers up to u64 are still
-accepted on read); protobuf deploy prices use exactly 32
-unsigned big-endian bytes. Prices must be positive and both the price and
-`phlo_limit * phlo_price` must fit uint256. The CLI still defaults to
-`--phlo-price 1`. Phlo units, heights and timestamps remain ordinary integers.
-Stored deploys using the old price encoding are rejected; they are never
-silently rewritten or signed again.
-
-Rholang HTTP `ExprInt` and `ExprUint64` values are decoded from canonical decimal
-strings or legacy JSON integers, including nested values. Failed-transfer reports retain signed, arbitrary-size
-attempted amounts. Existing bond calls always send a BigInt literal, even for
-small stakes. Whole-token conversion remains exact for 18-decimal tokens.
+See [testing](docs/testing.md) for the pinned node image, nightly compatibility
+checks, and the 18-decimal integration shard.

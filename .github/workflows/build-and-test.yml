@@ -2,6 +2,14 @@ name: Build and Test
 
 on:
   workflow_dispatch:
+    inputs:
+      node_image:
+        description: "Optional node image override (empty uses the reviewed integration pin)"
+        type: string
+        default: ""
+  schedule:
+    # Exercise moving node dev independently of reproducible PR gating.
+    - cron: '17 4 * * *'
   push:
     branches:
       - main
@@ -13,12 +21,8 @@ on:
       - dev
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
-
-env:
-  # Node 0ccc315d8, matching the protocol crate revisions in Cargo.toml.
-  FIREFLY_NODE_IMAGE: f1r3flyindustries/f1r3fly-rust@sha256:4eab74400b569aff7718d63b5551e97a2df6e568ff4799bce4366ac8545f7646
 
 jobs:
   # Format and lint checks: fast, runs in parallel with build_base.
@@ -336,7 +340,12 @@ jobs:
         timeout-minutes: 25
         env:
           RUST_BACKTRACE: "1"
-        run: cargo test --release --features integration --test integration
+          NODE_IMAGE_OVERRIDE: ${{ github.event_name == 'schedule' && 'f1r3flyindustries/f1r3fly-rust:dev' || inputs.node_image }}
+        run: |
+          if [ -n "$NODE_IMAGE_OVERRIDE" ]; then
+            export FIREFLY_NODE_IMAGE="$NODE_IMAGE_OVERRIDE"
+          fi
+          cargo test --release --locked --features integration --test integration
 
       - name: Upload Container Logs
         if: failure()

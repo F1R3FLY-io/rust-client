@@ -195,6 +195,7 @@ fn validate_charge(price: &TokenAmount, limit: i64) -> Result<()> {
     if price.is_zero() {
         return Err(Error::invalid("phlo price", "must be positive"));
     }
+    // Only imported deploy bytes can be negative; the builder takes a u64.
     if limit < 0 {
         return Err(Error::invalid("phlo limit", "must be non-negative"));
     }

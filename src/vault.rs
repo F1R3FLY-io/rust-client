@@ -196,7 +196,11 @@ pub fn parse_amount(value: &str) -> Result<BigUint> {
 
 /// Decode an unsigned uint256 amount, not a potentially rejected transfer attempt.
 pub fn json_amount(value: &serde_json::Value) -> Option<BigUint> {
-    crate::amount::parse(value.as_str()?).ok()
+    match value {
+        serde_json::Value::String(text) => crate::amount::parse(text).ok(),
+        serde_json::Value::Number(number) => number.as_u64().map(BigUint::from),
+        _ => None,
+    }
 }
 
 pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigUint, D::Error> {
@@ -208,7 +212,14 @@ pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigU
 /// Never use this decoder to validate outgoing transfers or stored balances.
 #[cfg(feature = "cli")]
 pub(crate) fn json_reported_amount(value: &serde_json::Value) -> Option<num_bigint::BigInt> {
-    f1r3fly_shared::rust::decimal::parse_signed(value.as_str()?).ok()
+    match value {
+        serde_json::Value::String(text) => f1r3fly_shared::rust::decimal::parse_signed(text).ok(),
+        serde_json::Value::Number(number) => number
+            .as_i64()
+            .map(num_bigint::BigInt::from)
+            .or_else(|| number.as_u64().map(num_bigint::BigInt::from)),
+        _ => None,
+    }
 }
 
 #[cfg(feature = "cli")]
@@ -274,6 +285,11 @@ mod reported_amount_tests {
     #[test]
     fn reported_amounts_preserve_signed_and_unsigned_integers() {
         for value in [
+            json!(i64::MIN),
+            json!(i64::MAX),
+            json!(u64::MAX),
+            json!(0),
+            json!(-1),
             json!(i64::MIN.to_string()),
             json!(i64::MAX.to_string()),
             json!(u64::MAX.to_string()),
@@ -318,12 +334,12 @@ mod reported_amount_tests {
             json!("1 "),
             json!("NaN"),
             json!("１"),
-            json!(1),
-            json!(-1),
             json!("01"),
             json!("-0"),
             json!(1.0),
             json!(1.5),
+            serde_json::from_str("18446744073709551616").unwrap(),
+            serde_json::from_str("-9223372036854775809").unwrap(),
             json!(true),
             json!(null),
             json!([]),
@@ -337,6 +353,35 @@ mod reported_amount_tests {
 #[cfg(test)]
 mod bigint_tests {
     use super::*;
+
+    #[test]
+    fn rpc_amounts_accept_exact_legacy_numbers_and_canonical_strings() {
+        for amount in [0, 1, (1u64 << 53) + 1, i64::MAX as u64, u64::MAX] {
+            for value in [
+                serde_json::json!(amount),
+                serde_json::json!(amount.to_string()),
+            ] {
+                assert_eq!(json_amount(&value), Some(BigUint::from(amount)));
+            }
+        }
+        let max = (BigUint::from(1u8) << 256usize) - 1u8;
+        assert_eq!(
+            json_amount(&serde_json::json!(max.to_string())),
+            Some(max.clone())
+        );
+        for value in [
+            serde_json::json!(-1),
+            serde_json::json!(1.0),
+            serde_json::json!(1.5),
+            serde_json::json!("01"),
+            serde_json::json!("+1"),
+            serde_json::json!("1e2"),
+            serde_json::json!((max + 1u8).to_string()),
+            serde_json::from_str("18446744073709551616").unwrap(),
+        ] {
+            assert!(json_amount(&value).is_none(), "{value}");
+        }
+    }
     #[test]
     fn literals_preserve_legacy_ints_and_encode_wide_amounts() {
         let last_int = BigUint::from(i64::MAX as u64);

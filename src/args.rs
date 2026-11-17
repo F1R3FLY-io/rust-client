@@ -400,7 +400,7 @@ pub struct DeployWaitArgs {
 #[derive(Args, Debug)]
 pub struct DeployOptionsArgs {
     /// Price per phlo, in the native token's base units
-    #[arg(long = "phlo-price", default_value = "1", value_parser = crate::amount::parse_price)]
+    #[arg(long = "phlo-price", default_value_t = num_bigint::BigUint::from(crate::deploy::DEFAULT_PHLO_PRICE), value_parser = crate::amount::parse_price)]
     pub phlo_price: num_bigint::BigUint,
 
     /// Shard the deploy is signed for: the target node's casper.shard-name
