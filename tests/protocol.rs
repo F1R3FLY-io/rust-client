@@ -110,18 +110,26 @@ fn nested_integer_queries_follow_the_new_json_schema() {
 fn node_encoder_and_verifier_agree_with_client_signatures() {
     use f1r3fly_crypto::rust::signatures::signed::Signed;
     let key = SigningKey::from_hex(&"42".repeat(32)).unwrap();
-    for price in [
+    let prices = [
         BigUint::from(1u8),
+        BigUint::from(i64::MAX as u64),
+        BigUint::from(1u8) << 63usize,
+        BigUint::from(u64::MAX),
         BigUint::from(1u8) << 128usize,
         (BigUint::from(1u8) << 256usize) - 1u8,
-    ] {
+    ];
+    // -1 is the anchor a client signs when the node's tip is height 0.
+    for (price, valid_after_block_number) in prices
+        .iter()
+        .flat_map(|price| [-1i64, 7].map(|anchor| (price.clone(), anchor)))
+    {
         let options = DeployOptions {
             timestamp: Some(1000),
             phlo_limit: 1,
             phlo_price: price.clone(),
             ..Default::default()
         };
-        let client = UnsignedDeploy::new("Nil", &options, 7, "root")
+        let client = UnsignedDeploy::new("Nil", &options, valid_after_block_number, "root")
             .unwrap()
             .sign(key.secret_key());
         let proto = DeployDataProto::decode(client.to_bytes().as_slice()).unwrap();
@@ -142,6 +150,62 @@ fn node_encoder_and_verifier_agree_with_client_signatures() {
             encoded,
             "import must preserve the saved bytes"
         );
+    }
+}
+
+/// Golden vectors shared with the wallet SDK
+/// (asi-alliance/asi-chain-wallet-sdk, `tests/fixtures/uint256/node-vectors.json`),
+/// generated from the node's crypto and prost code. The file is a byte-identical
+/// copy, so both clients are checked against the same expected bytes.
+#[test]
+fn signing_matches_the_vectors_shared_with_the_wallet_sdk() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/sdk-uint256-node-vectors.json")).unwrap();
+    let key = SigningKey::from_hex(&"01".repeat(32)).unwrap();
+    let vectors = fixture["vectors"].as_array().unwrap();
+    assert_eq!(vectors.len(), 10);
+    for vector in vectors {
+        let data = &vector["data"];
+        let text = |field: &str| vector[field].as_str().unwrap();
+        let options = DeployOptions {
+            timestamp: Some(data["timestamp"].as_i64().unwrap()),
+            phlo_limit: data["phloLimit"].as_u64().unwrap(),
+            phlo_price: data["phloPrice"].as_str().unwrap().parse().unwrap(),
+            ..Default::default()
+        };
+        let unsigned = UnsignedDeploy::new(
+            data["term"].as_str().unwrap(),
+            &options,
+            data["validAfterBlockNumber"].as_i64().unwrap(),
+            data["shardId"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(hex::encode(unsigned.digest()), text("hash"), "{data}");
+        let signed = unsigned.sign(key.secret_key());
+        assert_eq!(signed.id(), text("signature"), "{data}");
+
+        let mut proto = DeployDataProto::decode(signed.to_bytes().as_slice()).unwrap();
+        assert_eq!(hex::encode(&proto.deployer), text("publicKey"), "{data}");
+        // The signed projection: the fields a signature covers.
+        proto.sig = Default::default();
+        proto.deployer = Default::default();
+        proto.language = String::new();
+        proto.sig_algorithm = String::new();
+        assert_eq!(
+            hex::encode(proto.encode_to_vec()),
+            text("protobufHex"),
+            "{data}"
+        );
+
+        // The vector's own bytes, signature and key pass both verifiers.
+        let mut stored =
+            DeployDataProto::decode(hex::decode(text("protobufHex")).unwrap().as_slice()).unwrap();
+        stored.sig = hex::decode(text("signature")).unwrap().into();
+        stored.deployer = hex::decode(text("publicKey")).unwrap().into();
+        stored.sig_algorithm = "secp256k1".into();
+        stored.language = "rholang".into();
+        SignedDeploy::from_bytes(&stored.encode_to_vec()).expect("client verifies the vector");
+        DeployData::from_proto(stored).expect("node verifies the vector");
     }
 }
 
