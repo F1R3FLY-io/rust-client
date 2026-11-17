@@ -86,14 +86,3 @@ from here. Never reuse a key from a README against anything real.
 The library's `ConnectionConfig::from_env` reads these, and fails if both key variables are set. The CLI reads the same variables as fallbacks for its flags (except `FIREFLY_FINALIZATION_TIMEOUT`), also refuses a key file together with `FIREFLY_PRIVATE_KEY`, and adds `FIREFLY_INTERNAL_GRPC_URL`, `FIREFLY_READONLY_GRPC_URL`, `FIREFLY_READONLY_HTTP_URL`, `FIREFLY_CONFIG` and `FIREFLY_PROFILE`; see [Configuration](docs/configuration.md).
 
 An unset variable takes its default; a set but malformed one, such as a URL without an `http` or `https` scheme, is an error. So is `FIREFLY_CA_CERT` with any `http://` endpoint, and any removed variable (`FIREFLY_HOST`, `FIREFLY_GRPC_PORT`, `FIREFLY_HTTP_PORT`, `FIREFLY_OBSERVER_HOST`, `FIREFLY_OBSERVER_GRPC_PORT`, `FIREFLY_OBSERVER_HTTP_PORT`); the error names its replacement.
-
-### Current node protocol
-
-The client uses uint256 Phlo prices and the current deploy wire format. See
-the [library guide](docs/library/getting-started.md#deploy-and-wait) for price types,
-limits, and signing, and its [amount documentation](docs/library/getting-started.md#exact-token-amounts)
-for response compatibility. Release 0.3.0 includes breaking Rust API changes;
-old saved deploys are rejected without rewriting or re-signing.
-
-See [testing](docs/testing.md) for the pinned node image, nightly compatibility
-checks, and the 18-decimal integration shard.

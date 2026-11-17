@@ -125,12 +125,11 @@ price, or parse a decimal string into `BigUint` for larger values. The CLI's
 `--phlo-price` accepts the same positive range. Prices are encoded as exactly
 32 unsigned big-endian bytes before signing.
 
-In version 0.3.0, `DeployOptions.phlo_price` and `NodeStatus.min_phlo_price`
-become `BigUint`, `DeployDetail.phlo_price` becomes `Option<BigUint>`, and
-`deploy::DEFAULT_PHLO_PRICE` changes from `i64` to `u64`. These are breaking
-Rust API changes. Stored deploys with the old price encoding are rejected;
-the client never rewrites or re-signs them. Reading legacy JSON integers in
-responses does not enable the old transaction format.
+Prices a node reports are uint256 too: `NodeStatus.min_phlo_price` is a
+`BigUint` and `DeployDetail.phlo_price` an `Option<BigUint>`. Stored deploys
+with the old price encoding are rejected; the client never rewrites or
+re-signs them. Reading legacy JSON integers in responses does not enable the
+old transaction format.
 
 The shard a deploy is signed for is a connection setting, `shard_id` (env
 `FIREFLY_SHARD_ID`, default `root`); it must match the node's `casper.shard-name`.

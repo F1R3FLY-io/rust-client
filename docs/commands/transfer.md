@@ -21,7 +21,7 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `500000` | Most phlo the transfer deploy may spend |
-| `--phlo-price` | | `1` | Price per phlo, in the native token's base units |
+| `--phlo-price` | | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
 | `--propose` | | false | Also propose a block after deploy; `--grpc` must then be the node's internal API |
 | `--max-wait` | | `300` | Max seconds to wait for finalization |
@@ -71,7 +71,7 @@ Transfer: 1111AtahZe...r3g -> 111127RX5Z...iHA (100000000 dust)
 ## Exact amounts
 
 `--amount` accepts an unsigned decimal integer in raw base units, up to
-`2^256 - 1`. With `--whole-tokens`, it accepts a decimal token amount and uses
+`2^256 - 1`, without leading zeros. With `--whole-tokens`, it accepts a decimal token amount and uses
 the node's reported precision. For example, on an 18-decimal node,
 `--amount 1.000000000000000001 --whole-tokens` sends
 `1000000000000000001` raw units. Excess decimal places and overflow are errors;

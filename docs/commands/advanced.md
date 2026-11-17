@@ -164,7 +164,7 @@ node_cli bond-validator --stake <AMOUNT> --private-key-file <PATH> [OPTIONS]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--stake` | required | Stake amount |
+| `--stake` | required | Stake in base units: a decimal integer up to 2^256 − 1, without leading zeros |
 | `--private-key-file` | none | File holding the signing key's hex of the validator being bonded; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--grpc` | `http://localhost:40401` | gRPC endpoint, with no path, of the node to submit the deploy to — must be a **bonded validator** |
 | `--http` | `http://localhost:40403` | That node's HTTP endpoint, optionally with a base path |
@@ -175,7 +175,7 @@ node_cli bond-validator --stake <AMOUNT> --private-key-file <PATH> [OPTIONS]
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | `5000000000` | Most phlo the bond deploy may spend |
-| `--phlo-price` | `1` | Price per phlo, in the native token's base units |
+| `--phlo-price` | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
 **Submit to a bonded validator.** Any other node — including a bootstrap or
@@ -239,7 +239,7 @@ node_cli unbond-validator --private-key-file <PATH> [OPTIONS]
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | `5000000000` | Most phlo the withdrawal deploy may spend |
-| `--phlo-price` | `1` | Price per phlo, in the native token's base units |
+| `--phlo-price` | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
 The same routing rule as `bond-validator` applies: submit to a bonded
