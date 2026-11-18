@@ -21,7 +21,7 @@ node_cli deploy -f <FILE> [OPTIONS]
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `50000` | Most phlo the deploy may spend |
-| `--phlo-price` | | `1` | Price per phlo, in the native token's base units |
+| `--phlo-price` | | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
 | `--expiration` | | none | Expiration timestamp (ms, Unix epoch) |
 | `--expires-in` | | none | Expiration duration (seconds from now) |

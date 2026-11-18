@@ -1,4 +1,5 @@
 // Library modules
+mod amount;
 pub mod connection_manager;
 pub mod deploy;
 pub mod endpoint;

@@ -1,0 +1,147 @@
+{
+  "provenance": "prost generated from selected DeployDataProto; selected crypto Signed::create/verify and shared TokenAmount; unsigned wrapper mirrors supported DeployData::_to_proto fields; synthetic key is 32 bytes of 0x01",
+  "sourceRepository": "https://github.com/asi-alliance/asi-chain-rust-node",
+  "sourceRevision": "43d69b76046a3750527ad4495074f71a6dd15afb",
+  "vectors": [
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "1",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": -1
+      },
+      "hash": "d3b73642ed29136126ad7f8c3204eafbc1c8dea43ad9a2e88b5dc6a7b0ef6638",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150ffffffffffffffffff015a04726f6f747a200000000000000000000000000000000000000000000000000000000000000001",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "3044022016f92d1680993ff99d36625de41338fa03e100b35d8566611a83569f4c635e4402204b7979e84cdb1eacfbb588ae9f85c8b286e774a9e20556d6c37e2475b02ac6ab"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "1",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": 99
+      },
+      "hash": "06aaf6da2d4f4b6530d22ad9e8dcaf158c9ad1dd509301c218b596be0848ccb3",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150635a04726f6f747a200000000000000000000000000000000000000000000000000000000000000001",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "3045022100e42b12fa887fd315017db1fe101549ead36d17ad343c58d33cd1cee92fff35ee022074df5275f562d39b01382342715b2b41aff9468b8cb3d9bcc483a72e2421171f"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "9007199254740993",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": -1
+      },
+      "hash": "b581fd37faba80f04df30fcd511f8b788ee7fe18fdf732222ec85883c99b17ea",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150ffffffffffffffffff015a04726f6f747a200000000000000000000000000000000000000000000000000020000000000001",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "3045022100e4692cc8fa5afa22a157be5171ee19c62e3fadc53f77f2b978531334a50ccfb1022072fb74815cd78fed4d450714c910811cb0572c9a97dd50c58b52bb648ffaf6fa"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "9007199254740993",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": 99
+      },
+      "hash": "75fe304a73c2118317af1fef5aef2901c2f762e1377160b200bfb15ac6836353",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150635a04726f6f747a200000000000000000000000000000000000000000000000000020000000000001",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "304402205cf1bcfc114e2fca36157bf8ad49c3d91ef2332891d25b65c63d1ab23c242e7502205a2a85504f201216abe58622184cfcc811f399ba80d80c2d60705ff152849b99"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "9223372036854775808",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": -1
+      },
+      "hash": "d9fd732521976f204a01d4f840a8df100272cc59a79d367f77b30c511d68fd9d",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150ffffffffffffffffff015a04726f6f747a200000000000000000000000000000000000000000000000008000000000000000",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "304402200b1bc8bf762df6b922a378488278a62974cb16df47f9b078c405c90bc81df6fe02201444730655de5dd6a09daa7140284c8d1f8d72dc93b160f49663831eb3424efe"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "9223372036854775808",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": 99
+      },
+      "hash": "b97749ba62f37930eb5f94b16c8f976e1be1416993b02b8ef77f429b3142daab",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150635a04726f6f747a200000000000000000000000000000000000000000000000008000000000000000",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "3045022100a0477d01c852898fbae0933c4d6d44abcb09bf50a49be87f2f69ac0eaa165f61022002b9bd2a40760b6233830bad2163fb2f92e5739e6f674b1640001fc206cb31b2"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "340282366920938463463374607431768211456",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": -1
+      },
+      "hash": "4b1a89f67b153b24601d7987666a967043d1ed48b23d548d6e17d06ce940601d",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150ffffffffffffffffff015a04726f6f747a200000000000000000000000000000000100000000000000000000000000000000",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "304402201e85ca7147b1897344d8eca2a415d24080eaf74197056e377b88734ead3a72630220109352c82bdf69621564db326304d669c7a02b3d2072502fc054c716be894ef4"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "340282366920938463463374607431768211456",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": 99
+      },
+      "hash": "9fd51def102a5ef4ed2dec92d48f8fc0e0450113dd7bc48bb7a6d54bbbcc35d4",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150635a04726f6f747a200000000000000000000000000000000100000000000000000000000000000000",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "3045022100ce3af7642d996eba75f6d681353fccb4ab80a91b444a6737496f1413b244a67402207b19b1ca1e977578f2d9f8c3fe131facacbf6fbef10a3de74e8b659c7ff4b7e8"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": -1
+      },
+      "hash": "90272a57ebaf3843678998a8cebc9545d2cec832899aa0aa4d54f683ba086de6",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150ffffffffffffffffff015a04726f6f747a20ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "3044022061132d18afebff83641d478a3c5f78c2a72daf0019020e59c1e0cf2e3418803802206285519c19447d6e9cce092bc951b34a39875f06352fae9e8083914ad7cbd9e5"
+    },
+    {
+      "data": {
+        "phloLimit": 1,
+        "phloPrice": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+        "shardId": "root",
+        "term": "new return in { return!(42) }",
+        "timestamp": 1760000000123,
+        "validAfterBlockNumber": 99
+      },
+      "hash": "965b2abc28896220e3db6b08972e59b14fe4dc88ba605454261b23b43e9bf9f9",
+      "protobufHex": "121d6e65772072657475726e20696e207b2072657475726e2128343229207d18fb80b3c19c33400150635a04726f6f747a20ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "publicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+      "signature": "3045022100e335220f7267ad2aef3964f14358c873e58f4242c73916a4920688dd25570fa2022026972f08b7ea5a912dd94817f3505ec192a457930e73f1f90c74537973e864ac"
+    }
+  ]
+}

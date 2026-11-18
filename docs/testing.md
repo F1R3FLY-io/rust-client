@@ -32,9 +32,19 @@ returned early and 28 of them "passed" in 0.63 seconds without a node.
 
 | Variable | Effect |
 |---|---|
-| `FIREFLY_NODE_IMAGE` | Node image to run. Default `f1r3flyindustries/f1r3fly-rust:dev` |
+| `FIREFLY_NODE_IMAGE` | Node image override; unset or empty uses `tests/integration/node-image.txt` |
 | `FIREFLY_KEEP_SHARD` | Leave the shard up after the run, for debugging |
 | `RUST_LOG` | Passed to every node; the topology's own filter applies otherwise |
+
+The immutable image in `tests/integration/node-image.txt` is the single pin,
+matching the protocol dependencies in `Cargo.toml`. The harness records its
+selection in `shard.env` for Compose. PR and branch checks use this pin.
+The Build and Test workflow also runs nightly against the moving node `:dev`
+image on amd64 and arm64 to detect upstream changes independently of PR gating.
+A failed nightly run opens the issue "Nightly run against node :dev is failing",
+or comments on it while it is open.
+Manual workflow runs can set the `node_image` input to reproduce those checks;
+locally set `FIREFLY_NODE_IMAGE=f1r3flyindustries/f1r3fly-rust:dev`.
 
 Run one test by name:
 
@@ -48,6 +58,7 @@ has to be down first.
 ### The shard
 
 Defined in `tests/integration/topology/`, which the repository owns outright:
+the whole shard uses 18 native-token decimals, including existing test groups.
 
 | Service | Role | gRPC / HTTP |
 |---|---|---|
@@ -63,7 +74,7 @@ and the proxy's CA and server certificate. The harness writes the genesis bonds
 and wallets, each node's config carrying its validator key
 (`casper.validator-private-key`), the bootstrap key and the certificates into
 `target/integration-shard/`, plus `shard.env` (`IT_SHARD_DIR`,
-`IT_BOOT_NODE_ID`), which compose reads through `--env-file`. To run the
+`IT_BOOT_NODE_ID`, `FIREFLY_NODE_IMAGE`), which Compose reads through `--env-file`. To run the
 topology by hand after a harness run:
 
 ```bash
@@ -98,12 +109,11 @@ state, so nothing else may run beside it.
 
 ### When a run is red
 
-A failure against `:dev` is not automatically the client's fault — that tag
-moves. Re-run against the previous immutable `dev-v...-g<sha>` tag:
+A nightly or manual failure against `:dev` may reflect an upstream change.
+Re-run without an image override against `tests/integration/node-image.txt`:
 
-- **Green there** — the node changed. File it upstream; do not block the
-  client's PR on it.
-- **Red there** — the change under test is at fault.
+- **Green there** — investigate the node change; pinned PR checks remain independent.
+- **Red there** — investigate the client change and the failure evidence.
 
 The job records the digest it pulled, because the node's `/api/status` cannot
 identify its own build (f1r3node-rust#428).

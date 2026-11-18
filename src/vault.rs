@@ -165,10 +165,7 @@ pub fn validate_address(address: &str) -> Result<()> {
 }
 
 pub fn validate_amount(value: &BigUint) -> Result<()> {
-    if value.bits() > 256 {
-        return Err(Error::invalid("amount", "exceeds uint256"));
-    }
-    Ok(())
+    crate::amount::token(value).map(|_| ())
 }
 
 pub fn amount_literal(value: &BigUint) -> Result<String> {
@@ -180,27 +177,14 @@ pub fn amount_literal(value: &BigUint) -> Result<String> {
     })
 }
 
+/// A uint256 amount in base units, written as a canonical decimal.
 pub fn parse_amount(value: &str) -> Result<BigUint> {
-    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(Error::invalid(
-            "amount",
-            format!("{value:?} is not an unsigned decimal integer"),
-        ));
-    }
-    let amount = value
-        .parse::<BigUint>()
-        .map_err(|e| Error::invalid("amount", e))?;
-    validate_amount(&amount)?;
-    Ok(amount)
+    crate::amount::uint256(value).map_err(|e| Error::invalid("amount", e))
 }
 
 /// Decode an unsigned uint256 amount, not a potentially rejected transfer attempt.
 pub fn json_amount(value: &serde_json::Value) -> Option<BigUint> {
-    match value {
-        serde_json::Value::String(text) => parse_amount(text).ok(),
-        serde_json::Value::Number(number) => number.as_u64().map(BigUint::from),
-        _ => None,
-    }
+    crate::amount::json_uint256(value).ok()
 }
 
 pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigUint, D::Error> {
@@ -212,22 +196,7 @@ pub fn deserialize_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BigU
 /// Never use this decoder to validate outgoing transfers or stored balances.
 #[cfg(feature = "cli")]
 pub(crate) fn json_reported_amount(value: &serde_json::Value) -> Option<num_bigint::BigInt> {
-    use num_bigint::BigInt;
-
-    match value {
-        serde_json::Value::String(text) => {
-            let digits = text.strip_prefix('-').unwrap_or(text);
-            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-                return None;
-            }
-            text.parse().ok()
-        }
-        serde_json::Value::Number(number) => number
-            .as_i64()
-            .map(BigInt::from)
-            .or_else(|| number.as_u64().map(BigInt::from)),
-        _ => None,
-    }
+    crate::amount::json_integer(value).ok()
 }
 
 #[cfg(feature = "cli")]
@@ -255,12 +224,16 @@ pub fn tokens_to_dust(tokens: &str, decimals: u32) -> Result<BigUint> {
             format!("{tokens:?} is malformed or has more than {decimals} decimal places"),
         ));
     }
-    parse_amount(&format!(
+    let digits = format!(
         "{}{}{}",
         whole,
         fraction,
         "0".repeat(decimals as usize - fraction.len())
-    ))
+    );
+    match digits.trim_start_matches('0') {
+        "" => Ok(BigUint::default()),
+        significant => parse_amount(significant),
+    }
 }
 
 pub fn dust_to_tokens(dust: &BigUint, decimals: u32) -> Result<String> {
@@ -293,11 +266,14 @@ mod reported_amount_tests {
     #[test]
     fn reported_amounts_preserve_signed_and_unsigned_integers() {
         for value in [
-            json!(0),
-            json!(-1),
             json!(i64::MIN),
             json!(i64::MAX),
             json!(u64::MAX),
+            json!(0),
+            json!(-1),
+            json!(i64::MIN.to_string()),
+            json!(i64::MAX.to_string()),
+            json!(u64::MAX.to_string()),
             json!("0"),
             json!("-1"),
             json!("18446744073709551617"),
@@ -339,8 +315,12 @@ mod reported_amount_tests {
             json!("1 "),
             json!("NaN"),
             json!("１"),
+            json!("01"),
+            json!("-0"),
             json!(1.0),
             json!(1.5),
+            serde_json::from_str("18446744073709551616").unwrap(),
+            serde_json::from_str("-9223372036854775809").unwrap(),
             json!(true),
             json!(null),
             json!([]),
@@ -354,6 +334,35 @@ mod reported_amount_tests {
 #[cfg(test)]
 mod bigint_tests {
     use super::*;
+
+    #[test]
+    fn rpc_amounts_accept_exact_legacy_numbers_and_canonical_strings() {
+        for amount in [0, 1, (1u64 << 53) + 1, i64::MAX as u64, u64::MAX] {
+            for value in [
+                serde_json::json!(amount),
+                serde_json::json!(amount.to_string()),
+            ] {
+                assert_eq!(json_amount(&value), Some(BigUint::from(amount)));
+            }
+        }
+        let max = (BigUint::from(1u8) << 256usize) - 1u8;
+        assert_eq!(
+            json_amount(&serde_json::json!(max.to_string())),
+            Some(max.clone())
+        );
+        for value in [
+            serde_json::json!(-1),
+            serde_json::json!(1.0),
+            serde_json::json!(1.5),
+            serde_json::json!("01"),
+            serde_json::json!("+1"),
+            serde_json::json!("1e2"),
+            serde_json::json!((max + 1u8).to_string()),
+            serde_json::from_str("18446744073709551616").unwrap(),
+        ] {
+            assert!(json_amount(&value).is_none(), "{value}");
+        }
+    }
     #[test]
     fn literals_preserve_legacy_ints_and_encode_wide_amounts() {
         let last_int = BigUint::from(i64::MAX as u64);
@@ -371,19 +380,28 @@ mod bigint_tests {
 
     #[test]
     fn invalid_amounts_do_not_round_or_wrap() {
-        for value in ["", "-1", "+1", "1.0", "1e18", " 1"] {
+        for value in ["", "-1", "+1", "1.0", "1e18", " 1", "01", "00"] {
             assert!(parse_amount(value).is_err(), "{value}");
         }
         for value in [".1", "1.", "1.2.3", "NaN", "0.0000000000000000001"] {
             assert!(tokens_to_dust(value, 18).is_err(), "{value}");
         }
         assert!(tokens_to_dust("1", 78).is_err());
+        for (tokens, decimals, dust) in [
+            ("1.00000001", 8, 100000001u64),
+            ("0.000000000000000001", 18, 1),
+            ("0.5", 1, 5),
+            ("0", 18, 0),
+            ("0.0", 1, 0),
+        ] {
+            assert_eq!(
+                tokens_to_dust(tokens, decimals).unwrap(),
+                BigUint::from(dust),
+                "{tokens}"
+            );
+        }
         assert_eq!(
-            tokens_to_dust("1.00000001", 8).unwrap(),
-            BigUint::from(100000001u32)
-        );
-        assert_eq!(
-            json_amount(&serde_json::json!(u64::MAX)),
+            json_amount(&serde_json::json!(u64::MAX.to_string())),
             Some(u64::MAX.into())
         );
         assert!(json_amount(&serde_json::json!(-1)).is_none());
