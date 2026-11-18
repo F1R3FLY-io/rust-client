@@ -4,6 +4,64 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.2.9] - 2026-10-30
+
+### Bug Fixes
+
+- never release a version twice, and let dev declare the next version
+- never overwrite a saved key, and check profile fields reach their arguments
+- refuse a key file together with FIREFLY_PRIVATE_KEY
+- refuse a CA on plaintext, removed env vars and defaults that cannot work
+- patch pulldown-cmark advisory RUSTSEC-2026-0414
+- normalize external signatures and resolve resends of expired deploys
+- make an unreadable result of a finalized deploy non-retryable
+- dump node logs by compose service name
+- name the read-only requirement when the report never arrives
+- warn once per node while finalization status is unavailable
+- wait for the node's transfer report instead of reporting none
+- take the first terminal verdict from either node
+- read block-approval-received and report unknown event types
+- give epoch-info and epoch-rewards only the port each reads
+- preserve signed amounts in failed transfer reports
+- preserve BigInt token and stake amounts
+- patch rustls, rustls-webpki, tokio and webpki-roots advisories
+
+### Documentation
+
+- signing keys, configuration profiles and generated test keys
+- stop printing a funded private key in the README
+- correct the bonding path and the query port split
+
+### Features
+
+- validator-status reports whether the validator is proposing
+- return query results as values, and balances from the node's balance endpoint [**breaking**]
+- resolve settings from flags, environment and config profiles, with config show
+- take signing keys from a key file or the environment, never a flag [**breaking**]
+- bound every request with connect and request timeouts, and accept HTTP base paths
+- reach nodes by URL, with TLS and an optional observer [**breaking**]
+
+### Miscellaneous
+
+- remove an unreferenced committed node certificate
+
+### Refactoring
+
+- one Send + Sync error type for the library [**breaking**]
+- parse the PoS tuple once and share the BigInt canonical check
+
+### Testing
+
+- wait for the read-only node to settle a deploy before reading its state
+- generate every key per run instead of committing them
+- point the transfer-report fixture at --http
+
+### Build
+
+- move ratatui to 0.30, off the unsound lru 0.12
+- pin node crates to the dev commit CI tests against
+
+
 ## [0.2.7] - 2026-09-16
 
 ### Bug Fixes

@@ -223,7 +223,7 @@ impl NodeHttp {
         }
         let balance: BalanceResponse = json(response, &url, "balance").await?;
         Ok(Balance {
-            dust: crate::vault::parse_amount(&balance.balance)
+            dust: crate::amount::uint256(&balance.balance)
                 .map_err(|e| Error::decode("balance", e))?,
             address: balance.address,
             block: balance.block,

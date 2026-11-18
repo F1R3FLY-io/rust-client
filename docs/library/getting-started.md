@@ -108,7 +108,7 @@ let pars = result.data?;                // empty when the deploy wrote nothing
 ```
 
 `DeployOptions` carries what the deploy signs besides its term: `phlo_limit`
-(default `deploy::DEFAULT_PHLO_LIMIT`, 50,000), `phlo_price` (default 1),
+(default `deploy::DEFAULT_PHLO_LIMIT`, 50,000), `phlo_price` (`BigUint`, default 1),
 `expiration` (Unix ms, or `None`) and `timestamp` (`None` for automatic; set it
 for contracts such as `insertSigned` that check the deploy's timestamp). The
 deployer's vault must cover `phlo_limit × phlo_price`, so set the limit to what
@@ -118,6 +118,18 @@ the deploy needs rather than to something very large:
 let options = DeployOptions::default().with_phlo_limit(500_000);
 let result = manager.deploy_and_wait("new x in { x!(1) }", &options).await?;
 ```
+
+Prices must be in `1..=2^256 - 1`, and the maximum charge
+`phlo_limit × phlo_price` must also fit uint256. Use `1u8.into()` for a literal
+price, or parse a decimal string into `BigUint` for larger values. The CLI's
+`--phlo-price` accepts the same positive range. Prices are encoded as exactly
+32 unsigned big-endian bytes before signing.
+
+Prices a node reports are uint256 too: `NodeStatus.min_phlo_price` is a
+`BigUint` and `DeployDetail.phlo_price` an `Option<BigUint>`. Stored deploys
+with the old price encoding are rejected; the client never rewrites or
+re-signs them. Reading legacy JSON integers in responses does not enable the
+old transaction format.
 
 The shard a deploy is signed for is a connection setting, `shard_id` (env
 `FIREFLY_SHARD_ID`, default `root`); it must match the node's `casper.shard-name`.
@@ -354,7 +366,8 @@ canonical decimal strings from node PRs
 [#947](https://github.com/F1R3FLY-io/f1r3node-rust/pull/947) and
 [#881](https://github.com/F1R3FLY-io/f1r3node-rust/pull/881). The client reads
 both the string form and the JSON number older nodes sent, holding the result
-as `num_bigint::BigInt` so prices above 64 bits stay exact.
+as `num_bigint::BigUint` so prices above 64 bits stay exact. Prices above
+uint256 are rejected.
 
 A signed deploy carries its phlo price as 32 big-endian bytes, the node's
 `TokenAmount` wire form introduced by node PR
@@ -366,3 +379,7 @@ Transfer reports describe attempted amounts, including rejected transfers.
 With the `cli` feature, `commands::events::TransferEvent.amount` uses signed
 `num_bigint::BigInt` to preserve negative and oversized attempts. Outgoing
 amounts and stored balances still use unsigned uint256 validation.
+Transfer responses accept canonical decimal strings and legacy JSON integers:
+unsigned values must fit `u64` when supplied as numbers, while reported failed
+attempts also accept negative `i64` numbers. Larger values must use strings.
+Floating-point numbers are rejected without rounding.

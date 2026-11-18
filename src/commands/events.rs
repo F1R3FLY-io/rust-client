@@ -543,10 +543,14 @@ mod bigint_tests {
     }
 
     #[test]
-    fn reads_legacy_and_bigint_transfer_events() {
+    fn reads_signed_decimal_and_legacy_integer_transfer_events() {
         for (amount, success) in [
             (serde_json::json!(1000), true),
             (serde_json::json!(-1), false),
+            (serde_json::json!(i64::MIN), false),
+            (serde_json::json!(u64::MAX), true),
+            (serde_json::json!("1000"), true),
+            (serde_json::json!("-1"), false),
             (
                 serde_json::json!("1606938044258990275541962092341162602522202993782792835301377"),
                 true,

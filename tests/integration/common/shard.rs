@@ -140,6 +140,8 @@ impl Shard {
     fn compose_command(&self, args: &[&str]) -> Command {
         let mut command = Command::new("docker");
         command
+            // Prevent an inherited empty override from masking shard.env's pin.
+            .env("FIREFLY_NODE_IMAGE", image())
             .args(["compose", "-p", PROJECT, "--env-file"])
             .arg(shard_dir().join("shard.env"))
             .arg("-f")
@@ -219,8 +221,9 @@ fn write_shard_files(dir: &Path, topology: &Path) -> Result<(), String> {
     write(
         dir.join("shard.env"),
         &format!(
-            "IT_SHARD_DIR={}\nIT_BOOT_NODE_ID={boot_node_id}\n",
-            dir.display()
+            "IT_SHARD_DIR={}\nIT_BOOT_NODE_ID={boot_node_id}\nFIREFLY_NODE_IMAGE={}\n",
+            dir.display(),
+            image()
         ),
     )
 }
@@ -300,7 +303,9 @@ impl Drop for Shard {
 
 pub fn image() -> String {
     std::env::var("FIREFLY_NODE_IMAGE")
-        .unwrap_or_else(|_| "f1r3flyindustries/f1r3fly-rust:dev".to_string())
+        .ok()
+        .filter(|image| !image.trim().is_empty())
+        .unwrap_or_else(|| include_str!("../node-image.txt").trim().to_owned())
 }
 
 fn topology_dir() -> PathBuf {
