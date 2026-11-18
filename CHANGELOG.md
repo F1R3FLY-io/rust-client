@@ -4,6 +4,32 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.3.0] - 2026-11-18
+
+### Bug Fixes
+
+- complete uint256 response compatibility and release readiness [**breaking**]
+- align deploy signing and phlo prices with node #881 and #947
+- accept exact integer strings from node APIs
+- align fees and RPC values with uint256 node protocol
+
+### CI
+
+- open an issue when the nightly run against node :dev fails
+
+### Documentation
+
+- document uint256 price and amount input; drop release notes from standing docs
+
+### Refactoring
+
+- decode node integers and uint256 amounts in one place
+
+### Testing
+
+- check signing against the wallet SDK node vectors
+
+
 ## [0.2.9] - 2026-10-30
 
 ### Bug Fixes
