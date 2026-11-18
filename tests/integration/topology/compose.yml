@@ -6,7 +6,7 @@
 # Every key is generated per run. The harness writes the genesis files, each
 # node's config with its validator key, the bootstrap's TLS key and the proxy's
 # certificate into IT_SHARD_DIR, and the bootstrap's node ID into
-# IT_BOOT_NODE_ID; both are in $IT_SHARD_DIR/shard.env. To debug a failing
+# IT_BOOT_NODE_ID; these and FIREFLY_NODE_IMAGE are in $IT_SHARD_DIR/shard.env. To debug a failing
 # suite by hand, after a harness run:
 #   docker compose --env-file target/integration-shard/shard.env \
 #     -f tests/integration/topology/compose.yml up -d
@@ -20,7 +20,7 @@
 name: rust-client-it
 
 x-node: &node
-  image: ${FIREFLY_NODE_IMAGE:-f1r3flyindustries/f1r3fly-rust:dev}
+  image: ${FIREFLY_NODE_IMAGE:?set by the harness in shard.env}
   user: root
   networks: [shard]
   environment:
