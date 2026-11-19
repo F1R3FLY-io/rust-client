@@ -46,7 +46,9 @@ finalize while some of its deploys' effects are dropped during merge, so the
 node withholds a terminal verdict until the finalized floor passes the deploy's
 contestability bound. Each node writes its verdict once and never changes it,
 so the first terminal state either node reports ends the wait; two nodes
-reporting different terminal states is an error. `/api/deploy/{id}` serves
+reporting different canonical verdicts is an error. A queue's `Rejected`
+describes its own submission. A canonical verdict from the other endpoint
+takes precedence when both arrive in the same poll. `/api/deploy/{id}` serves
 the same verdict as `finalizationState`; the wait reads it only for the
 execution error it reports.
 

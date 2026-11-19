@@ -107,8 +107,8 @@ pub enum Error {
     DeployExpired { deploy_id: String },
 
     /// A deploy queue accepted the deploy, and the node refused it when the
-    /// queue released it, such as a term that does not compile. The deploy
-    /// never executed.
+    /// queue released it, such as a term that does not compile. This verdict
+    /// applies to submission through that queue.
     #[error("deploy {deploy_id} was rejected by the node{}", describe(.detail))]
     DeployRejected {
         deploy_id: String,
@@ -188,6 +188,8 @@ impl DeployAdmissionReason {
         }
     }
 
+    /// Decodes an unambiguous reason. Both queue capacity refusals use
+    /// `deploy_queue_full`; distinguishing them requires the queue's message.
     pub fn from_code(code: &str) -> Option<Self> {
         [
             Self::PoolBusy,
@@ -195,7 +197,6 @@ impl DeployAdmissionReason {
             Self::TooLarge,
             Self::Expired,
             Self::OutsideWindow,
-            Self::QueueFull,
             Self::QueueNodeUnavailable,
             Self::QueueStopped,
         ]
@@ -389,6 +390,17 @@ mod tests {
         ] {
             assert!(error.to_string().contains(cause), "{error}");
             assert!(error.source().is_none(), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_shared_queue_code_cannot_determine_retryability() {
+        use DeployAdmissionReason::{DeployerShareFull, QueueFull};
+
+        assert_ne!(DeployerShareFull.is_retryable(), QueueFull.is_retryable());
+        for reason in [DeployerShareFull, QueueFull] {
+            assert_eq!(reason.code(), "deploy_queue_full");
+            assert_eq!(DeployAdmissionReason::from_code(reason.code()), None);
         }
     }
 
