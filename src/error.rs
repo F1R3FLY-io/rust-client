@@ -63,6 +63,17 @@ pub enum Error {
         congestion: Option<QueueCongestion>,
     },
 
+    /// A resend was refused and the inclusion lookup failed. An earlier
+    /// submission of the same signature may already have landed.
+    #[error(
+        "outcome of deploy {deploy_id} is unknown: {refusal}; inclusion lookup failed: {lookup}"
+    )]
+    DeployOutcomeUnknown {
+        deploy_id: String,
+        refusal: Box<Error>,
+        lookup: Box<Error>,
+    },
+
     /// The node's answer did not have the expected shape.
     #[error("unexpected {what} from the node: {detail}")]
     Decode { what: &'static str, detail: String },

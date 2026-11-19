@@ -298,6 +298,7 @@ variant rather than the message:
 | `Grpc` | A gRPC call ended with a non-OK status | Depends on the status |
 | `NodeRejected` | The node handled the request and refused it, such as a deploy with a bad signature | No |
 | `DeployAdmissionRefused` | The node or its deploy queue did not accept the deploy; `reason`, `retry_after` and `congestion` say why | When `reason.is_retryable()`, resend the same `SignedDeploy` after `retry_after`; otherwise sign a new deploy |
+| `DeployOutcomeUnknown` | A resend was refused and the inclusion lookup failed. `refusal` retains the original reason and retry metadata, and `lookup` retains the lookup error | Reconcile by the original `deploy_id` before signing a new deploy |
 | `Decode` | The node's answer did not have the expected shape | No |
 | `InvalidInput`, `MissingConfig` | An argument or environment variable was wrong or missing | No |
 | `Io` | A local file could not be read or written | No |

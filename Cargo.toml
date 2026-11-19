@@ -22,6 +22,11 @@ harness = false
 required-features = ["cli", "integration"]
 
 [[test]]
+name = "live_queue"
+path = "tests/live_queue.rs"
+required-features = ["integration"]
+
+[[test]]
 name = "transfer_reports"
 required-features = ["cli"]
 
@@ -81,5 +86,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 toml = { version = "0.8", optional = true }
 
 [dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "tokio", "ws", "json"] }
 libtest-mimic = "0.8.2"
 rcgen = "0.13"

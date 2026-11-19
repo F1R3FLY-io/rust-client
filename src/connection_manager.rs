@@ -579,11 +579,21 @@ impl F1r3flyConnectionManager {
                     ..
                 }
         );
-        if check_inclusion && self.landed(&deploy_id).await? {
-            tracing::info!(%deploy_id, %refusal, "The refused deploy is already in a block");
-            return Ok(deploy_id);
+        if !check_inclusion {
+            return Err(refusal);
         }
-        Err(refusal)
+        match self.landed(&deploy_id).await {
+            Ok(true) => {
+                tracing::info!(%deploy_id, %refusal, "The refused deploy is already in a block");
+                Ok(deploy_id)
+            }
+            Ok(false) => Err(refusal),
+            Err(lookup) => Err(Error::DeployOutcomeUnknown {
+                deploy_id,
+                refusal: Box::new(refusal),
+                lookup: Box::new(lookup),
+            }),
+        }
     }
 
     /// Whether the deploy node or the observer holds the deploy in a block.

@@ -347,6 +347,9 @@ jobs:
           fi
           cargo test --release --locked --features integration --test integration
 
+      - name: Test production deploy queue
+        run: bash scripts/test-deploy-queue.sh
+
       - name: Upload Container Logs
         if: failure()
         uses: actions/upload-artifact@v4
