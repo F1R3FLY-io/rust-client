@@ -46,7 +46,7 @@ returned early and 28 of them "passed" in 0.63 seconds without a node.
 |---|---|
 | `FIREFLY_NODE_IMAGE` | Node image override; unset or empty uses `tests/integration/node-image.txt` |
 | `FIREFLY_KEEP_SHARD` | Leave the shard up after the run, for debugging |
-| `RUST_LOG` | Passed to every node; the topology's own filter applies otherwise |
+| `RUST_LOG` | Passed to every node; the node's default filter applies otherwise |
 
 The immutable image in `tests/integration/node-image.txt` is the single pin,
 matching the protocol dependencies in `Cargo.toml`. The harness records its
