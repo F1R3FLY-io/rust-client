@@ -305,6 +305,8 @@ jobs:
           - { runner: ubuntu-24.04-arm, name: arm64, rustflags: "-C target-feature=+aes,+neon" }
     env:
       RUSTFLAGS: ${{ matrix.arch.rustflags }}
+      # Empty selects tests/integration/node-image.txt.
+      FIREFLY_NODE_IMAGE: ${{ github.event_name == 'schedule' && 'f1r3flyindustries/f1r3fly-rust:dev' || inputs.node_image }}
     steps:
       - name: Clone Repository
         uses: actions/checkout@v4
@@ -340,12 +342,7 @@ jobs:
         timeout-minutes: 25
         env:
           RUST_BACKTRACE: "1"
-          NODE_IMAGE_OVERRIDE: ${{ github.event_name == 'schedule' && 'f1r3flyindustries/f1r3fly-rust:dev' || inputs.node_image }}
-        run: |
-          if [ -n "$NODE_IMAGE_OVERRIDE" ]; then
-            export FIREFLY_NODE_IMAGE="$NODE_IMAGE_OVERRIDE"
-          fi
-          cargo test --release --locked --features integration --test integration
+        run: cargo test --release --locked --features integration --test integration
 
       - name: Test production deploy queue
         run: bash scripts/test-deploy-queue.sh
