@@ -229,8 +229,16 @@ fn a_landed_deploy_resent_after_it_expired_is_the_same_deploy() {
     let refusal = rt()
         .block_on(api.submit(&signed))
         .expect_err("the node should refuse an expired deploy");
+    // A node with bounded admission names the expiry by its code; an older
+    // node refuses it with a plain message.
     assert!(
-        matches!(refusal, node_cli::Error::NodeRejected { ref message, .. }
+        matches!(
+            refusal,
+            node_cli::Error::DeployAdmissionRefused {
+                reason: node_cli::DeployAdmissionReason::Expired,
+                ..
+            }
+        ) || matches!(refusal, node_cli::Error::NodeRejected { ref message, .. }
             if message.contains("expired")),
         "the refusal does not name the expiry: {refusal}"
     );

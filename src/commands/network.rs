@@ -564,7 +564,8 @@ pub async fn get_data_command(args: &GetDataArgs) -> CliResult {
 ///
 /// Hits the node's `/api/deploy-finalization-status/{sig}` endpoint and
 /// renders the result. State is one of `Finalized`, `Failed`, `Pending`,
-/// `Expired` — see `DeployFinalizationStatus` for terminality semantics.
+/// `Expired`, or `Rejected` from a deploy queue — see
+/// `DeployFinalizationStatus` for terminality semantics.
 pub async fn deploy_status_command(args: &DeployStatusArgs) -> CliResult {
     let sig_hex = args.sig.trim_start_matches("0x");
 
@@ -592,6 +593,12 @@ pub async fn deploy_status_command(args: &DeployStatusArgs) -> CliResult {
             match status.latest_block_hash.as_deref() {
                 Some(hash) => println!("Latest block:     {hash}"),
                 None => println!("Latest block:     (not yet included)"),
+            }
+            if let Some(queue_state) = status.queue_state.as_deref() {
+                println!("Queue state:      {queue_state}");
+            }
+            if let Some(detail) = status.detail.as_deref() {
+                println!("Detail:           {detail}");
             }
             println!("Query time:       {duration:.2?}");
         }

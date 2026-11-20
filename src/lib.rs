@@ -31,7 +31,7 @@ pub mod settings;
 pub use connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 pub use deploy::{DeployOptions, SignedDeploy, UnsignedDeploy};
 pub use endpoint::Endpoint;
-pub use error::{Contract, Error, Result, TransportError};
+pub use error::{Contract, DeployAdmissionReason, Error, QueueCongestion, Result, TransportError};
 pub use events::NodeEvents;
 pub use f1r3fly_api::{
     Balance, BlockRef, BlockSummary, DeployDetail, DeployResult, ExploratoryResult,

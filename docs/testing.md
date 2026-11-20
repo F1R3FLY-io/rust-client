@@ -1,7 +1,7 @@
 # Testing
 
-Two suites. Unit tests need nothing; the integration suite runs every test
-against a real shard it creates itself.
+The default suite runs without Docker. Linux integration tests exercise a
+real shard and the production deploy queue.
 
 ## Unit tests
 
@@ -9,8 +9,20 @@ against a real shard it creates itself.
 cargo test --release
 ```
 
-Pure logic only — key handling, Rholang conversion, PoS and vault response
-parsing, signing. No node, no Docker.
+This includes gRPC and HTTP fixtures for queue shutdown, storage failures,
+retry metadata, and a failed inclusion lookup after a refused resend.
+
+## Deploy queue integration
+
+```bash
+bash scripts/test-deploy-queue.sh
+```
+
+The script runs the upstream queue image pinned by digest on Linux with
+Docker host networking. Reserve loopback ports 40571, 40573 and 40583.
+A validator fixture holds the chain tip at a fixed height so the actual
+queue reaches its deadline and per-deployer limits reproducibly. CI runs
+this test separately from the shard suite.
 
 ## Integration tests
 

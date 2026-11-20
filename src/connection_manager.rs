@@ -4,7 +4,7 @@
 /// Provides a high-level async API for deploying Rholang code and querying state.
 use crate::deploy::{DeployOptions, SignedDeploy, DEFAULT_SHARD_ID};
 use crate::endpoint::Endpoint;
-use crate::error::{Error, Result};
+use crate::error::{DeployAdmissionReason, Error, Result};
 use crate::f1r3fly_api::{
     DeployDetail, DeployFinalizationStatus, DeployResult, ExploratoryResult, F1r3flyApi,
 };
@@ -254,9 +254,9 @@ fn report_unavailable(
     }
 }
 
-/// Terminal states are write-once on a node, so whichever node reports one first
-/// has the verdict. Two nodes reporting different terminal states is an error,
-/// never a choice. A 404 (`Ok(None)`) from the deploy node is conclusive unless
+/// Different canonical verdicts conflict. A queue's local rejection yields to
+/// a canonical verdict from the other endpoint in the same poll.
+/// A 404 (`Ok(None)`) from the deploy node is conclusive unless
 /// the observer answered. `observer` is `None` when no observer is configured.
 fn poll_outcome(
     deploy_id: &str,
@@ -275,11 +275,21 @@ fn poll_outcome(
     };
     match (terminal(&node), terminal(&observer)) {
         (Some(from_node), Some(from_observer)) if from_node.state != from_observer.state => {
-            return Err(Error::ConflictingVerdicts {
-                deploy_id: deploy_id.to_string(),
-                node: from_node.state,
-                observer: from_observer.state,
-            });
+            return match (from_node.state.as_str(), from_observer.state.as_str()) {
+                ("Rejected", _) => Ok(PollOutcome::Terminal {
+                    status: from_observer,
+                    source: StatusSource::Observer,
+                }),
+                (_, "Rejected") => Ok(PollOutcome::Terminal {
+                    status: from_node,
+                    source: StatusSource::DeployNode,
+                }),
+                _ => Err(Error::ConflictingVerdicts {
+                    deploy_id: deploy_id.to_string(),
+                    node: from_node.state,
+                    observer: from_observer.state,
+                }),
+            };
         }
         (Some(status), _) => {
             return Ok(PollOutcome::Terminal {
@@ -407,10 +417,11 @@ impl F1r3flyConnectionManager {
     }
 
     /// Wait for a deploy to reach a terminal finalization state (`Finalized` /
-    /// `Failed` / `Expired`) via `/api/deploy-finalization-status/{sig}`.
+    /// `Failed` / `Expired` / `Rejected`) via `/api/deploy-finalization-status/{sig}`.
     ///
     /// Each poll asks the deploy node and, when one is configured, the
-    /// observer; the first terminal state either reports is the verdict. Fails
+    /// observer. A canonical verdict takes precedence over a queue rejection
+    /// reported in the same poll. Fails
     /// immediately when the deploy node does not serve the endpoint and no
     /// observer answered, and when the budget elapses without a terminal state.
     pub async fn wait_for_deploy_finalization(
@@ -548,19 +559,41 @@ impl F1r3flyConnectionManager {
     pub async fn submit_and_wait(&self, deploy: &SignedDeploy) -> Result<DeployResult> {
         let deploy_id = match self.api.submit(deploy).await {
             Ok(deploy_id) => deploy_id,
-            Err(refusal @ Error::NodeRejected { .. }) => {
-                let deploy_id = deploy.id();
-                if !self.landed(&deploy_id).await? {
-                    return Err(refusal);
-                }
-                tracing::info!(deploy_id = %deploy_id, %refusal,
-                    "The node refused a deploy that is already in a block");
-                deploy_id
-            }
-            Err(error) => return Err(error),
+            Err(refusal) => self.reconcile_refusal(deploy.id(), refusal).await?,
         };
         tracing::info!(deploy_id = %deploy_id, "Deploy submitted");
         self.await_result(deploy_id).await
+    }
+
+    async fn reconcile_refusal(&self, deploy_id: String, refusal: Error) -> Result<String> {
+        // Ingress limits, queue availability, and expiry can reject a resend
+        // before checking its signature against previously accepted deploys.
+        let check_inclusion = matches!(
+            refusal,
+            Error::NodeRejected { .. }
+                | Error::DeployAdmissionRefused {
+                    reason: DeployAdmissionReason::AdmissionBusy
+                        | DeployAdmissionReason::QueueNodeUnavailable
+                        | DeployAdmissionReason::QueueStopped
+                        | DeployAdmissionReason::Expired,
+                    ..
+                }
+        );
+        if !check_inclusion {
+            return Err(refusal);
+        }
+        match self.landed(&deploy_id).await {
+            Ok(true) => {
+                tracing::info!(%deploy_id, %refusal, "The refused deploy is already in a block");
+                Ok(deploy_id)
+            }
+            Ok(false) => Err(refusal),
+            Err(lookup) => Err(Error::DeployOutcomeUnknown {
+                deploy_id,
+                refusal: Box::new(refusal),
+                lookup: Box::new(lookup),
+            }),
+        }
     }
 
     /// Whether the deploy node or the observer holds the deploy in a block.
@@ -601,6 +634,12 @@ impl F1r3flyConnectionManager {
                 });
             }
             "Expired" => return Err(Error::DeployExpired { deploy_id }),
+            "Rejected" => {
+                return Err(Error::DeployRejected {
+                    deploy_id,
+                    detail: status.detail,
+                })
+            }
             other => {
                 return Err(Error::decode(
                     "deploy finalization state",
@@ -801,7 +840,44 @@ mod tests {
             state: state.to_string(),
             rejection_count: 0,
             latest_block_hash: block.map(str::to_string),
+            queue_state: None,
+            detail: None,
         }))
+    }
+
+    #[test]
+    fn a_deploy_queue_rejection_is_terminal_and_keeps_its_detail() {
+        let rejected: DeployFinalizationStatus = serde_json::from_value(serde_json::json!({
+            "state": "Rejected",
+            "rejection_count": 0,
+            "latest_block_hash": null,
+            "queue_state": "rejected",
+            "detail": "rholang_bad_term: syntax error"
+        }))
+        .unwrap();
+        assert!(rejected.is_terminal());
+        assert_eq!(rejected.queue_state.as_deref(), Some("rejected"));
+        assert_eq!(
+            rejected.detail.as_deref(),
+            Some("rholang_bad_term: syntax error")
+        );
+
+        let outcome = poll_outcome(Ok(Some(rejected)), status("Pending", None));
+        assert!(
+            matches!(outcome, Ok(PollOutcome::Terminal { ref status, source: StatusSource::DeployNode })
+                if status.state == "Rejected"),
+            "{outcome:?}"
+        );
+
+        let from_node: DeployFinalizationStatus = serde_json::from_value(serde_json::json!({
+            "state": "Pending", "rejection_count": 0, "latest_block_hash": null
+        }))
+        .unwrap();
+        assert!(!from_node.is_terminal());
+        assert_eq!(from_node.queue_state, None);
+        assert!(!serde_json::to_string(&from_node)
+            .unwrap()
+            .contains("queue_state"));
     }
 
     fn timed_out(endpoint: &str) -> StatusAnswer {
@@ -853,6 +929,24 @@ mod tests {
                 if status.state == "Failed"),
             "{outcome:?}"
         );
+    }
+
+    #[test]
+    fn canonical_verdicts_take_precedence_over_a_queue_rejection() {
+        for state in ["Finalized", "Failed", "Expired"] {
+            for source in [StatusSource::Observer, StatusSource::DeployNode] {
+                let canonical = status(state, (state != "Expired").then_some("b1"));
+                let rejected = status("Rejected", None);
+                let outcome = match source {
+                    StatusSource::Observer => poll_outcome(rejected, canonical),
+                    StatusSource::DeployNode => poll_outcome(canonical, rejected),
+                };
+                assert!(
+                    matches!(outcome, Ok(PollOutcome::Terminal { status, source: actual })
+                    if status.state == state && actual == source)
+                );
+            }
+        }
     }
 
     #[test]
@@ -943,6 +1037,76 @@ mod tests {
         assert!(super::landed(held(), Some(lookup_failed())).unwrap());
         assert!(super::landed(lookup_failed(), Some(held())).unwrap());
         assert!(super::landed(Ok(None), Some(held())).unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_busy_ingress_resolves_a_landed_signature_and_preserves_a_fresh_refusal() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let http = endpoint(&format!("http://{}", listener.local_addr().unwrap()));
+        let manager = F1r3flyConnectionManager::new(ConnectionConfig::new(
+            endpoint(DEFAULT_GRPC_URL),
+            http,
+            key(),
+        ))
+        .unwrap();
+        let server = tokio::spawn(async move {
+            let landed = serde_json::to_string(&DeployDetail::finalized("abcd", false)).unwrap();
+            for (sig, status, body) in [
+                ("abcd", "200 OK", landed.as_str()),
+                (
+                    "dcba",
+                    "404 Not Found",
+                    r#"{"error":"deploy_not_found","message":"unknown deploy"}"#,
+                ),
+            ] {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut reader = BufReader::new(socket);
+                let mut line = String::new();
+                reader.read_line(&mut line).await.unwrap();
+                assert_eq!(line, format!("GET /api/deploy/{sig} HTTP/1.1\r\n"));
+                loop {
+                    line.clear();
+                    assert_ne!(reader.read_line(&mut line).await.unwrap(), 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                reader
+                    .get_mut()
+                    .write_all(response.as_bytes())
+                    .await
+                    .unwrap();
+            }
+        });
+        let reconcile = |sig: &str| {
+            manager.reconcile_refusal(
+                sig.into(),
+                Error::DeployAdmissionRefused {
+                    deploy_id: sig.into(),
+                    reason: DeployAdmissionReason::AdmissionBusy,
+                    message: "submission limit reached".into(),
+                    retry_after: None,
+                    congestion: None,
+                },
+            )
+        };
+        assert_eq!(reconcile("abcd").await.unwrap(), "abcd");
+        assert!(
+            matches!(reconcile("dcba").await, Err(Error::DeployAdmissionRefused {
+            reason: DeployAdmissionReason::AdmissionBusy, deploy_id, ..
+        }) if deploy_id == "dcba")
+        );
+        tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     #[test]

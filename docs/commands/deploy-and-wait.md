@@ -85,10 +85,11 @@ Block proposed: abc123...
 
 ## Timeouts
 
-The deploy must reach a terminal state (`Finalized`, `Failed`, or `Expired`) within `--max-wait` seconds. The status is polled every `--check-interval` seconds.
+The deploy must reach a terminal state (`Finalized`, `Failed`, `Expired`, or a deploy queue's `Rejected`) within `--max-wait` seconds. The status is polled every `--check-interval` seconds.
 
 - `Failed` → command exits with an error naming the block, cost and execution error
 - `Expired` → command exits with error indicating the deploy never landed canonically
+- `Rejected` → command exits with error naming the node's refusal, which a deploy queue recorded when it released the deploy
 - Timeout while still `Pending` → command exits with error; if a node that saw the deploy in a block reports a failed execution, the error names it
 
 ## Observer Node
