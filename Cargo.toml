@@ -89,3 +89,4 @@ toml = { version = "0.8", optional = true }
 axum = { version = "0.8", default-features = false, features = ["http1", "http2", "tokio", "ws", "json"] }
 libtest-mimic = "0.8.2"
 rcgen = "0.13"
+tonic-prost = "0.14"
