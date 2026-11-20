@@ -181,6 +181,8 @@ pub struct NodeStatus {
     pub current_epoch: Option<i64>,
     #[serde(rename = "epochLength", default)]
     pub epoch_length: Option<i32>,
+    #[serde(rename = "maxPhloLimit", default)]
+    pub max_phlo_limit: Option<i64>,
 }
 
 /// Deploy execution detail from the node's `/api/deploy/{id}` endpoint.

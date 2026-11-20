@@ -730,9 +730,10 @@ pub struct BondValidatorArgs {
     #[arg(short, long)]
     pub stake: String,
 
-    /// Most phlo the deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::pos::POS_CALL_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo the deploy may spend, at most the shard's cap. Default: the
+    /// lesser of 10000000 and the cap
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     #[command(flatten)]
     pub key: KeyArgs,
@@ -755,9 +756,10 @@ pub struct UnbondValidatorArgs {
     #[command(flatten)]
     pub key: KeyArgs,
 
-    /// Most phlo the deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::pos::POS_CALL_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo the deploy may spend, at most the shard's cap. Default: the
+    /// lesser of 10000000 and the cap
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     /// Check interval in seconds for deploy status
     #[arg(long = "check-interval", default_value_t = 5)]

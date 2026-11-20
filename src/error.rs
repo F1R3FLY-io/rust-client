@@ -154,6 +154,14 @@ pub enum Error {
         requirement: &'static str,
     },
 
+    /// The node serves the value the call needs but has not adopted it from
+    /// the chain yet.
+    #[error("{endpoint} reports no {parameter} yet: it has not adopted the shard's parameters")]
+    NodeNotReady {
+        endpoint: String,
+        parameter: &'static str,
+    },
+
     /// A system contract executed the call and answered with a rejection.
     #[error("{contract} rejected the call: {reason}")]
     ContractRejected { contract: Contract, reason: String },

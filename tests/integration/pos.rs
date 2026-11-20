@@ -20,6 +20,10 @@ const EPOCH_LENGTH: i64 = 4;
 
 const STAKE: &str = "100";
 
+/// What a PoS call reports when it takes the default limit under the node's
+/// default cap.
+const DEFAULT_PHLO_LIMIT: &str = "Phlo limit: 10000000 (shard cap: 20000000)";
+
 pub fn trials() -> Vec<Trial> {
     vec![
         Trial::test("pos::genesis_reports_three_bonded_validators", || {
@@ -73,8 +77,13 @@ fn genesis_reports_three_bonded_validators() {
 /// Start the joiner, bond it, and watch it enter the active set at the next
 /// epoch boundary. A second bond of the same key must be refused.
 fn a_joiner_bonds_and_becomes_active() {
+    bond_with(&keys::VALIDATOR4, &["--phlo-limit", "20000001"])
+        .expect_failure("a bond above the shard's phlo cap")
+        .expect_contains("20000001 is above the shard's cap of 20000000");
+
     let bonded = bond(&keys::VALIDATOR4)
         .expect_success("bond-validator")
+        .expect_contains(DEFAULT_PHLO_LIMIT)
         .expect_contains("Bond");
     chain::finalized_on_read_only(&bonded);
 
@@ -105,7 +114,9 @@ fn a_joiner_bonds_and_becomes_active() {
 /// Unbonding takes the joiner out of the bond set and puts its stake into
 /// quarantine; the chain must keep finalizing without it.
 fn unbonding_quarantines_the_stake() {
-    let unbonded = unbond(&keys::VALIDATOR4).expect_success("unbond-validator");
+    let unbonded = unbond(&keys::VALIDATOR4)
+        .expect_success("unbond-validator")
+        .expect_contains(DEFAULT_PHLO_LIMIT);
     chain::finalized_on_read_only(&unbonded);
 
     validator_status(&keys::VALIDATOR4.public)
@@ -134,12 +145,17 @@ fn validator_status(public_key: &str) -> Output {
 }
 
 fn bond(key: &keys::Key) -> Output {
+    bond_with(key, &[])
+}
+
+fn bond_with(key: &keys::Key, args: &[&str]) -> Output {
     Cli::new("bond-validator")
         .args(["--stake", STAKE])
         .key(key)
         .at(Node::Validator1)
         .observing(Node::ReadOnly)
         .args(["--max-wait", "180"])
+        .args(args.iter().copied())
         .run()
 }
 
