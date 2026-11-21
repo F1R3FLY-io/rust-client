@@ -20,7 +20,7 @@ async fn real_queue_refuses_a_short_window_and_a_full_deployer_share() {
                 Json(json!({
                     "shardId": "root", "minPhloPrice": "1", "latestBlockNumber": 101,
                     "lastFinalizedBlockNumber": 99, "deployLifespan": 50,
-                    "maxUserDeploysPerBlock": 4, "maxParentDepth": 25,
+                    "maxUserDeploysPerBlock": 4, "maxParentDepth": 25, "maxPhloLimit": 20000000,
                     "isValidator": true, "isReadOnly": false
                 }))
             }),
