@@ -225,6 +225,19 @@ Blocks by Height:
 
 Multiple blocks at the same height indicate parallel proposals from different validators.
 
+Blocks the node's DAG names in the range but whose content it does not hold are
+listed after the others, in two groups. Blocks at or below the node's prune
+floor were deleted by its retention and are gone from that node; query an
+archive node. Blocks above it are not held yet, and a retry may return them.
+
+```
+ Pruned by this node (prune floor 1200); query an archive node:
+ Block #1150: 9c1e04b7a2...
+
+ Not held by this node yet; retry:
+ Block #1251: 3fa8d61c90...
+```
+
 ## block-transfers
 
 Extracts native token transfers from a block's deploys.

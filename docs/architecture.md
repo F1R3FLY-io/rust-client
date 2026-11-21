@@ -66,7 +66,7 @@ Data is read AFTER finalization, not before. Reading before finalization can ret
 | `getDataAtName` | get_data_at_deploy_id | Reads deploy result data (non-deprecated) |
 | `isFinalized` | is_finalized | Checks block finalization |
 | `showMainChain` | show_main_chain, tip sampling | Block queries |
-| `getBlocksByHeights` | get_blocks_by_height | Range queries |
+| `getBlocksByHeights` | get_blocks_by_height | Range queries, with blocks the node names but does not hold (`include_missing`) |
 
 ### HTTP (port 40403 on a node)
 
