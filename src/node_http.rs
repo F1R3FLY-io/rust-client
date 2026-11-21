@@ -36,6 +36,28 @@ impl NodeHttp {
         json(response, &url, "JSON response").await
     }
 
+    /// The largest phlo limit the shard admits in a deploy, as `/api/status`
+    /// reports it.
+    pub async fn max_phlo_limit(&self) -> Result<u64> {
+        const FIELD: &str = "maxPhloLimit";
+        let status = self.get_json("/api/status").await?;
+        match status.get(FIELD) {
+            None => Err(Error::NodeTooOld {
+                endpoint: self.endpoint.to_string(),
+                feature: "maxPhloLimit in /api/status",
+                requirement: "a node that caps deploy phlo limits",
+            }),
+            Some(serde_json::Value::Null) => Err(Error::NodeNotReady {
+                endpoint: self.endpoint.to_string(),
+                parameter: FIELD,
+            }),
+            Some(cap) => cap
+                .as_u64()
+                .filter(|cap| *cap > 0)
+                .ok_or_else(|| Error::decode(FIELD, cap)),
+        }
+    }
+
     /// GET `path` as text.
     pub async fn get_text(&self, path: &str) -> Result<String> {
         let url = self.endpoint.join(path);
@@ -275,6 +297,12 @@ mod tests {
     /// An HTTP server answering `/api/status` with `status_code` and every
     /// other path with 404.
     async fn server(status_code: u16) -> NodeHttp {
+        status_server(status_code, "{}").await
+    }
+
+    /// An HTTP server answering `/api/status` with `status_code` and `body`,
+    /// and every other path with 404.
+    async fn status_server(status_code: u16, body: &'static str) -> NodeHttp {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
@@ -283,7 +311,7 @@ mod tests {
                 let read = socket.read(&mut request).await.unwrap();
                 let request = String::from_utf8_lossy(&request[..read]);
                 let (code, body) = if request.starts_with("GET /api/status ") {
-                    (status_code, "{}")
+                    (status_code, body)
                 } else {
                     (404, "")
                 };
@@ -307,6 +335,47 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn the_phlo_cap_is_read_from_status() {
+        let node = status_server(200, r#"{"maxPhloLimit":20000000}"#).await;
+        assert_eq!(node.max_phlo_limit().await.unwrap(), 20_000_000);
+    }
+
+    #[tokio::test]
+    async fn a_node_reporting_no_phlo_cap_yet_is_not_ready() {
+        let node = status_server(200, r#"{"maxPhloLimit":null}"#).await;
+        assert!(matches!(
+            node.max_phlo_limit().await,
+            Err(Error::NodeNotReady {
+                parameter: "maxPhloLimit",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_node_without_a_phlo_cap_is_too_old() {
+        let node = server(200).await;
+        assert!(matches!(
+            node.max_phlo_limit().await,
+            Err(Error::NodeTooOld { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_non_positive_phlo_cap_is_malformed() {
+        for body in [r#"{"maxPhloLimit":0}"#, r#"{"maxPhloLimit":-1}"#] {
+            let node = status_server(200, body).await;
+            assert!(matches!(
+                node.max_phlo_limit().await,
+                Err(Error::Decode {
+                    what: "maxPhloLimit",
+                    ..
+                })
+            ));
+        }
     }
 
     #[tokio::test]

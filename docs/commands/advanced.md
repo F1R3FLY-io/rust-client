@@ -174,7 +174,7 @@ node_cli bond-validator --stake <AMOUNT> --private-key-file <PATH> [OPTIONS]
 | `--propose` | false | Propose block after bonding; `--grpc` must then be the node's internal API |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
-| `--phlo-limit` | `5000000000` | Most phlo the bond deploy may spend |
+| `--phlo-limit` | lesser of `10000000` and the shard's cap | Most phlo the bond deploy may spend; refused before signing when above the cap |
 | `--phlo-price` | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
@@ -184,9 +184,16 @@ bond set — accepts the deploy and strands it, because nothing can ever include
 it (f1r3node-rust#427). The command then runs out `--max-wait` and reports a
 timeout.
 
+**The phlo limit stays within the shard's cap.** The node refuses a deploy
+whose phlo limit is above the shard's `maxPhloLimit` (see `status`), so both
+commands read the cap from the `--http` node before signing: without
+`--phlo-limit` they use the lesser of 10,000,000 and the cap, and a
+`--phlo-limit` above the cap is refused with both values. A node that has not
+adopted the cap yet is an error.
+
 **Fund the validator's vault first.** The bond is paid for by the key being
 bonded, and the vault must hold `phlo limit × phlo price` **plus** the stake at
-submission. `bond-validator` defaults to a phlo limit of 5,000,000,000 and a
+submission. `bond-validator` defaults to a phlo limit of 10,000,000 and a
 phlo price of 1. An under-funded vault does not reject the deploy: it
 is included in a block and fails there with
 `systemDeployError: "Deploy payment failed: Insufficient funds"`. See
@@ -196,6 +203,7 @@ is included in a block and fails there with
 $ node_cli bond-validator --stake 1000 --private-key-file validator.hex
 
 Bonding validator with stake: 1000
+Phlo limit: 10000000 (shard cap: 20000000)
 Deploy ID:    3045022100...
 Block hash:   a1b2c3d4...
 Total time:   25.30s
@@ -208,6 +216,7 @@ The command exits non-zero when the PoS contract rejects the bond:
 $ node_cli bond-validator --stake 1000 --private-key-file already-bonded.hex
 
 Bonding validator with stake: 1000
+Phlo limit: 10000000 (shard cap: 20000000)
 Deploy ID: 3045022100e415...
 Block hash: 63fb62fd...
 Total time: 21.14s
@@ -238,7 +247,7 @@ node_cli unbond-validator --private-key-file <PATH> [OPTIONS]
 | `--timeout` | `30` | Seconds a single request to a node may take (at least 1) |
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
-| `--phlo-limit` | `5000000000` | Most phlo the withdrawal deploy may spend |
+| `--phlo-limit` | lesser of `10000000` and the shard's cap | Most phlo the withdrawal deploy may spend; refused before signing when above the cap |
 | `--phlo-price` | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
@@ -257,6 +266,7 @@ The quarantine end is `quarantine-length + epoch-length * (1 + B / epoch-length)
 $ node_cli unbond-validator --private-key-file validator.hex
 
 Requesting withdrawal for validator: 0429af984ed4da1a...455f1727
+Phlo limit: 10000000 (shard cap: 20000000)
 Deploy ID: 3044022065871c6d...
 Block hash: b0737488...
 Total time: 23.32s

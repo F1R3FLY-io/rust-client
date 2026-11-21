@@ -35,10 +35,10 @@ num-bigint = "0.4"
 # F1r3fly protocol types, pinned to an f1r3node-rust dev commit. The
 # integration suite uses the matching immutable image digest. Update the node
 # source pins and tests/integration/node-image.txt together when the protocol changes.
-f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "093fc1b4bc4d1d43407fd36b40f19ee65367b394" }
-f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "093fc1b4bc4d1d43407fd36b40f19ee65367b394" }
-f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "093fc1b4bc4d1d43407fd36b40f19ee65367b394" }
-f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "093fc1b4bc4d1d43407fd36b40f19ee65367b394" }
+f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "344f3102508a07af37087955d18f4c7b3037e290" }
+f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "344f3102508a07af37087955d18f4c7b3037e290" }
+f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "344f3102508a07af37087955d18f4c7b3037e290" }
+f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "344f3102508a07af37087955d18f4c7b3037e290" }
 prost = "0.14"
 
 # gRPC

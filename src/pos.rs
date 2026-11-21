@@ -12,8 +12,24 @@ use crate::error::{Contract, Error, Result};
 use crate::f1r3fly_api::ExploratoryValues;
 use crate::rho_value::RhoValue;
 
-/// Phlo limit of a bond or withdrawal deploy.
-pub const POS_CALL_PHLO_LIMIT: u64 = 5_000_000_000;
+/// Phlo limit of a bond or withdrawal deploy when none is given, unless the
+/// shard caps deploys lower.
+pub const POS_CALL_PHLO_LIMIT: u64 = 10_000_000;
+
+/// The phlo limit of a bond or withdrawal deploy on a shard that caps deploys
+/// at `cap`: `requested`, or else the lesser of [`POS_CALL_PHLO_LIMIT`] and
+/// the cap. A requested limit above the cap is refused, since the node would
+/// refuse the deploy.
+pub fn pos_call_phlo_limit(requested: Option<u64>, cap: u64) -> Result<u64> {
+    match requested {
+        Some(limit) if limit > cap => Err(Error::invalid(
+            "phlo limit",
+            format!("{limit} is above the shard's cap of {cap}"),
+        )),
+        Some(limit) => Ok(limit),
+        None => Ok(POS_CALL_PHLO_LIMIT.min(cap)),
+    }
+}
 
 fn malformed(detail: impl std::fmt::Display) -> Error {
     Error::decode("PoS snapshot", detail)
@@ -245,6 +261,44 @@ mod tests {
 
     const V1: &str = "04fa70d7be5eb750e0915c0f6d19e7085d18bb1c22d030feb2a877ca2cd226d04438aa819359c56c720142fbc66e9da03a5ab960a3d8b75363a226b7c800f60420";
     const V4: &str = "0429af984ed4da1a753030b1d06f0f3985379cf8935c953f92631afafff580c6ae447a9102789f69ec58ac69998cce512efecd0fae35dd61125f16b119455f1727";
+
+    #[test]
+    fn a_pos_call_defaults_to_its_own_limit_under_a_higher_cap() {
+        assert_eq!(
+            pos_call_phlo_limit(None, 20_000_000).unwrap(),
+            POS_CALL_PHLO_LIMIT
+        );
+    }
+
+    #[test]
+    fn a_pos_call_defaults_to_a_lower_cap() {
+        assert_eq!(pos_call_phlo_limit(None, 1_000_000).unwrap(), 1_000_000);
+    }
+
+    #[test]
+    fn a_requested_limit_within_the_cap_is_kept() {
+        assert_eq!(
+            pos_call_phlo_limit(Some(20_000_000), 20_000_000).unwrap(),
+            20_000_000
+        );
+    }
+
+    #[test]
+    fn a_requested_limit_above_the_cap_is_refused_naming_both() {
+        let error = pos_call_phlo_limit(Some(20_000_001), 20_000_000).unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidInput {
+                what: "phlo limit",
+                ..
+            }
+        ));
+        let message = error.to_string();
+        assert!(
+            message.contains("20000001") && message.contains("20000000"),
+            "{message}"
+        );
+    }
 
     /// Shape of a live node's explore-deploy response to `POS_SNAPSHOT_QUERY`.
     fn response(bonds: Value, active: Value, pending: Value, withdrawers: Value) -> Value {

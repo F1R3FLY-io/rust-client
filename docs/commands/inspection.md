@@ -24,6 +24,7 @@ $ node_cli status --http http://localhost:40413
   Peers:         4
   Nodes:         4
   Min Phlo:      1
+  Phlo Cap:      20000000
   Native Token:  F1R3CAP (F1R3, 8 decimals)
   LFB Number:    126
   Validator:     false
@@ -35,6 +36,7 @@ $ node_cli status --http http://localhost:40413
 
 | Field | Description |
 |-------|-------------|
+| Phlo Cap | Largest phlo limit a deploy may declare, adopted from the chain; `N/A` until the node has adopted it |
 | Native Token | Name, symbol, decimals — baked into genesis, immutable |
 | LFB Number | Last finalized block number (-1 if not yet initialized) |
 | Validator | Whether autopropose is enabled — **not** whether the node is a bonded validator (f1r3node-rust#429). A bonded, actively proposing validator reports `false` here. Use `validator-status` to check bonding and whether the validator proposes |

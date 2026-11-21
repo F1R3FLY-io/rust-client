@@ -30,6 +30,7 @@ pub async fn status_command(args: &HttpNodeArgs) -> CliResult {
     println!("  Peers:         {}", status.peers);
     println!("  Nodes:         {}", status.nodes);
     println!("  Min Phlo:      {}", status.min_phlo_price);
+    println!("  Phlo Cap:      {}", fmt(status.max_phlo_limit));
     if !status.native_token_name.is_empty() {
         println!(
             "  Native Token:  {} ({}, {} decimals)",
