@@ -19,7 +19,8 @@ bash scripts/test-deploy-queue.sh
 ```
 
 The script runs the upstream queue image pinned by digest on Linux with
-Docker host networking. Reserve loopback ports 40571, 40573 and 40583.
+Docker host networking. Reserve loopback ports 30571, 30573 and 30583, below
+Linux's ephemeral range so no outgoing connection can hold them.
 A validator fixture holds the chain tip at a fixed height so the actual
 queue reaches its deadline and per-deployer limits reproducibly. CI runs
 this test separately from the shard suite.

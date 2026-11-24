@@ -32,13 +32,13 @@ async fn real_queue_refuses_a_short_window_and_a_full_deployer_share() {
             }),
         )
         .route("/api/deploy", post(|| async { Json("Success!") }));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:40583")
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:30583")
         .await
         .unwrap();
     tokio::spawn(async move { axum::serve(listener, validator).await.unwrap() });
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
-            if let Ok(response) = reqwest::get("http://127.0.0.1:40573/queue/status").await {
+            if let Ok(response) = reqwest::get("http://127.0.0.1:30573/queue/status").await {
                 let status: Value = response.json().await.unwrap();
                 if status["connected"] == true {
                     return;
@@ -50,7 +50,7 @@ async fn real_queue_refuses_a_short_window_and_a_full_deployer_share() {
     .await
     .expect("queue did not connect to the validator fixture");
 
-    let api = F1r3flyApi::new(Endpoint::parse("http://127.0.0.1:40571").unwrap()).unwrap();
+    let api = F1r3flyApi::new(Endpoint::parse("http://127.0.0.1:30571").unwrap()).unwrap();
     let key = SigningKey::from_hex(&"42".repeat(32)).unwrap();
     let sign = |height| {
         UnsignedDeploy::new("Nil", &DeployOptions::default(), height, "root")
