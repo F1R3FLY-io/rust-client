@@ -186,24 +186,34 @@ fn queue_refusal(deploy_id: &str, status: &tonic::Status) -> Option<Error> {
     const STOPPED: &str = "deploy queue is shutting down";
 
     let message = status.message();
-    let reason = match status.code() {
-        tonic::Code::ResourceExhausted if message.starts_with(SHARE_FULL) => {
-            DeployAdmissionReason::DeployerShareFull
-        }
-        tonic::Code::ResourceExhausted if message.starts_with(QUEUE_FULL) => {
-            DeployAdmissionReason::QueueFull
+    let (reason, congestion) = match status.code() {
+        tonic::Code::ResourceExhausted => {
+            use DeployAdmissionReason::{DeployerShareFull, QueueFull};
+            if let Some(value) = status.metadata().get("cause") {
+                match value.to_str().ok() {
+                    Some("deployer_share") => (DeployerShareFull, None),
+                    Some("validator") => (QueueFull, Some(QueueCongestion::Validator)),
+                    Some("validator_idle") => (QueueFull, Some(QueueCongestion::ValidatorIdle)),
+                    Some("shard") => (QueueFull, Some(QueueCongestion::Shard)),
+                    Some("storage") => (QueueFull, Some(QueueCongestion::Storage)),
+                    _ => (QueueFull, None),
+                }
+            } else if message.starts_with(SHARE_FULL) {
+                (DeployerShareFull, None)
+            } else {
+                (
+                    QueueFull,
+                    queue_congestion(message.strip_prefix(QUEUE_FULL)?),
+                )
+            }
         }
         tonic::Code::Unavailable if message.starts_with(NODE_UNAVAILABLE) => {
-            DeployAdmissionReason::QueueNodeUnavailable
+            (DeployAdmissionReason::QueueNodeUnavailable, None)
         }
         tonic::Code::Unavailable if message.starts_with(STOPPED) => {
-            DeployAdmissionReason::QueueStopped
+            (DeployAdmissionReason::QueueStopped, None)
         }
         _ => return None,
-    };
-    let congestion = match reason {
-        DeployAdmissionReason::QueueFull => queue_congestion(&message[QUEUE_FULL.len()..]),
-        _ => None,
     };
     let retry_after = status
         .metadata()
@@ -251,6 +261,36 @@ mod admission_tests {
             .metadata_mut()
             .insert("retry-after", secs.parse().unwrap());
         status
+    }
+
+    #[test]
+    fn structured_cause_takes_precedence_over_the_legacy_message() {
+        use DeployAdmissionReason::{DeployerShareFull, QueueFull};
+        for (cause, expected, congestion) in [
+            ("deployer_share", DeployerShareFull, None),
+            ("validator", QueueFull, Some(QueueCongestion::Validator)),
+            (
+                "validator_idle",
+                QueueFull,
+                Some(QueueCongestion::ValidatorIdle),
+            ),
+            ("shard", QueueFull, Some(QueueCongestion::Shard)),
+            ("storage", QueueFull, Some(QueueCongestion::Storage)),
+            ("future", QueueFull, None),
+        ] {
+            let mut status = with_retry_after(
+                tonic::Status::resource_exhausted("deploy queue is full for this deployer"),
+                "8",
+            );
+            status
+                .metadata_mut()
+                .insert("cause", cause.parse().unwrap());
+            assert!(matches!(queue_refusal("id", &status),
+                Some(Error::DeployAdmissionRefused { reason, congestion: found, retry_after, .. })
+                    if reason == expected && found == congestion
+                        && retry_after == Some(Duration::from_secs(8))
+                        && reason.is_retryable() == (cause == "deployer_share")));
+        }
     }
 
     #[test]
