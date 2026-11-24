@@ -208,7 +208,8 @@ impl DeployAdmissionReason {
     }
 
     /// Decodes an unambiguous reason. Both queue capacity refusals use
-    /// `deploy_queue_full`; distinguishing them requires the queue's message.
+    /// `deploy_queue_full`; the queue distinguishes them by its `cause`
+    /// metadata (or by message on older queues).
     pub fn from_code(code: &str) -> Option<Self> {
         [
             Self::PoolBusy,

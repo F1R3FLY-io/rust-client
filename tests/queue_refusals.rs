@@ -38,11 +38,15 @@ async fn fixture(status: Status) -> (F1r3flyConnectionManager, SignedDeploy) {
 
 #[tokio::test]
 async fn queue_capacity_and_shutdown_survive_grpc_transport() {
-    for (code, message, wait, reason, cause) in [
+    const SHARD_FULL: &str =
+        "deploy queue is full: the shard's finality is holding the validator back";
+
+    for (code, message, wait, cause, reason, expected_congestion) in [
         (
             Code::ResourceExhausted,
-            "deploy queue is full: the shard's finality is holding the validator back",
+            SHARD_FULL,
             Some(12),
+            None,
             Reason::QueueFull,
             Some(QueueCongestion::Shard),
         ),
@@ -50,12 +54,46 @@ async fn queue_capacity_and_shutdown_survive_grpc_transport() {
             Code::ResourceExhausted,
             "deploy queue is full for this deployer",
             Some(3),
+            None,
             Reason::DeployerShareFull,
             None,
         ),
         (
+            Code::ResourceExhausted,
+            SHARD_FULL,
+            Some(9),
+            Some("validator_idle"),
+            Reason::QueueFull,
+            Some(QueueCongestion::ValidatorIdle),
+        ),
+        (
+            Code::ResourceExhausted,
+            SHARD_FULL,
+            Some(3),
+            Some("deployer_share"),
+            Reason::DeployerShareFull,
+            None,
+        ),
+        (
+            Code::ResourceExhausted,
+            SHARD_FULL,
+            Some(12),
+            Some("future"),
+            Reason::QueueFull,
+            None,
+        ),
+        (
+            Code::ResourceExhausted,
+            SHARD_FULL,
+            Some(12),
+            Some(""),
+            Reason::QueueFull,
+            Some(QueueCongestion::Shard),
+        ),
+        (
             Code::Unavailable,
             "deploy queue is shutting down",
+            None,
             None,
             Reason::QueueStopped,
             None,
@@ -67,12 +105,20 @@ async fn queue_capacity_and_shutdown_survive_grpc_transport() {
                 .metadata_mut()
                 .insert("retry-after", seconds.to_string().parse().unwrap());
         }
+        if let Some(value) = cause {
+            status
+                .metadata_mut()
+                .insert("cause", value.parse().unwrap());
+        }
         let (manager, signed) = fixture(status).await;
         let error = manager.api().submit(&signed).await.unwrap_err();
-        assert!(matches!(error, Error::DeployAdmissionRefused {
+        assert!(
+            matches!(&error, Error::DeployAdmissionRefused {
             deploy_id, reason: actual, retry_after, congestion, message: detail,
-        } if deploy_id == signed.id() && actual == reason && detail == message
-            && congestion == cause && retry_after == wait.map(Duration::from_secs)));
+        } if *deploy_id == signed.id() && *actual == reason && detail == message
+            && *congestion == expected_congestion && *retry_after == wait.map(Duration::from_secs)),
+            "cause {cause:?}: {error:?}"
+        );
     }
 }
 
