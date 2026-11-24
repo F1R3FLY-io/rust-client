@@ -7,8 +7,12 @@ exercised by CI.
 
 The shard used below is the one this repository owns,
 `tests/integration/topology/compose.yml`, which holds a joiner behind a compose
-profile and calls it validator4. The ports are the standard shard layout, so
-the commands apply unchanged to any shard you are adding a validator to.
+profile and calls it validator4. The commands use the standard shard port
+layout below, so they apply unchanged to a shard that publishes it. This
+repository's shard publishes free loopback ports Docker picks instead; read each
+node's port with `docker compose -p rust-client-it port <node> 40402` (gRPC) or
+`40403` (HTTP), where `<node>` is `validator1`, `validator4` or `readonly`, and
+substitute it.
 
 Its keys, genesis and node configs are generated per run into
 `target/integration-shard/` by the integration harness, so the compose commands
@@ -18,7 +22,7 @@ be readable by group or others (`chmod 600`). On that shard, `funded.hex` is any
 funded account, such as `target/integration-shard/keys/spare.hex`, and
 `joiner.hex` is `target/integration-shard/keys/validator4.hex`.
 
-| Node | gRPC | HTTP |
+| Node | gRPC (standard layout) | HTTP (standard layout) |
 |---|---|---|
 | validator1 | 40412 | 40413 |
 | joiner (validator4 here) | 40442 | 40443 |

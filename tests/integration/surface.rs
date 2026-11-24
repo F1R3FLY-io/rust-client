@@ -110,6 +110,11 @@ pub fn trials() -> Vec<Trial> {
         ),
         Trial::test("surface::network_health_reports_the_shard", || {
             Cli::new("network-health")
+                .args(
+                    Node::all()
+                        .iter()
+                        .flat_map(|node| ["--http".to_string(), node.http_endpoint()]),
+                )
                 .run()
                 .expect_success("network-health")
                 .expect_contains("Healthy nodes: 5/5");

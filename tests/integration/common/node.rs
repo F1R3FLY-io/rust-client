@@ -1,8 +1,40 @@
 //! The shard's nodes, and the host ports each one answers on.
 
+use std::collections::BTreeMap;
+use std::sync::RwLock;
+
 use super::rt;
 
-/// Ports as published by `topology/compose.yml`.
+/// The node's internal gRPC API (deploys, proposals) inside its container.
+pub const GRPC_PORT: u16 = 40402;
+/// The node's HTTP API inside its container.
+pub const HTTP_PORT: u16 = 40403;
+
+/// Host ports Docker assigned to published container ports, by compose service
+/// and container port. `topology/compose.yml` publishes no fixed host port, so
+/// none can be taken by another process before the shard binds it.
+static PUBLISHED: RwLock<BTreeMap<(&str, u16), u16>> = RwLock::new(BTreeMap::new());
+
+/// Record that `service`'s `container_port` is published on `host_port`.
+pub fn record_published(service: &'static str, container_port: u16, host_port: u16) {
+    PUBLISHED
+        .write()
+        .expect("the published-port map is never poisoned")
+        .insert((service, container_port), host_port);
+}
+
+/// The host port `service`'s `container_port` is published on.
+pub fn published(service: &str, container_port: u16) -> u16 {
+    *PUBLISHED
+        .read()
+        .expect("the published-port map is never poisoned")
+        .get(&(service, container_port))
+        .unwrap_or_else(|| {
+            panic!("{service}:{container_port} is not published: is the service running?")
+        })
+}
+
+/// The shard's nodes, by compose service.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Node {
     /// Ceremony master, not a validator. Deploys sent here are never included.
@@ -38,25 +70,24 @@ impl Node {
         }
     }
 
-    /// First published port of the node's block; the node's own offsets give
-    /// the rest, so the whole map is one number per node.
-    fn base_port(self) -> u16 {
+    /// The node's service in `topology/compose.yml`.
+    pub fn service(self) -> &'static str {
         match self {
-            Node::Boot => 40400,
-            Node::Validator1 => 40410,
-            Node::Validator2 => 40420,
-            Node::Validator3 => 40430,
-            Node::Validator4 => 40440,
-            Node::ReadOnly => 40450,
+            Node::Boot => "boot",
+            Node::Validator1 => "validator1",
+            Node::Validator2 => "validator2",
+            Node::Validator3 => "validator3",
+            Node::ReadOnly => "readonly",
+            Node::Validator4 => "validator4",
         }
     }
 
     pub fn grpc_port(self) -> u16 {
-        self.base_port() + 2
+        published(self.service(), GRPC_PORT)
     }
 
     pub fn http_port(self) -> u16 {
-        self.base_port() + 3
+        published(self.service(), HTTP_PORT)
     }
 
     pub fn grpc_endpoint(self) -> String {
