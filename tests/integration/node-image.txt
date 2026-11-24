@@ -1,1 +1,1 @@
-f1r3flyindustries/f1r3fly-rust@sha256:d3f9d9d6a3a4c1e6563bb463139abe5d26bd6a460db560daa1003aa9f75add91
+f1r3flyindustries/f1r3fly-rust@sha256:07439f777c9a907de9cdbfe4b66d152cd5f921166cc846f7d39d8e360c1b9b90

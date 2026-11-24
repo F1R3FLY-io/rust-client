@@ -34,8 +34,8 @@ pub use endpoint::Endpoint;
 pub use error::{Contract, DeployAdmissionReason, Error, QueueCongestion, Result, TransportError};
 pub use events::NodeEvents;
 pub use f1r3fly_api::{
-    Balance, BlockRef, BlockSummary, DeployDetail, DeployResult, ExploratoryResult,
-    ExploratoryValues, F1r3flyApi, ProposeResult,
+    Balance, BlockRef, BlockSummary, BlocksByHeight, DeployDetail, DeployResult, ExploratoryResult,
+    ExploratoryValues, F1r3flyApi, MissingBlock, ProposeResult,
 };
 pub use node_http::NodeHttp;
 pub use rho_value::{RhoValue, Unforgeable};

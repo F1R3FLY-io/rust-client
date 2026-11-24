@@ -95,6 +95,29 @@ impl ExploratoryValues {
     }
 }
 
+/// The blocks a node serves for a height range, and the blocks its DAG names
+/// in that range whose content it does not hold.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BlocksByHeight {
+    pub blocks: Vec<f1r3fly_models::casper::LightBlockInfo>,
+    /// Deleted by the node's retention: at or below `prune_floor`, and gone
+    /// from this node for good. Another node, such as an archive, may hold
+    /// them.
+    pub pruned: Vec<MissingBlock>,
+    /// Above `prune_floor` and not held yet; a later request may serve them.
+    pub unavailable: Vec<MissingBlock>,
+    /// The node's prune floor when it answered. The node reports it only with
+    /// a missing block, so it is `None` when none is missing.
+    pub prune_floor: Option<i64>,
+}
+
+/// A block the node's DAG names but whose content the node does not hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingBlock {
+    pub hash: String,
+    pub height: i64,
+}
+
 /// A block as the node's block listings describe it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct BlockSummary {

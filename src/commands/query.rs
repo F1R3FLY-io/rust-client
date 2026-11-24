@@ -901,6 +901,17 @@ pub async fn network_consensus_command(args: &ReadOnlyHttpArgs) -> CliResult {
     Ok(())
 }
 
+fn print_missing_blocks(missing: &[crate::f1r3fly_api::MissingBlock], why: &str) {
+    if missing.is_empty() {
+        return;
+    }
+    println!();
+    println!(" {why}:");
+    for block in missing {
+        println!(" Block #{}: {}", block.height, block.hash);
+    }
+}
+
 pub async fn get_blocks_by_height_command(args: &GetBlocksByHeightArgs) -> CliResult {
     let f1r3fly_api = args.node.api()?;
     println!(
@@ -927,7 +938,8 @@ pub async fn get_blocks_by_height_command(args: &GetBlocksByHeightArgs) -> CliRe
         .get_blocks_by_height(args.start_block_number, args.end_block_number)
         .await
     {
-        Ok(blocks) => {
+        Ok(answer) => {
+            let blocks = &answer.blocks;
             let duration = start_time.elapsed();
             println!(" Blocks retrieved successfully!");
             println!(" Time taken: {duration:.2?}");
@@ -956,6 +968,15 @@ pub async fn get_blocks_by_height_command(args: &GetBlocksByHeightArgs) -> CliRe
                         println!(" ");
                     }
                 }
+            }
+            if let Some(prune_floor) = answer.prune_floor {
+                print_missing_blocks(
+                    &answer.pruned,
+                    &format!(
+                        "Pruned by this node (prune floor {prune_floor}); query an archive node"
+                    ),
+                );
+                print_missing_blocks(&answer.unavailable, "Not held by this node yet; retry");
             }
         }
         Err(e) => {
