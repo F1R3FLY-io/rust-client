@@ -4,6 +4,17 @@ All notable changes to the F1r3fly rust-client will be documented in this file.
 This changelog is automatically generated from conventional commits.
 
 
+## [0.3.1] - 2026-11-24
+
+### Bug Fixes
+
+- retain refusal and lookup errors for unknown deploy outcomes
+- reconcile retry refusals and queue verdicts
+- classify deploy queue refusals and the Rejected state
+- classify oversized, expired and out-of-window deploy refusals
+- distinguish deploy admission refusals from unknown outcomes
+
+
 ## [0.3.0] - 2026-11-18
 
 ### Bug Fixes
