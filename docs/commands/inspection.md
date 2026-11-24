@@ -24,6 +24,7 @@ $ node_cli status --http http://localhost:40413
   Peers:         4
   Nodes:         4
   Min Phlo:      1
+  Phlo Cap:      20000000
   Native Token:  F1R3CAP (F1R3, 8 decimals)
   LFB Number:    126
   Validator:     false
@@ -35,6 +36,7 @@ $ node_cli status --http http://localhost:40413
 
 | Field | Description |
 |-------|-------------|
+| Phlo Cap | Largest phlo limit a deploy may declare, adopted from the chain; `N/A` until the node has adopted it |
 | Native Token | Name, symbol, decimals — baked into genesis, immutable |
 | LFB Number | Last finalized block number (-1 if not yet initialized) |
 | Validator | Whether autopropose is enabled — **not** whether the node is a bonded validator (f1r3node-rust#429). A bonded, actively proposing validator reports `false` here. Use `validator-status` to check bonding and whether the validator proposes |
@@ -222,6 +224,19 @@ Blocks by Height:
 ```
 
 Multiple blocks at the same height indicate parallel proposals from different validators.
+
+Blocks the node's DAG names in the range but whose content it does not hold are
+listed after the others, in two groups. Blocks at or below the node's prune
+floor were deleted by its retention and are gone from that node; query an
+archive node. Blocks above it are not held yet, and a retry may return them.
+
+```
+ Pruned by this node (prune floor 1200); query an archive node:
+ Block #1150: 9c1e04b7a2...
+
+ Not held by this node yet; retry:
+ Block #1251: 3fa8d61c90...
+```
 
 ## block-transfers
 

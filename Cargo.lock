@@ -178,6 +178,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
+ "base64",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -196,8 +197,10 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "serde_urlencoded",
+ "sha1",
  "sync_wrapper",
  "tokio",
+ "tokio-tungstenite 0.29.0",
  "tower",
  "tower-layer",
  "tower-service",
@@ -762,7 +765,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 [[package]]
 name = "crypto"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=0ccc315d84b32d668e8db49cd56ba3c576693e15#0ccc315d84b32d668e8db49cd56ba3c576693e15"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=aca631e2ed02f73170558fbc3194efa48b9f1876#aca631e2ed02f73170558fbc3194efa48b9f1876"
 dependencies = [
  "async-trait",
  "base64",
@@ -1296,9 +1299,9 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -2291,7 +2294,7 @@ dependencies = [
 [[package]]
 name = "models"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=0ccc315d84b32d668e8db49cd56ba3c576693e15#0ccc315d84b32d668e8db49cd56ba3c576693e15"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=aca631e2ed02f73170558fbc3194efa48b9f1876#aca631e2ed02f73170558fbc3194efa48b9f1876"
 dependencies = [
  "crypto",
  "hex",
@@ -2386,6 +2389,7 @@ dependencies = [
 name = "node_cli"
 version = "0.3.0"
 dependencies = [
+ "axum",
  "blake2",
  "bs58",
  "chrono",
@@ -2417,6 +2421,7 @@ dependencies = [
  "tokio-tungstenite 0.26.2",
  "toml",
  "tonic",
+ "tonic-prost",
  "tracing",
  "tracing-subscriber",
  "typenum",
@@ -3529,7 +3534,7 @@ dependencies = [
 [[package]]
 name = "rho-pure-eval"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=0ccc315d84b32d668e8db49cd56ba3c576693e15#0ccc315d84b32d668e8db49cd56ba3c576693e15"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=aca631e2ed02f73170558fbc3194efa48b9f1876#aca631e2ed02f73170558fbc3194efa48b9f1876"
 dependencies = [
  "imbl",
  "models",
@@ -3542,7 +3547,7 @@ dependencies = [
 [[package]]
 name = "rholang"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=0ccc315d84b32d668e8db49cd56ba3c576693e15#0ccc315d84b32d668e8db49cd56ba3c576693e15"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=aca631e2ed02f73170558fbc3194efa48b9f1876#aca631e2ed02f73170558fbc3194efa48b9f1876"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3645,7 +3650,7 @@ dependencies = [
 [[package]]
 name = "rspace_plus_plus"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=0ccc315d84b32d668e8db49cd56ba3c576693e15#0ccc315d84b32d668e8db49cd56ba3c576693e15"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=aca631e2ed02f73170558fbc3194efa48b9f1876#aca631e2ed02f73170558fbc3194efa48b9f1876"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4048,7 +4053,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=0ccc315d84b32d668e8db49cd56ba3c576693e15#0ccc315d84b32d668e8db49cd56ba3c576693e15"
+source = "git+https://github.com/F1R3FLY-io/f1r3node-rust.git?rev=aca631e2ed02f73170558fbc3194efa48b9f1876#aca631e2ed02f73170558fbc3194efa48b9f1876"
 dependencies = [
  "axum",
  "bincode",
@@ -4060,6 +4065,7 @@ dependencies = [
  "http",
  "http-body-util",
  "indexmap",
+ "libc",
  "lz4_flex",
  "metrics",
  "num-bigint",
@@ -4068,6 +4074,9 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "signal-hook-registry",
+ "stacker",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
@@ -4646,6 +4655,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-tungstenite"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
+dependencies = [
+ "futures-util",
+ "log",
+ "tokio",
+ "tungstenite 0.29.0",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4981,6 +5002,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tungstenite"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.9.5",
+ "sha1",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "twox-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5053,9 +5090,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

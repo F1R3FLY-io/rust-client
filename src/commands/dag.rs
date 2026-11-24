@@ -6,6 +6,7 @@ use crate::args::DagArgs;
 use crate::commands::CliResult;
 use crate::dag::{BlockStatus, DagApp, DagBlock, DagEvent};
 use crate::endpoint::connect_websocket;
+use crate::error::Error;
 use crate::node_http::NodeHttp;
 
 /// Run the DAG visualization command
@@ -121,81 +122,35 @@ fn parse_block_json(json: &serde_json::Value) -> Option<DagBlock> {
     Some(block)
 }
 
-/// Fetch a single block by hash from the API with retries
-async fn fetch_block_by_hash(node: &NodeHttp, hash: &str) -> Option<DagBlock> {
-    // Retry a few times with delays - the block might not be available immediately
-    for attempt in 0..3 {
-        if attempt > 0 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        }
-
-        if let Ok(body) = node.get_json(&format!("/api/block/{hash}")).await {
-            // Response format: {"blockInfo": {...}, "deploys": [...]}
-            if let Some(block_info) = body.get("blockInfo") {
-                if let Some(block) = parse_block_info_json(block_info) {
-                    return Some(block);
-                }
+/// A block by hash, retried while the node may not serve it yet: an event can
+/// arrive before the node serves the block it names.
+async fn fetch_block_by_hash(node: &NodeHttp, hash: &str) -> Result<DagBlock, String> {
+    const ATTEMPTS: u32 = 3;
+    let mut attempt = 1;
+    loop {
+        let error = match node.get_json(&format!("/api/block/{hash}")).await {
+            Ok(body) => {
+                return parse_block_json(&body).ok_or_else(|| "malformed block".to_string())
             }
+            Err(error) => error,
+        };
+        if attempt == ATTEMPTS || !may_be_served_later(&error) {
+            return Err(error.to_string());
         }
+        attempt += 1;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
-    None
 }
 
-/// Parse a block from the /api/block/{hash} response format.
-/// Receives the inner blockInfo object (already unwrapped by caller).
-fn parse_block_info_json(info: &serde_json::Value) -> Option<DagBlock> {
-    let hash = info.get("blockHash")?.as_str()?.to_string();
-    let block_number = info.get("blockNumber")?.as_i64()?;
-    let timestamp_ms = info.get("timestamp")?.as_i64().unwrap_or(0);
-    let timestamp = Utc
-        .timestamp_millis_opt(timestamp_ms)
-        .single()
-        .unwrap_or_else(Utc::now);
-    let creator = info.get("sender")?.as_str()?.to_string();
-    let seq_num = info.get("seqNum")?.as_i64().unwrap_or(0);
-
-    let parents: Vec<String> = info
-        .get("parentsHashList")
-        .and_then(|p| p.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let deploy_count = info.get("deployCount")?.as_i64().unwrap_or(0) as u32;
-
-    let is_finalized = info.get("isFinalized").and_then(|v| v.as_bool())?;
-    let status = if is_finalized {
-        BlockStatus::Finalized
-    } else {
-        BlockStatus::Added
-    };
-
-    let mut block = DagBlock::new(
-        hash,
-        block_number,
-        timestamp,
-        creator,
-        seq_num,
-        parents,
-        deploy_count,
-        status,
-    );
-
-    // Optional fields
-    if let Some(shard) = info.get("shardId").and_then(|s| s.as_str()) {
-        block.shard_id = shard.to_string();
+/// Whether a block read that failed with `error` may succeed if repeated.
+fn may_be_served_later(error: &Error) -> bool {
+    match error {
+        Error::Transport { .. } | Error::Http { status: 404, .. } => true,
+        Error::Http {
+            code: Some(code), ..
+        } => code == "block_unavailable",
+        _ => false,
     }
-    if let Some(pre) = info.get("preStateHash").and_then(|s| s.as_str()) {
-        block.pre_state_hash = pre.to_string();
-    }
-    if let Some(post) = info.get("postStateHash").and_then(|s| s.as_str()) {
-        block.post_state_hash = post.to_string();
-    }
-
-    Some(block)
 }
 
 /// Run the WebSocket listener for real-time events
@@ -208,44 +163,42 @@ async fn run_websocket_listener(node: NodeHttp, tx: mpsc::Sender<DagEvent>) -> C
         match msg {
             Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
                 if let Ok(event) = parse_websocket_event(&text) {
-                    // For all block events, fetch full block info via HTTP
-                    // to get the correct block number
-                    let enriched_event = match &event {
+                    // Events carry no block number, so each block is read
+                    // whole; this also places a block whose created event was
+                    // missed.
+                    let read = match &event {
                         DagEvent::BlockCreated(block) => {
-                            if let Some(mut full_block) =
-                                fetch_block_by_hash(&node, &block.hash).await
-                            {
-                                full_block.status = BlockStatus::Created;
-                                DagEvent::BlockCreated(Box::new(full_block))
-                            } else {
-                                event
-                            }
+                            Some((block.hash.clone(), BlockStatus::Created))
                         }
-                        DagEvent::BlockAdded(hash) => {
-                            // Fetch full block and return as BlockCreated with Added status
-                            // This ensures we have block_number even if we missed BlockCreated
-                            if let Some(mut full_block) = fetch_block_by_hash(&node, hash).await {
-                                full_block.status = BlockStatus::Added;
-                                DagEvent::BlockCreated(Box::new(full_block))
-                            } else {
-                                event
-                            }
-                        }
+                        DagEvent::BlockAdded(hash) => Some((hash.clone(), BlockStatus::Added)),
                         DagEvent::BlockFinalized(hash) => {
-                            // Fetch full block and return as BlockCreated with Finalized status
-                            if let Some(mut full_block) = fetch_block_by_hash(&node, hash).await {
-                                full_block.status = BlockStatus::Finalized;
-                                DagEvent::BlockCreated(Box::new(full_block))
-                            } else {
-                                event
-                            }
+                            Some((hash.clone(), BlockStatus::Finalized))
                         }
-                        _ => event,
+                        _ => None,
+                    };
+                    let (enriched_event, failure) = match read {
+                        None => (event, None),
+                        Some((hash, status)) => match fetch_block_by_hash(&node, &hash).await {
+                            Ok(mut full_block) => {
+                                full_block.status = status;
+                                (DagEvent::BlockCreated(Box::new(full_block)), None)
+                            }
+                            Err(reason) => {
+                                let short = &hash[..8.min(hash.len())];
+                                let failure = format!("block {short}... unread: {reason}");
+                                (event, Some(DagEvent::Error(failure)))
+                            }
+                        },
                     };
 
+                    // The failure goes last so the status line keeps it.
                     if tx.send(enriched_event).await.is_err() {
-                        // Receiver dropped, exit
                         break;
+                    }
+                    if let Some(failure) = failure {
+                        if tx.send(failure).await.is_err() {
+                            break;
+                        }
                     }
                 }
             }

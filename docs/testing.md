@@ -1,7 +1,7 @@
 # Testing
 
-Two suites. Unit tests need nothing; the integration suite runs every test
-against a real shard it creates itself.
+The default suite runs without Docker. Linux integration tests exercise a
+real shard and the production deploy queue.
 
 ## Unit tests
 
@@ -9,8 +9,21 @@ against a real shard it creates itself.
 cargo test --release
 ```
 
-Pure logic only — key handling, Rholang conversion, PoS and vault response
-parsing, signing. No node, no Docker.
+This includes gRPC and HTTP fixtures for queue shutdown, storage failures,
+retry metadata, and a failed inclusion lookup after a refused resend.
+
+## Deploy queue integration
+
+```bash
+bash scripts/test-deploy-queue.sh
+```
+
+The script runs the upstream queue image pinned by digest on Linux with
+Docker host networking. Reserve loopback ports 30571, 30573 and 30583, below
+Linux's ephemeral range so no outgoing connection can hold them.
+A validator fixture holds the chain tip at a fixed height so the actual
+queue reaches its deadline and per-deployer limits reproducibly. CI runs
+this test separately from the shard suite.
 
 ## Integration tests
 
@@ -34,7 +47,7 @@ returned early and 28 of them "passed" in 0.63 seconds without a node.
 |---|---|
 | `FIREFLY_NODE_IMAGE` | Node image override; unset or empty uses `tests/integration/node-image.txt` |
 | `FIREFLY_KEEP_SHARD` | Leave the shard up after the run, for debugging |
-| `RUST_LOG` | Passed to every node; the topology's own filter applies otherwise |
+| `RUST_LOG` | Passed to every node; the node's default filter applies otherwise |
 
 The immutable image in `tests/integration/node-image.txt` is the single pin,
 matching the protocol dependencies in `Cargo.toml`. The harness records its
@@ -52,21 +65,22 @@ Run one test by name:
 cargo test --release --features integration --test integration -- pos::
 ```
 
-Host ports 40400-40462 must be free, so a shard from another project on 404xx
-has to be down first.
+The shard publishes each port on a free loopback port Docker picks at startup,
+so it runs alongside anything else on the host, including another shard on
+404xx. The harness reads the ports back with `docker compose port`.
 
 ### The shard
 
 Defined in `tests/integration/topology/`, which the repository owns outright:
 the whole shard uses 18 native-token decimals, including existing test groups.
 
-| Service | Role | gRPC / HTTP |
+| Service | Role | Published container ports |
 |---|---|---|
-| `it-boot` | runs the genesis ceremony, absent from the bond set | 40402 / 40403 |
-| `it-validator1..3` | genesis validators, stake 100 each | 4041x / 4042x / 4043x |
-| `it-readonly` | observer; the only node serving exploratory deploys | 40452 / 40453 |
-| `it-validator4` | joiner, unbonded at genesis, started by the bonding tests | 40442 / 40443 |
-| `it-tls-proxy` | Caddy (`caddy:2.10-alpine`) terminating TLS in front of validator1; 40462 serves its HTTP API under `/node1` | 40460 / 40461, 40462 |
+| `boot` | runs the genesis ceremony, absent from the bond set | gRPC 40402, HTTP 40403 |
+| `validator1..3` | genesis validators, stake 100 each | gRPC 40402, HTTP 40403 |
+| `readonly` | observer; the only node serving exploratory deploys | gRPC 40402, HTTP 40403 |
+| `validator4` | joiner, unbonded at genesis, started by the bonding tests | gRPC 40402, HTTP 40403 |
+| `tls-proxy` | Caddy (`caddy:2.10-alpine`) terminating TLS in front of validator1; 40462 serves its HTTP API under `/node1` | gRPC 40460, HTTP 40461, 40462 |
 
 Every key is generated per run and none is committed: the deploying accounts'
 keys, the boot and validator keys, the bootstrap's P-256 TLS key and node ID,
@@ -80,6 +94,7 @@ topology by hand after a harness run:
 ```bash
 docker compose --env-file target/integration-shard/shard.env \
   -f tests/integration/topology/compose.yml up -d
+docker compose -p rust-client-it port validator1 40403   # validator1's HTTP API
 ```
 
 The CLI under test gets its key through `FIREFLY_PRIVATE_KEY`, and runs with

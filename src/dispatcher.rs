@@ -71,10 +71,17 @@ fn suggestion(error: &Error) -> Option<&'static str> {
         } if code == "readonly_node_required" => {
             Some("this query needs a read-only node; point it at the observer")
         }
+        Error::Http {
+            code: Some(code), ..
+        } if code == "block_pruned" => Some("this node pruned the block; query an archive node"),
+        Error::Http {
+            code: Some(code), ..
+        } if code == "block_unavailable" => Some("the node does not hold the block yet; retry"),
         Error::InvalidInput { .. } | Error::MissingConfig { .. } => {
             Some("check the command's arguments and environment")
         }
         Error::NodeTooOld { .. } => Some("upgrade the node, or point the command at a newer one"),
+        Error::NodeNotReady { .. } => Some("retry once the node has finished starting"),
         _ => None,
     }
 }

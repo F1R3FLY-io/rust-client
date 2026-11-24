@@ -86,3 +86,34 @@ from here. Never reuse a key from a README against anything real.
 The library's `ConnectionConfig::from_env` reads these, and fails if both key variables are set. The CLI reads the same variables as fallbacks for its flags (except `FIREFLY_FINALIZATION_TIMEOUT`), also refuses a key file together with `FIREFLY_PRIVATE_KEY`, and adds `FIREFLY_INTERNAL_GRPC_URL`, `FIREFLY_READONLY_GRPC_URL`, `FIREFLY_READONLY_HTTP_URL`, `FIREFLY_CONFIG` and `FIREFLY_PROFILE`; see [Configuration](docs/configuration.md).
 
 An unset variable takes its default; a set but malformed one, such as a URL without an `http` or `https` scheme, is an error. So is `FIREFLY_CA_CERT` with any `http://` endpoint, and any removed variable (`FIREFLY_HOST`, `FIREFLY_GRPC_PORT`, `FIREFLY_HTTP_PORT`, `FIREFLY_OBSERVER_HOST`, `FIREFLY_OBSERVER_GRPC_PORT`, `FIREFLY_OBSERVER_HTTP_PORT`); the error names its replacement.
+
+## Deploy admission refusals
+
+For nodes with [bounded admission (#789)](https://github.com/F1R3FLY-io/f1r3node-rust/pull/789), `submit` returns `Error::DeployAdmissionRefused` with the original signed deploy ID when the gRPC service-error message starts with one of these codes. The node did not accept the deploy.
+
+| Reason | Code | `is_retryable()` | Meaning |
+|---|---|---|---|
+| `PoolBusy` | `deploy_pool_busy` | Yes | The node's retained record or byte budget is full |
+| `AdmissionBusy` | `deploy_admission_busy` | Yes | The submission limit is reached, or admission state kept changing |
+| `OutsideWindow` | `invalid_deploy_window` | Yes | The validity height is too far ahead; it becomes valid as the chain advances |
+| `TooLarge` | `deploy_too_large` | No | The deploy record is larger than the node's whole byte budget |
+| `Expired` | `deploy_expired` | No | The validity window or expiration timestamp has closed |
+
+For a retryable reason, wait and resubmit the same `SignedDeploy`. For `TooLarge` or `Expired`, the same deploy cannot be accepted; build a new one. `deploy` always creates a newly signed deploy. No automatic submission retry is added.
+
+When a signed deploy is resent, the node can return `AdmissionBusy` or `Expired` before checking for a duplicate. A disconnected or stopped queue can also refuse the resend before checking the signature. For these refusals and older nodes' generic refusals, `submit_and_wait` checks the original deploy ID for inclusion on the deploy node and the configured observer. If either already has the deploy in a block, the client waits for its verdict. Transport timeouts leave the outcome unknown.
+
+### Deploy queue
+
+A [deploy queue (#990)](https://github.com/F1R3FLY-io/f1r3node-rust/pull/990) can serve a validator's client ports. It answers the node's own refusals as above, and its capacity and availability refusals as gRPC statuses, which `submit` also returns as `Error::DeployAdmissionRefused`. `retry_after` carries the queue's `retry-after` wait. A refusal describes the current submission attempt. The queue can already hold the same signature from an earlier attempt.
+
+| Reason | Code | gRPC status | `is_retryable()` | Client action |
+|---|---|---|---|---|
+| `QueueFull` | `deploy_queue_full` | `RESOURCE_EXHAUSTED` | No | Wait `retry_after`, then sign a new deploy with a current `validAfterBlockNumber`. With `congestion == ValidatorIdle`, send it to another validator instead of waiting |
+| `DeployerShareFull` | `deploy_queue_full` | `RESOURCE_EXHAUSTED` | Yes | This deployer holds its share of the queue; wait `retry_after`. If the window has closed meanwhile, the queue answers `deploy_expired` |
+| `QueueNodeUnavailable` | `node_unavailable` | `UNAVAILABLE` | Yes | Wait `retry_after` and send the same deploy again |
+| `QueueStopped` | `deploy_queue_stopped` | `UNAVAILABLE` | Yes | Send the same deploy again later |
+
+`congestion` names what holds a full queue back: `Validator`, `ValidatorIdle`, `Shard` (finality trails the tip) or `Storage`. Both capacity refusals share `deploy_queue_full`, so `DeployAdmissionReason::from_code` returns `None` for that code alone. Use the typed `reason` returned by `submit` for retry decisions. Other gRPC statuses, including a plain `UNAVAILABLE` from a dropped connection and the queue's `INTERNAL` store error, stay `Error::Grpc` with an unknown outcome.
+
+A queue's status answer adds `queue_state` and `detail` to `DeployFinalizationStatus`. A terminal `Rejected` means that the queue's validator refused the deploy when the queue released it. If the same poll finds a canonical verdict for that signature on the other endpoint, `submit_and_wait` and `deploy_and_wait` use it. Otherwise they return `Error::DeployRejected` with the queue's detail.

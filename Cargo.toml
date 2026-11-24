@@ -22,6 +22,11 @@ harness = false
 required-features = ["cli", "integration"]
 
 [[test]]
+name = "live_queue"
+path = "tests/live_queue.rs"
+required-features = ["integration"]
+
+[[test]]
 name = "transfer_reports"
 required-features = ["cli"]
 
@@ -30,10 +35,10 @@ num-bigint = "0.4"
 # F1r3fly protocol types, pinned to an f1r3node-rust dev commit. The
 # integration suite uses the matching immutable image digest. Update the node
 # source pins and tests/integration/node-image.txt together when the protocol changes.
-f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "0ccc315d84b32d668e8db49cd56ba3c576693e15" }
-f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "0ccc315d84b32d668e8db49cd56ba3c576693e15" }
-f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "0ccc315d84b32d668e8db49cd56ba3c576693e15" }
-f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "0ccc315d84b32d668e8db49cd56ba3c576693e15" }
+f1r3fly-models = { package = "models", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "aca631e2ed02f73170558fbc3194efa48b9f1876" }
+f1r3fly-shared = { package = "shared", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "aca631e2ed02f73170558fbc3194efa48b9f1876" }
+f1r3fly-crypto = { package = "crypto", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "aca631e2ed02f73170558fbc3194efa48b9f1876" }
+f1r3fly-rholang = { package = "rholang", git = "https://github.com/F1R3FLY-io/f1r3node-rust.git", rev = "aca631e2ed02f73170558fbc3194efa48b9f1876" }
 prost = "0.14"
 
 # gRPC
@@ -81,5 +86,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 toml = { version = "0.8", optional = true }
 
 [dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "tokio", "ws", "json"] }
 libtest-mimic = "0.8.2"
 rcgen = "0.13"
+tonic-prost = "0.14"

@@ -95,6 +95,29 @@ impl ExploratoryValues {
     }
 }
 
+/// The blocks a node serves for a height range, and the blocks its DAG names
+/// in that range whose content it does not hold.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BlocksByHeight {
+    pub blocks: Vec<f1r3fly_models::casper::LightBlockInfo>,
+    /// Deleted by the node's retention: at or below `prune_floor`, and gone
+    /// from this node for good. Another node, such as an archive, may hold
+    /// them.
+    pub pruned: Vec<MissingBlock>,
+    /// Above `prune_floor` and not held yet; a later request may serve them.
+    pub unavailable: Vec<MissingBlock>,
+    /// The node's prune floor when it answered. The node reports it only with
+    /// a missing block, so it is `None` when none is missing.
+    pub prune_floor: Option<i64>,
+}
+
+/// A block the node's DAG names but whose content the node does not hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingBlock {
+    pub hash: String,
+    pub height: i64,
+}
+
 /// A block as the node's block listings describe it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct BlockSummary {
@@ -181,6 +204,8 @@ pub struct NodeStatus {
     pub current_epoch: Option<i64>,
     #[serde(rename = "epochLength", default)]
     pub epoch_length: Option<i32>,
+    #[serde(rename = "maxPhloLimit", default)]
+    pub max_phlo_limit: Option<i64>,
 }
 
 /// Deploy execution detail from the node's `/api/deploy/{id}` endpoint.
@@ -267,16 +292,31 @@ fn execution_failure(errored: bool, system_deploy_error: Option<&str>) -> Option
 /// - `"Pending"` — not yet canonical-finalized, not expired. Keep polling.
 /// - `"Expired"` — `valid_after_block_number + deploy_lifespan` elapsed
 ///   (LFB-anchored) without a clean canonical inclusion. Terminal.
+/// - `"Rejected"` — a deploy queue accepted the deploy, and the node refused
+///   it when the queue released it; `detail` says why. Terminal. A node never
+///   answers it.
+///
+/// A deploy queue also reports `queue_state` (`queued`, `submitted`,
+/// `in-block`, or the terminal state in lower case) and `detail`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployFinalizationStatus {
     pub state: String,
     pub rejection_count: u32,
     pub latest_block_hash: Option<String>,
+    /// Where a deploy queue holds the deploy; absent from a node's answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_state: Option<String>,
+    /// The node's error kind and message for a `Rejected` deploy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 impl DeployFinalizationStatus {
     pub fn is_terminal(&self) -> bool {
-        matches!(self.state.as_str(), "Finalized" | "Failed" | "Expired")
+        matches!(
+            self.state.as_str(),
+            "Finalized" | "Failed" | "Expired" | "Rejected"
+        )
     }
 }
 

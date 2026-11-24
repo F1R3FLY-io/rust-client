@@ -2,7 +2,9 @@ use crate::args::*;
 use crate::commands::CliResult;
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use crate::f1r3fly_api::{DeployResult, ProposeResult};
-use crate::pos::{build_bond_rholang, parse_pos_call_result, WITHDRAW_RHOLANG};
+use crate::pos::{
+    build_bond_rholang, parse_pos_call_result, pos_call_phlo_limit, WITHDRAW_RHOLANG,
+};
 use crate::signing_key::SigningKey;
 use std::fs;
 use std::time::Instant;
@@ -37,6 +39,18 @@ fn connect(
         key.load()?,
         check_interval,
     )?)?)
+}
+
+/// The phlo limit for a PoS call, checked against the deploy node's cap before
+/// anything is signed.
+async fn pos_phlo_limit(
+    manager: &F1r3flyConnectionManager,
+    requested: Option<u64>,
+) -> CliResult<u64> {
+    let cap = manager.http().max_phlo_limit().await?;
+    let limit = pos_call_phlo_limit(requested, cap)?;
+    println!("Phlo limit: {limit} (shard cap: {cap})");
+    Ok(limit)
 }
 
 /// Propose a block on the deploy node, reporting rather than failing: the
@@ -259,14 +273,13 @@ pub async fn is_finalized_command(args: &IsFinalizedArgs) -> CliResult {
 pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
     println!("Bonding validator with stake: {}", args.stake);
 
+    let term = build_bond_rholang(&crate::vault::parse_amount(&args.stake)?)?;
     let manager = connect(&args.wait, &args.key, args.check_interval)?;
+    let phlo_limit = pos_phlo_limit(&manager, args.phlo_limit).await?;
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(
-            &build_bond_rholang(&crate::vault::parse_amount(&args.stake)?)?,
-            &args.wait.deploy.options(args.phlo_limit),
-        )
+        .deploy_and_wait(&term, &args.wait.deploy.options(phlo_limit))
         .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
@@ -287,10 +300,11 @@ pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
     let manager = connect(&args.wait, &args.key, args.check_interval)?;
     let public_key = manager.get_public_key_hex();
     println!("Requesting withdrawal for validator: {public_key}");
+    let phlo_limit = pos_phlo_limit(&manager, args.phlo_limit).await?;
     let start = Instant::now();
 
     let result = manager
-        .deploy_and_wait(WITHDRAW_RHOLANG, &args.wait.deploy.options(args.phlo_limit))
+        .deploy_and_wait(WITHDRAW_RHOLANG, &args.wait.deploy.options(phlo_limit))
         .await?;
 
     println!("Deploy ID: {}", result.deploy_id);
@@ -564,7 +578,8 @@ pub async fn get_data_command(args: &GetDataArgs) -> CliResult {
 ///
 /// Hits the node's `/api/deploy-finalization-status/{sig}` endpoint and
 /// renders the result. State is one of `Finalized`, `Failed`, `Pending`,
-/// `Expired` — see `DeployFinalizationStatus` for terminality semantics.
+/// `Expired`, or `Rejected` from a deploy queue — see
+/// `DeployFinalizationStatus` for terminality semantics.
 pub async fn deploy_status_command(args: &DeployStatusArgs) -> CliResult {
     let sig_hex = args.sig.trim_start_matches("0x");
 
@@ -592,6 +607,12 @@ pub async fn deploy_status_command(args: &DeployStatusArgs) -> CliResult {
             match status.latest_block_hash.as_deref() {
                 Some(hash) => println!("Latest block:     {hash}"),
                 None => println!("Latest block:     (not yet included)"),
+            }
+            if let Some(queue_state) = status.queue_state.as_deref() {
+                println!("Queue state:      {queue_state}");
+            }
+            if let Some(detail) = status.detail.as_deref() {
+                println!("Detail:           {detail}");
             }
             println!("Query time:       {duration:.2?}");
         }
