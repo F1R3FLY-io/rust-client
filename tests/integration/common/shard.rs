@@ -4,10 +4,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use super::node::Node;
+use super::node::{record_published, Node, GRPC_PORT, HTTP_PORT};
 
 /// Compose project name, matching `topology/compose.yml`.
 const PROJECT: &str = "rust-client-it";
+
+/// The TLS proxy's service in `topology/compose.yml`.
+pub const TLS_PROXY: &str = "tls-proxy";
+/// The proxy's ports, as `topology/Caddyfile` serves them: validator1's gRPC
+/// API, its HTTP API, and its HTTP API under `/node1`.
+pub const TLS_PROXY_PORTS: [u16; 3] = [40460, 40461, 40462];
 
 /// Chain height every node must reach before the suite starts. Genesis plus a
 /// few blocks, so the PoS contract is queryable and finalization has run.
@@ -32,6 +38,12 @@ impl Shard {
 
         write_shard_files(&shard_dir(), &shard.topology)?;
         shard.compose(&["up", "-d"])?;
+        for node in Node::all() {
+            shard.record_node_ports(*node)?;
+        }
+        for port in TLS_PROXY_PORTS {
+            shard.record_port(TLS_PROXY, port)?;
+        }
         shard.wait_until_ready(Node::all(), Duration::from_secs(180))?;
         Ok(shard)
     }
@@ -39,7 +51,26 @@ impl Shard {
     /// Start the joiner validator, which the topology holds behind a profile.
     pub fn start_joiner(&self) -> Result<(), String> {
         self.compose(&["--profile", "joiner", "up", "-d"])?;
+        self.record_node_ports(Node::Validator4)?;
         self.wait_until_ready(&[Node::Validator4], Duration::from_secs(180))
+    }
+
+    fn record_node_ports(&self, node: Node) -> Result<(), String> {
+        self.record_port(node.service(), GRPC_PORT)?;
+        self.record_port(node.service(), HTTP_PORT)
+    }
+
+    /// Read the host port Docker assigned to `service`'s `container_port` and
+    /// record it for the tests.
+    fn record_port(&self, service: &'static str, container_port: u16) -> Result<(), String> {
+        let answer = self.compose_output(&["port", service, &container_port.to_string()])?;
+        let host_port = answer
+            .trim()
+            .rsplit_once(':')
+            .and_then(|(_, port)| port.parse().ok())
+            .ok_or_else(|| format!("{service}:{container_port} published as {answer:?}"))?;
+        record_published(service, container_port, host_port);
+        Ok(())
     }
 
     /// Block until every node reports a finalized height of at least

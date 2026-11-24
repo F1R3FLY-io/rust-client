@@ -5,14 +5,31 @@ use libtest_mimic::Trial;
 use crate::common::cli::Cli;
 use crate::common::contracts;
 use crate::common::keys;
-use crate::common::node::Node;
+use crate::common::node::{published, Node};
 use crate::common::shard;
 
-/// validator1's gRPC and HTTP APIs behind the TLS proxy, the HTTP API also
-/// under a base path.
-const TLS_GRPC: &str = "https://localhost:40460";
-const TLS_HTTP: &str = "https://localhost:40461";
-const TLS_HTTP_UNDER_PATH: &str = "https://localhost:40462/node1";
+/// validator1's gRPC API behind the TLS proxy.
+fn tls_grpc() -> String {
+    tls_endpoint(shard::TLS_PROXY_PORTS[0])
+}
+
+/// validator1's HTTP API behind the TLS proxy.
+fn tls_http() -> String {
+    tls_endpoint(shard::TLS_PROXY_PORTS[1])
+}
+
+/// validator1's HTTP API behind the TLS proxy, under a base path.
+fn tls_http_under_path() -> String {
+    format!("{}/node1", tls_endpoint(shard::TLS_PROXY_PORTS[2]))
+}
+
+/// The proxy's certificate names `localhost`, so the endpoint must too.
+fn tls_endpoint(proxy_port: u16) -> String {
+    format!(
+        "https://localhost:{}",
+        published(shard::TLS_PROXY, proxy_port)
+    )
+}
 
 /// An endpoint nothing listens on.
 const UNREACHABLE: &str = "http://localhost:1";
@@ -116,7 +133,12 @@ fn a_deploy_through_tls_finalizes_on_the_deploy_node_alone() {
     Cli::new("deploy-and-wait")
         .args(["-f", contracts::path("stdout.rho")])
         .key(&keys::TLS_DEPLOY)
-        .args(["--grpc", TLS_GRPC, "--http", TLS_HTTP_UNDER_PATH])
+        .args([
+            "--grpc".to_string(),
+            tls_grpc(),
+            "--http".to_string(),
+            tls_http_under_path(),
+        ])
         .args(["--ca-cert".to_string(), ca_certificate()])
         .args(["--max-wait", "120"])
         .run()
@@ -129,22 +151,22 @@ fn a_deploy_through_tls_finalizes_on_the_deploy_node_alone() {
 /// refused, over gRPC and HTTP alike, and the same calls succeed once it is.
 fn an_untrusted_certificate_is_refused() {
     Cli::new("show-main-chain")
-        .args(["--grpc", TLS_GRPC])
+        .args(["--grpc".to_string(), tls_grpc()])
         .run()
         .expect_failure("show-main-chain against an untrusted certificate");
     Cli::new("status")
-        .args(["--http", TLS_HTTP])
+        .args(["--http".to_string(), tls_http()])
         .run()
         .expect_failure("status against an untrusted certificate");
 
     Cli::new("show-main-chain")
-        .args(["--grpc", TLS_GRPC])
+        .args(["--grpc".to_string(), tls_grpc()])
         .args(["--ca-cert".to_string(), ca_certificate()])
         .run()
         .expect_success("show-main-chain with the proxy's CA")
         .expect_contains("Main chain blocks retrieved");
     Cli::new("status")
-        .args(["--http", TLS_HTTP])
+        .args(["--http".to_string(), tls_http()])
         .args(["--ca-cert".to_string(), ca_certificate()])
         .run()
         .expect_success("status with the proxy's CA")

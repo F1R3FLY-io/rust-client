@@ -64,21 +64,22 @@ Run one test by name:
 cargo test --release --features integration --test integration -- pos::
 ```
 
-Host ports 40400-40462 must be free, so a shard from another project on 404xx
-has to be down first.
+The shard publishes each port on a free loopback port Docker picks at startup,
+so it runs alongside anything else on the host, including another shard on
+404xx. The harness reads the ports back with `docker compose port`.
 
 ### The shard
 
 Defined in `tests/integration/topology/`, which the repository owns outright:
 the whole shard uses 18 native-token decimals, including existing test groups.
 
-| Service | Role | gRPC / HTTP |
+| Service | Role | Published container ports |
 |---|---|---|
-| `it-boot` | runs the genesis ceremony, absent from the bond set | 40402 / 40403 |
-| `it-validator1..3` | genesis validators, stake 100 each | 4041x / 4042x / 4043x |
-| `it-readonly` | observer; the only node serving exploratory deploys | 40452 / 40453 |
-| `it-validator4` | joiner, unbonded at genesis, started by the bonding tests | 40442 / 40443 |
-| `it-tls-proxy` | Caddy (`caddy:2.10-alpine`) terminating TLS in front of validator1; 40462 serves its HTTP API under `/node1` | 40460 / 40461, 40462 |
+| `boot` | runs the genesis ceremony, absent from the bond set | gRPC 40402, HTTP 40403 |
+| `validator1..3` | genesis validators, stake 100 each | gRPC 40402, HTTP 40403 |
+| `readonly` | observer; the only node serving exploratory deploys | gRPC 40402, HTTP 40403 |
+| `validator4` | joiner, unbonded at genesis, started by the bonding tests | gRPC 40402, HTTP 40403 |
+| `tls-proxy` | Caddy (`caddy:2.10-alpine`) terminating TLS in front of validator1; 40462 serves its HTTP API under `/node1` | gRPC 40460, HTTP 40461, 40462 |
 
 Every key is generated per run and none is committed: the deploying accounts'
 keys, the boot and validator keys, the bootstrap's P-256 TLS key and node ID,
@@ -92,6 +93,7 @@ topology by hand after a harness run:
 ```bash
 docker compose --env-file target/integration-shard/shard.env \
   -f tests/integration/topology/compose.yml up -d
+docker compose -p rust-client-it port validator1 40403   # validator1's HTTP API
 ```
 
 The CLI under test gets its key through `FIREFLY_PRIVATE_KEY`, and runs with
