@@ -2387,7 +2387,7 @@ dependencies = [
 
 [[package]]
 name = "node_cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "axum",
  "blake2",
