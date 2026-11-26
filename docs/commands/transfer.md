@@ -20,8 +20,8 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
-| `--phlo-limit` | | `500000` | Most phlo the transfer deploy may spend |
-| `--phlo-price` | | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-limit` | | `500000`, capped by the shard | Most phlo the transfer deploy may spend |
+| `--phlo-price` | | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
 | `--propose` | | false | Also propose a block after deploy; `--grpc` must then be the node's internal API |
 | `--max-wait` | | `300` | Max seconds to wait for finalization |

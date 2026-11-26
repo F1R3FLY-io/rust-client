@@ -17,11 +17,12 @@ node_cli deploy -f <FILE> [OPTIONS]
 | `--file` | `-f` | required | Rholang file to deploy |
 | `--private-key-file` | | none | File holding the signing key's hex; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--grpc` | | `http://localhost:40401` | Node gRPC endpoint, `http://` or `https://`, with no path |
+| `--http` | | `http://localhost:40403` | HTTP endpoint of the same node, optionally with a base path, to read `/api/status` |
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
-| `--phlo-limit` | | `50000` | Most phlo the deploy may spend |
-| `--phlo-price` | | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-limit` | | `50000`, capped by the shard | Most phlo the deploy may spend. An explicit limit above the advertised cap is rejected before signing. |
+| `--phlo-price` | | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
 | `--expiration` | | none | Expiration timestamp (ms, Unix epoch) |
 | `--expires-in` | | none | Expiration duration (seconds from now) |
@@ -43,6 +44,8 @@ Deploy ID: 3045022100a7378028e7bdfb8ea7c908f5effc1d2018a0448090e14be5f35ba722251
 
 ## Notes
 
+- The CLI reads price and cap from one status response before signing. An older
+  node that omits `maxPhloLimit` keeps the configured or command-default limit.
 - The deploy is submitted to the node but NOT yet in a block
 - **Submit to a bonded validator.** The deploy queue is node-local and deploys
   do not gossip, so a node that cannot propose — a bootstrap or ceremony-master

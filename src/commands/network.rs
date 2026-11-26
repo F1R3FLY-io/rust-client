@@ -41,18 +41,6 @@ fn connect(
     )?)?)
 }
 
-/// The phlo limit for a PoS call, checked against the deploy node's cap before
-/// anything is signed.
-async fn pos_phlo_limit(
-    manager: &F1r3flyConnectionManager,
-    requested: Option<u64>,
-) -> CliResult<u64> {
-    let cap = manager.http().max_phlo_limit().await?;
-    let limit = pos_call_phlo_limit(requested, cap)?;
-    println!("Phlo limit: {limit} (shard cap: {cap})");
-    Ok(limit)
-}
-
 /// Propose a block on the deploy node, reporting rather than failing: the
 /// deploy has already finalized by the time this runs.
 async fn propose_after(manager: &F1r3flyConnectionManager) {
@@ -175,7 +163,15 @@ pub async fn deploy_command(args: &DeployArgs) -> CliResult {
         .with_signing_key(&args.key.load()?)
         .with_shard_id(&args.deploy.shard_id);
     println!("Connecting to F1r3fly node at {}", f1r3fly_api.endpoint());
-    let options = args.deploy.options(args.phlo_limit);
+    let node = args.node.node()?;
+    let status = node.get_json("/api/status").await?;
+    let limit = DeployOptionsArgs::capped_limit(
+        &node,
+        &status,
+        args.phlo_limit,
+        crate::deploy::DEFAULT_PHLO_LIMIT,
+    )?;
+    let options = args.deploy.options(limit, &status)?;
     println!("Using phlo limit: {}", options.phlo_limit);
     if let Some(expiration) = options.expiration {
         println!("Deploy expiration: {expiration} ms");
@@ -275,12 +271,14 @@ pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
 
     let term = build_bond_rholang(&crate::vault::parse_amount(&args.stake)?)?;
     let manager = connect(&args.wait, &args.key, args.check_interval)?;
-    let phlo_limit = pos_phlo_limit(&manager, args.phlo_limit).await?;
+    let status = manager.http().get_json("/api/status").await?;
+    let cap = manager.http().max_phlo_limit_from_status(&status)?;
+    let phlo_limit = pos_call_phlo_limit(args.phlo_limit, cap)?;
+    println!("Phlo limit: {phlo_limit} (shard cap: {cap})");
     let start = Instant::now();
 
-    let result = manager
-        .deploy_and_wait(&term, &args.wait.deploy.options(phlo_limit))
-        .await?;
+    let options = args.wait.deploy.options(phlo_limit, &status)?;
+    let result = manager.deploy_and_wait(&term, &options).await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -300,12 +298,14 @@ pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
     let manager = connect(&args.wait, &args.key, args.check_interval)?;
     let public_key = manager.get_public_key_hex();
     println!("Requesting withdrawal for validator: {public_key}");
-    let phlo_limit = pos_phlo_limit(&manager, args.phlo_limit).await?;
+    let status = manager.http().get_json("/api/status").await?;
+    let cap = manager.http().max_phlo_limit_from_status(&status)?;
+    let phlo_limit = pos_call_phlo_limit(args.phlo_limit, cap)?;
+    println!("Phlo limit: {phlo_limit} (shard cap: {cap})");
     let start = Instant::now();
 
-    let result = manager
-        .deploy_and_wait(WITHDRAW_RHOLANG, &args.wait.deploy.options(phlo_limit))
-        .await?;
+    let options = args.wait.deploy.options(phlo_limit, &status)?;
+    let result = manager.deploy_and_wait(WITHDRAW_RHOLANG, &options).await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -344,10 +344,9 @@ pub async fn transfer_command(args: &TransferArgs) -> CliResult {
     validate_vault_address(&from_address)?;
     validate_vault_address(&args.to_address)?;
 
+    let status = manager.http().get_json("/api/status").await?;
     let amount_dust = if args.whole_tokens {
-        // Whole-token mode: ask the node how many decimals the native token has.
-        let status_json = manager.http().get_json("/status").await?;
-        let decimals = status_json
+        let decimals = status
             .get("nativeTokenDecimals")
             .and_then(|v| v.as_u64())
             .and_then(|v| u32::try_from(v).ok())
@@ -367,9 +366,14 @@ pub async fn transfer_command(args: &TransferArgs) -> CliResult {
 
     let start = Instant::now();
 
-    let result = manager
-        .deploy_and_wait(&rholang_code, &args.wait.deploy.options(args.phlo_limit))
-        .await?;
+    let limit = DeployOptionsArgs::capped_limit(
+        manager.http(),
+        &status,
+        args.phlo_limit,
+        crate::vault::TRANSFER_PHLO_LIMIT,
+    )?;
+    let options = args.wait.deploy.options(limit, &status)?;
+    let result = manager.deploy_and_wait(&rholang_code, &options).await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);
@@ -397,9 +401,15 @@ pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
     println!("Deploying and waiting for finalization...");
     let start = Instant::now();
 
-    let result = manager
-        .deploy_and_wait(&rholang_code, &args.wait.deploy.options(args.phlo_limit))
-        .await?;
+    let status = manager.http().get_json("/api/status").await?;
+    let limit = DeployOptionsArgs::capped_limit(
+        manager.http(),
+        &status,
+        args.phlo_limit,
+        crate::deploy::DEFAULT_PHLO_LIMIT,
+    )?;
+    let options = args.wait.deploy.options(limit, &status)?;
+    let result = manager.deploy_and_wait(&rholang_code, &options).await?;
 
     println!("Deploy ID: {}", result.deploy_id);
     println!("Block hash: {}", result.block_hash);

@@ -399,9 +399,9 @@ pub struct DeployWaitArgs {
 /// phlo limit, whose default differs per command
 #[derive(Args, Debug)]
 pub struct DeployOptionsArgs {
-    /// Price per phlo, in the native token's base units
-    #[arg(long = "phlo-price", default_value_t = num_bigint::BigUint::from(crate::deploy::DEFAULT_PHLO_PRICE), value_parser = crate::amount::parse_price)]
-    pub phlo_price: num_bigint::BigUint,
+    /// Price per phlo in base units (default: deploy node's minimum, at least 1)
+    #[arg(long = "phlo-price", value_parser = crate::amount::parse_price)]
+    pub phlo_price: Option<num_bigint::BigUint>,
 
     /// Shard the deploy is signed for: the target node's casper.shard-name
     #[arg(long = "shard-id", env = "FIREFLY_SHARD_ID", default_value = crate::deploy::DEFAULT_SHARD_ID)]
@@ -419,8 +419,31 @@ pub struct DeployOptionsArgs {
 }
 
 impl DeployOptionsArgs {
-    /// The deploy options these flags describe, with the command's phlo limit.
-    pub fn options(&self, phlo_limit: u64) -> crate::deploy::DeployOptions {
+    /// Resolve regular deploy limits using the cap when the node advertises one.
+    pub fn capped_limit(
+        node: &NodeHttp,
+        status: &serde_json::Value,
+        requested: Option<u64>,
+        default: u64,
+    ) -> crate::Result<u64> {
+        match node.max_phlo_limit_from_status(status) {
+            Ok(cap) => crate::deploy::capped_phlo_limit(requested, default, cap),
+            Err(crate::Error::NodeTooOld { .. }) => Ok(requested.unwrap_or(default)),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Resolve the price from the deploy node's status only if no price was supplied.
+    pub fn options(
+        &self,
+        phlo_limit: u64,
+        status: &serde_json::Value,
+    ) -> CliResult<crate::deploy::DeployOptions> {
+        let phlo_price = match &self.phlo_price {
+            Some(price) => price.clone(),
+            None => NodeHttp::min_phlo_price_from_status(status)?
+                .max(crate::deploy::DEFAULT_PHLO_PRICE.into()),
+        };
         let expiration = match (self.expiration, self.expires_in) {
             (Some(at), _) => Some(at).filter(|at| *at != 0),
             (None, Some(seconds)) => Some(
@@ -432,12 +455,12 @@ impl DeployOptionsArgs {
             ),
             (None, None) => None,
         };
-        crate::deploy::DeployOptions {
+        Ok(crate::deploy::DeployOptions {
             phlo_limit,
-            phlo_price: self.phlo_price.clone(),
+            phlo_price,
             expiration,
             timestamp: None,
-        }
+        })
     }
 }
 
@@ -453,9 +476,9 @@ pub struct DeployAndWaitArgs {
     #[command(flatten)]
     pub wait: DeployWaitArgs,
 
-    /// Most phlo the deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::deploy::DEFAULT_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo the deploy may spend (default: 50000, capped by the shard)
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     /// Also propose a block after deploy
     #[arg(long, default_value_t = false)]
@@ -524,11 +547,11 @@ pub struct DeployArgs {
     pub key: KeyArgs,
 
     #[command(flatten)]
-    pub node: GrpcNodeArgs,
+    pub node: NodeArgs,
 
-    /// Most phlo the deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::deploy::DEFAULT_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo the deploy may spend (default: 50000, capped by the shard)
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     #[command(flatten)]
     pub deploy: DeployOptionsArgs,
@@ -806,9 +829,9 @@ pub struct TransferArgs {
     #[command(flatten)]
     pub wait: DeployWaitArgs,
 
-    /// Most phlo the deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::vault::TRANSFER_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo the deploy may spend (default: 500000, capped by the shard)
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     /// Also propose a block after transfer
     #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
@@ -868,9 +891,9 @@ pub struct LoadTestArgs {
     #[arg(long = "finalization-timeout", default_value_t = 120)]
     pub finalization_timeout: u64,
 
-    /// Most phlo each transfer deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::vault::TRANSFER_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo each transfer deploy may spend (default: 500000, capped by the shard)
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     #[command(flatten)]
     pub deploy: DeployOptionsArgs,

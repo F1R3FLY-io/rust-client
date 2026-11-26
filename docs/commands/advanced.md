@@ -14,6 +14,8 @@ node_cli load-test --to-address <ADDR> --readonly-http <URL> --num-tests <N> --a
 | `--private-key-file` | none | File holding the signing key's hex; must not be readable by group or others. Default: `FIREFLY_PRIVATE_KEY` |
 | `--num-tests` | `20` | Number of transfers to send |
 | `--amount` | `1` | Amount per transfer in base units (dust). Use `--whole-tokens`/`-d` for whole tokens. |
+| `--phlo-limit` | `500000`, capped by the shard | Most phlo each transfer deploy may spend |
+| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units |
 | `--whole-tokens`, `-d` | `false` | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status |
 | `--interval` | `10` | Seconds between deploys |
 | `--grpc` | `http://localhost:40401` | Node gRPC endpoint, with no path; deploys go here |
@@ -175,7 +177,7 @@ node_cli bond-validator --stake <AMOUNT> --private-key-file <PATH> [OPTIONS]
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | lesser of `10000000` and the shard's cap | Most phlo the bond deploy may spend; refused before signing when above the cap |
-| `--phlo-price` | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
 **Submit to a bonded validator.** Any other node — including a bootstrap or
@@ -248,7 +250,7 @@ node_cli unbond-validator --private-key-file <PATH> [OPTIONS]
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | lesser of `10000000` and the shard's cap | Most phlo the withdrawal deploy may spend; refused before signing when above the cap |
-| `--phlo-price` | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
 The same routing rule as `bond-validator` applies: submit to a bonded

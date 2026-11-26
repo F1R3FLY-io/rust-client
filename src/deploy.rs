@@ -21,10 +21,21 @@ use crate::error::{Error, Result};
 
 /// Phlo limit of a deploy when the caller does not choose one.
 pub const DEFAULT_PHLO_LIMIT: u64 = 50_000;
-/// Phlo price of a deploy when the caller does not choose one.
+/// Default phlo price for library callers that construct deploy options.
 pub const DEFAULT_PHLO_PRICE: u64 = 1;
 /// Shard a client signs for when it is not configured with another.
 pub const DEFAULT_SHARD_ID: &str = "root";
+
+pub(crate) fn capped_phlo_limit(requested: Option<u64>, default: u64, cap: u64) -> Result<u64> {
+    match requested {
+        Some(limit) if limit > cap => Err(Error::invalid(
+            "phlo limit",
+            format!("{limit} is above the shard's cap of {cap}"),
+        )),
+        Some(limit) => Ok(limit),
+        None => Ok(default.min(cap)),
+    }
+}
 
 const SIG_ALGORITHM: &str = "secp256k1";
 const LANGUAGE: &str = "rholang";

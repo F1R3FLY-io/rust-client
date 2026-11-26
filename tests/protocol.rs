@@ -262,17 +262,15 @@ fn cli_prices_reject_noncanonical_or_out_of_range_inputs() {
     }
     assert_eq!(
         Flags::try_parse_from(["price"]).unwrap().options.phlo_price,
-        BigUint::from(1u8)
+        None
     );
     let wide = (BigUint::from(1u8) << 128usize).to_string();
-    assert_eq!(
-        Flags::try_parse_from(["price", "--phlo-price", &wide])
-            .unwrap()
-            .options
-            .phlo_price
-            .to_string(),
-        wide
-    );
+    let options = Flags::try_parse_from(["price", "--phlo-price", &wide])
+        .unwrap()
+        .options
+        .options(50_000, &serde_json::json!({}))
+        .unwrap();
+    assert_eq!(options.phlo_price.to_string(), wide);
     for value in [
         "0",
         "-1",
@@ -287,4 +285,42 @@ fn cli_prices_reject_noncanonical_or_out_of_range_inputs() {
             "{value}"
         );
     }
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn cli_prices_and_limits_resolve_from_one_validator_status() {
+    use clap::Parser;
+    use node_cli::args::DeployArgs;
+    use serde_json::json;
+
+    let args = DeployArgs::try_parse_from(["deploy", "-f", "contract.rho"]).unwrap();
+    let node = args.node.node().unwrap();
+    let resolve = |status: &serde_json::Value, requested| {
+        node_cli::args::DeployOptionsArgs::capped_limit(&node, status, requested, 50_000)
+    };
+    let status = json!({"minPhloPrice": "18446744073709551617", "maxPhloLimit": 30_000});
+    let limit = resolve(&status, args.phlo_limit).unwrap();
+    let options = args.deploy.options(limit, &status).unwrap();
+    assert_eq!(options.phlo_price.to_string(), "18446744073709551617");
+    assert_eq!(options.phlo_limit, 30_000);
+    assert_eq!(resolve(&status, Some(12_000)).unwrap(), 12_000);
+    assert!(resolve(&status, Some(30_001))
+        .unwrap_err()
+        .to_string()
+        .contains("30001 is above the shard's cap of 30000"));
+    assert_eq!(
+        resolve(&json!({"maxPhloLimit": 20_000_000}), None).unwrap(),
+        50_000
+    );
+    assert_eq!(resolve(&json!({}), None).unwrap(), 50_000);
+    assert!(resolve(&json!({"maxPhloLimit": null}), None).is_err());
+    assert!(resolve(&json!({"maxPhloLimit": -1}), None).is_err());
+    assert_eq!(
+        args.deploy
+            .options(50_000, &json!({"minPhloPrice": "0"}))
+            .unwrap()
+            .phlo_price,
+        BigUint::from(1u8)
+    );
 }

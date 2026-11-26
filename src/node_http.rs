@@ -36,11 +36,25 @@ impl NodeHttp {
         json(response, &url, "JSON response").await
     }
 
+    #[cfg(any(feature = "cli", test))]
+    pub(crate) fn min_phlo_price_from_status(
+        status: &serde_json::Value,
+    ) -> Result<num_bigint::BigUint> {
+        const FIELD: &str = "minPhloPrice";
+        let price = status
+            .get(FIELD)
+            .ok_or_else(|| Error::decode(FIELD, "missing from /api/status"))?;
+        crate::amount::json_uint256(price).map_err(|err| Error::decode(FIELD, err))
+    }
+
     /// The largest phlo limit the shard admits in a deploy, as `/api/status`
     /// reports it.
     pub async fn max_phlo_limit(&self) -> Result<u64> {
+        self.max_phlo_limit_from_status(&self.get_json("/api/status").await?)
+    }
+
+    pub(crate) fn max_phlo_limit_from_status(&self, status: &serde_json::Value) -> Result<u64> {
         const FIELD: &str = "maxPhloLimit";
-        let status = self.get_json("/api/status").await?;
         match status.get(FIELD) {
             None => Err(Error::NodeTooOld {
                 endpoint: self.endpoint.to_string(),
@@ -341,6 +355,38 @@ mod tests {
     async fn the_phlo_cap_is_read_from_status() {
         let node = status_server(200, r#"{"maxPhloLimit":20000000}"#).await;
         assert_eq!(node.max_phlo_limit().await.unwrap(), 20_000_000);
+    }
+
+    #[test]
+    fn the_minimum_phlo_price_is_read_exactly_from_status() {
+        for body in [
+            r#"{"minPhloPrice":"9223372036854775809"}"#,
+            r#"{"minPhloPrice":9223372036854775809}"#,
+        ] {
+            assert_eq!(
+                NodeHttp::min_phlo_price_from_status(&serde_json::from_str(body).unwrap()).unwrap(),
+                9_223_372_036_854_775_809u64.into()
+            );
+        }
+    }
+
+    #[test]
+    fn an_invalid_minimum_phlo_price_is_an_error() {
+        for body in [
+            "{}",
+            r#"{"minPhloPrice":null}"#,
+            r#"{"minPhloPrice":"-1"}"#,
+            r#"{"minPhloPrice":"01"}"#,
+            r#"{"minPhloPrice":1.5}"#,
+        ] {
+            assert!(matches!(
+                NodeHttp::min_phlo_price_from_status(&serde_json::from_str(body).unwrap()),
+                Err(Error::Decode {
+                    what: "minPhloPrice",
+                    ..
+                })
+            ));
+        }
     }
 
     #[tokio::test]

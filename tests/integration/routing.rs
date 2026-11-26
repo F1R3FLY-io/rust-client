@@ -122,6 +122,7 @@ fn the_read_only_node_refuses_deploys() {
         .args(["-f", contracts::path("stdout.rho")])
         .key(&keys::SPARE)
         .grpc_at(Node::ReadOnly)
+        .http_at(Node::ReadOnly)
         .run()
         .expect_failure("deploy against the read-only node")
         .expect_contains("read-only mode");

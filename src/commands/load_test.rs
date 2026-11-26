@@ -1,6 +1,6 @@
-use crate::args::LoadTestArgs;
-use crate::commands::query::query_node_status;
+use crate::args::{DeployOptionsArgs, LoadTestArgs};
 use crate::commands::CliResult;
+use crate::deploy::DeployOptions;
 use crate::f1r3fly_api::F1r3flyApi;
 use crate::node_http::NodeHttp;
 use chrono::Local;
@@ -21,9 +21,15 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     use crate::utils::CryptoUtils;
 
     let node = args.node.node()?;
+    let status = node.get_json("/api/status").await?;
+    let limit = DeployOptionsArgs::capped_limit(
+        &node,
+        &status,
+        args.phlo_limit,
+        crate::vault::TRANSFER_PHLO_LIMIT,
+    )?;
     let amount_dust = if args.whole_tokens {
-        let status_json = query_node_status(&node, false).await?;
-        let decimals = status_json
+        let decimals = status
             .get("nativeTokenDecimals")
             .and_then(|v| v.as_u64())
             .and_then(|v| u32::try_from(v).ok())
@@ -93,8 +99,17 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
         println!();
 
         // Run single test with detailed logging
-        let result =
-            run_single_test(&api, &node, args, &sender_address, test_num, &amount_dust).await?;
+        let options = args.deploy.options(limit, &status)?;
+        let result = run_single_test(
+            &api,
+            &node,
+            args,
+            &sender_address,
+            test_num,
+            &amount_dust,
+            &options,
+        )
+        .await?;
 
         results.push(result);
 
@@ -121,6 +136,7 @@ async fn run_single_test(
     sender_address: &str,
     test_num: u32,
     amount_dust: &num_bigint::BigUint,
+    options: &DeployOptions,
 ) -> CliResult<TestResult> {
     let test_start = Instant::now();
 
@@ -129,9 +145,7 @@ async fn run_single_test(
     let deploy_start = Instant::now();
 
     let rholang = generate_transfer_contract(sender_address, args, amount_dust)?;
-    let deploy_id = api
-        .deploy(&rholang, &args.deploy.options(args.phlo_limit))
-        .await?;
+    let deploy_id = api.deploy(&rholang, options).await?;
 
     println!(
         " [{}] Deploy submitted ({}ms)",
