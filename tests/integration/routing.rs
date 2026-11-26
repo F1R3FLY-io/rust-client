@@ -1,11 +1,15 @@
 //! Group A - which node a command talks to, and over which endpoint.
 
+use axum::{extract::State, routing::get, Json, Router};
 use libtest_mimic::Trial;
+use serde_json::Value;
+use tokio::{net::TcpListener, task::JoinHandle};
 
 use crate::common::cli::Cli;
 use crate::common::contracts;
 use crate::common::keys;
 use crate::common::node::{published, Node};
+use crate::common::rt;
 use crate::common::shard;
 
 /// validator1's gRPC API behind the TLS proxy.
@@ -33,6 +37,25 @@ fn tls_endpoint(proxy_port: u16) -> String {
 
 /// An endpoint nothing listens on.
 const UNREACHABLE: &str = "http://localhost:1";
+
+/// Carry the deploy node's real status while keeping verdicts on the observer.
+fn validator_status_only() -> (String, JoinHandle<()>) {
+    let status = Node::Validator1.status().expect("validator1 status");
+    let router = Router::new()
+        .route(
+            "/api/status",
+            get(|State(status): State<Value>| async move { Json(status) }),
+        )
+        .with_state(status);
+    rt().block_on(async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        (endpoint, task)
+    })
+}
 
 pub fn trials() -> Vec<Trial> {
     vec![
@@ -73,17 +96,20 @@ pub fn trials() -> Vec<Trial> {
     ]
 }
 
-/// The deploy node's HTTP endpoint is unreachable on purpose: the verdict and
-/// the deploy's details must come through the observer.
+/// The deploy node's HTTP endpoint serves the signing parameters. The verdict
+/// and deploy details must come through the observer.
 fn finalization_through_the_observer_only() {
-    Cli::new("deploy-and-wait")
+    let (endpoint, server) = validator_status_only();
+    let result = Cli::new("deploy-and-wait")
         .args(["-f", contracts::path("stdout.rho")])
         .key(&keys::DEPLOY_A)
         .grpc_at(Node::Validator1)
-        .args(["--http", UNREACHABLE])
+        .args(["--http".to_string(), endpoint])
         .observing(Node::ReadOnly)
         .args(["--max-wait", "120"])
-        .run()
+        .run();
+    server.abort();
+    result
         .expect_success("deploy-and-wait through the observer")
         .expect_contains("Block hash:");
 }
@@ -91,15 +117,19 @@ fn finalization_through_the_observer_only() {
 /// The negative control for the test above: with no reachable finalization
 /// endpoint the command must fail rather than report success.
 fn finalization_fails_without_an_observer() {
-    Cli::new("deploy-and-wait")
+    let (endpoint, server) = validator_status_only();
+    let result = Cli::new("deploy-and-wait")
         .args(["-f", contracts::path("stdout.rho")])
         .key(&keys::DEPLOY_B)
         .grpc_at(Node::Validator1)
-        .args(["--http", UNREACHABLE])
+        .args(["--http".to_string(), endpoint])
         .args(["--observer", UNREACHABLE])
         .args(["--max-wait", "20"])
-        .run()
-        .expect_failure("deploy-and-wait with no reachable observer");
+        .run();
+    server.abort();
+    result
+        .expect_failure("deploy-and-wait with no reachable observer")
+        .expect_contains("/api/deploy-finalization-status");
 }
 
 /// Exploratory deploys are served only by a read-only node.
