@@ -393,6 +393,8 @@ mod bigint_tests {
             ("0.5", 1, 5),
             ("0", 18, 0),
             ("0.0", 1, 0),
+            // A native token may have no decimals; whole tokens are then dust.
+            ("7", 0, 7),
         ] {
             assert_eq!(
                 tokens_to_dust(tokens, decimals).unwrap(),

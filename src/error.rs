@@ -154,9 +154,12 @@ pub enum Error {
         requirement: &'static str,
     },
 
-    /// The node serves the value the call needs but has not adopted it from
-    /// the chain yet.
-    #[error("{endpoint} reports no {parameter} yet: it has not adopted the shard's parameters")]
+    /// The node does not advertise a chain parameter the call needs: it has not
+    /// adopted it yet, or it is older than the parameter. Its status does not
+    /// tell the two apart.
+    #[error(
+        "{endpoint} advertises no {parameter}: it has not adopted the shard's parameters yet, or predates them"
+    )]
     NodeNotReady {
         endpoint: String,
         parameter: &'static str,

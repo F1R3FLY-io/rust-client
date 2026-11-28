@@ -27,8 +27,9 @@ node_cli deploy-and-wait -f <FILE> [OPTIONS]
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
-| `--phlo-limit` | | `50000` | Most phlo the deploy may spend |
-| `--phlo-price` | | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-limit` | | `50000`, capped by the shard | Most phlo the deploy may spend |
+| `--phlo-price` | | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros; one below the node's minimum is refused before signing |
+| `--max-phlo-price` | | none | Refuse the node's automatic price when it is above this ceiling, in base units. Cannot be combined with `--phlo-price`. |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
 | `--propose` | | false | Also propose a block after deploy; `--grpc` must then be the node's internal API |
 | `--max-wait` | | `300` | Max seconds to wait for finalization |
@@ -95,6 +96,10 @@ The deploy must reach a terminal state (`Finalized`, `Failed`, `Expired`, or a d
 ## Observer Node
 
 With `--observer` (env `FIREFLY_OBSERVER_URL`, or a profile's `observer`; see [Configuration](../configuration.md)), finalization checks run against both the deploy node and that node. Without it, only the deploy node is polled.
+
+The price, phlo cap and token decimals are read over the deploy node's gRPC
+connection, so its HTTP endpoint may be unreachable when the observer answers:
+the observer supplies the verdict and the deploy details.
 
 On the system-integration single-host Docker shard, deploy to validator1 and observe from the read-only node:
 

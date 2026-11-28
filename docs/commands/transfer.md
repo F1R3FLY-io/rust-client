@@ -20,8 +20,9 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--ca-cert` | | none | PEM file of the certificate authorities trusted for `https://` endpoints, in place of the bundled public roots; refused with an `http://` endpoint |
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
-| `--phlo-limit` | | `500000` | Most phlo the transfer deploy may spend |
-| `--phlo-price` | | `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-limit` | | `500000`, capped by the shard | Most phlo the transfer deploy may spend |
+| `--phlo-price` | | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros; one below the node's minimum is refused before signing |
+| `--max-phlo-price` | | none | Refuse the node's automatic price when it is above this ceiling, in base units. Cannot be combined with `--phlo-price`. |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
 | `--propose` | | false | Also propose a block after deploy; `--grpc` must then be the node's internal API |
 | `--max-wait` | | `300` | Max seconds to wait for finalization |
@@ -29,7 +30,7 @@ node_cli transfer --to-address <ADDRESS> --amount <AMOUNT> [OPTIONS]
 | `--observer` | | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--expiration` | | none | Expiration timestamp (ms) |
 | `--expires-in` | | none | Expiration duration (seconds) |
-| `--whole-tokens` | `-d` | false | Treat `--amount` as whole tokens, scaled by the native token's decimals from node status (default: base units / dust) |
+| `--whole-tokens` | `-d` | false | Treat `--amount` as whole tokens, scaled by the native token's decimals from the deploy node's gRPC status (default: base units / dust) |
 
 ## Example
 
@@ -61,7 +62,7 @@ Transfer: 1111AtahZe...r3g -> 111127RX5Z...iHA (100000000 dust)
   command then runs out `--max-wait` and reports a timeout, and the deploy is
   never found.
 - The sender address is derived from the signing key automatically
-- `--amount` is in base units (dust) by default; use `--whole-tokens`/`-d` to specify whole tokens (scaled by the native token's decimals fetched from node status)
+- `--amount` is in base units (dust) by default; use `--whole-tokens`/`-d` to specify whole tokens (scaled by the native token's decimals fetched from the deploy node's gRPC status)
 - Deploys with a 500,000 phlo limit by default: the transfer contract costs
   about 250,000. The sender's vault must cover `phlo limit × phlo price` plus
   the amount being transferred

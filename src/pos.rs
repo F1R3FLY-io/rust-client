@@ -21,14 +21,7 @@ pub const POS_CALL_PHLO_LIMIT: u64 = 10_000_000;
 /// the cap. A requested limit above the cap is refused, since the node would
 /// refuse the deploy.
 pub fn pos_call_phlo_limit(requested: Option<u64>, cap: u64) -> Result<u64> {
-    match requested {
-        Some(limit) if limit > cap => Err(Error::invalid(
-            "phlo limit",
-            format!("{limit} is above the shard's cap of {cap}"),
-        )),
-        Some(limit) => Ok(limit),
-        None => Ok(POS_CALL_PHLO_LIMIT.min(cap)),
-    }
+    crate::deploy::capped_phlo_limit(requested, POS_CALL_PHLO_LIMIT, cap)
 }
 
 fn malformed(detail: impl std::fmt::Display) -> Error {

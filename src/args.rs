@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::commands::CliResult;
 use crate::connection_manager::{DEFAULT_GRPC_URL, DEFAULT_HTTP_URL};
 use crate::endpoint::Endpoint;
-use crate::f1r3fly_api::F1r3flyApi;
+use crate::f1r3fly_api::{DeployParameters, F1r3flyApi};
 use crate::node_http::NodeHttp;
 use crate::signing_key::SigningKey;
 
@@ -399,9 +399,14 @@ pub struct DeployWaitArgs {
 /// phlo limit, whose default differs per command
 #[derive(Args, Debug)]
 pub struct DeployOptionsArgs {
-    /// Price per phlo, in the native token's base units
-    #[arg(long = "phlo-price", default_value_t = num_bigint::BigUint::from(crate::deploy::DEFAULT_PHLO_PRICE), value_parser = crate::amount::parse_price)]
-    pub phlo_price: num_bigint::BigUint,
+    /// Price per phlo in base units (default: deploy node's minimum, at least 1)
+    #[arg(long = "phlo-price", value_parser = crate::amount::parse_price)]
+    pub phlo_price: Option<num_bigint::BigUint>,
+
+    /// Refuse the deploy node's automatic price when it is above this ceiling,
+    /// in base units
+    #[arg(long = "max-phlo-price", conflicts_with = "phlo_price", value_parser = crate::amount::parse_price)]
+    pub max_phlo_price: Option<num_bigint::BigUint>,
 
     /// Shard the deploy is signed for: the target node's casper.shard-name
     #[arg(long = "shard-id", env = "FIREFLY_SHARD_ID", default_value = crate::deploy::DEFAULT_SHARD_ID)]
@@ -419,8 +424,50 @@ pub struct DeployOptionsArgs {
 }
 
 impl DeployOptionsArgs {
-    /// The deploy options these flags describe, with the command's phlo limit.
-    pub fn options(&self, phlo_limit: u64) -> crate::deploy::DeployOptions {
+    /// The deploy options these flags describe, resolving the price from the
+    /// node's status only when the caller supplied none.
+    pub fn options(
+        &self,
+        phlo_limit: u64,
+        parameters: &DeployParameters,
+    ) -> CliResult<crate::deploy::DeployOptions> {
+        let phlo_price = match &self.phlo_price {
+            Some(price) => {
+                if let Some(minimum) = parameters.min_phlo_price.as_ref().filter(|m| price < *m) {
+                    return Err(crate::Error::invalid(
+                        "phlo price",
+                        format!("{price} is below the node's minimum of {minimum}"),
+                    )
+                    .into());
+                }
+                price.clone()
+            }
+            None => {
+                let advertised =
+                    parameters
+                        .min_phlo_price
+                        .clone()
+                        .ok_or(crate::Error::NodeTooOld {
+                            endpoint: parameters.endpoint.clone(),
+                            feature: "minPhloPrice in the deploy service status",
+                            requirement: "a node that advertises its minimum phlo price",
+                        })?;
+                let price = advertised.max(crate::deploy::DEFAULT_PHLO_PRICE.into());
+                if let Some(ceiling) = &self.max_phlo_price {
+                    if price > *ceiling {
+                        return Err(crate::Error::invalid(
+                            "phlo price",
+                            format!(
+                                "the node's minimum of {price} is above the ceiling of {ceiling} \
+                                 (--max-phlo-price)"
+                            ),
+                        )
+                        .into());
+                    }
+                }
+                price
+            }
+        };
         let expiration = match (self.expiration, self.expires_in) {
             (Some(at), _) => Some(at).filter(|at| *at != 0),
             (None, Some(seconds)) => Some(
@@ -432,12 +479,12 @@ impl DeployOptionsArgs {
             ),
             (None, None) => None,
         };
-        crate::deploy::DeployOptions {
+        Ok(crate::deploy::DeployOptions {
             phlo_limit,
-            phlo_price: self.phlo_price.clone(),
+            phlo_price,
             expiration,
             timestamp: None,
-        }
+        })
     }
 }
 
@@ -453,9 +500,9 @@ pub struct DeployAndWaitArgs {
     #[command(flatten)]
     pub wait: DeployWaitArgs,
 
-    /// Most phlo the deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::deploy::DEFAULT_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo the deploy may spend (default: 50000, capped by the shard)
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     /// Also propose a block after deploy
     #[arg(long, default_value_t = false)]
@@ -526,9 +573,9 @@ pub struct DeployArgs {
     #[command(flatten)]
     pub node: GrpcNodeArgs,
 
-    /// Most phlo the deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::deploy::DEFAULT_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo the deploy may spend (default: 50000, capped by the shard)
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     #[command(flatten)]
     pub deploy: DeployOptionsArgs,
@@ -806,9 +853,9 @@ pub struct TransferArgs {
     #[command(flatten)]
     pub wait: DeployWaitArgs,
 
-    /// Most phlo the deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::vault::TRANSFER_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo the deploy may spend (default: 500000, capped by the shard)
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     /// Also propose a block after transfer
     #[arg(long, default_value_t = false, action = ArgAction::Set, value_parser = clap::value_parser!(bool))]
@@ -868,9 +915,9 @@ pub struct LoadTestArgs {
     #[arg(long = "finalization-timeout", default_value_t = 120)]
     pub finalization_timeout: u64,
 
-    /// Most phlo each transfer deploy may spend
-    #[arg(long = "phlo-limit", default_value_t = crate::vault::TRANSFER_PHLO_LIMIT)]
-    pub phlo_limit: u64,
+    /// Most phlo each transfer deploy may spend (default: 500000, capped by the shard)
+    #[arg(long = "phlo-limit")]
+    pub phlo_limit: Option<u64>,
 
     #[command(flatten)]
     pub deploy: DeployOptionsArgs,

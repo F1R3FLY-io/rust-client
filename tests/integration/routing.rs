@@ -73,8 +73,9 @@ pub fn trials() -> Vec<Trial> {
     ]
 }
 
-/// The deploy node's HTTP endpoint is unreachable on purpose: the verdict and
-/// the deploy's details must come through the observer.
+/// The deploy node's HTTP endpoint is unreachable on purpose: the signing
+/// parameters come over its gRPC connection, and the verdict and deploy
+/// details come through the observer.
 fn finalization_through_the_observer_only() {
     Cli::new("deploy-and-wait")
         .args(["-f", contracts::path("stdout.rho")])
@@ -99,7 +100,8 @@ fn finalization_fails_without_an_observer() {
         .args(["--observer", UNREACHABLE])
         .args(["--max-wait", "20"])
         .run()
-        .expect_failure("deploy-and-wait with no reachable observer");
+        .expect_failure("deploy-and-wait with no reachable observer")
+        .expect_contains("reached no verdict");
 }
 
 /// Exploratory deploys are served only by a read-only node.

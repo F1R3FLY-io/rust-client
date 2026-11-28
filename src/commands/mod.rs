@@ -11,6 +11,11 @@ pub(crate) fn show(par: &f1r3fly_models::rhoapi::Par) -> String {
     }
 }
 
+/// Show the phlo price a deploy will sign, since it may come from the node.
+pub(crate) fn print_phlo_price(options: &crate::deploy::DeployOptions) {
+    println!("Phlo price: {}", options.phlo_price);
+}
+
 pub mod config;
 pub mod crypto;
 pub mod dag;

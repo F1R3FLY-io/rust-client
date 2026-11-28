@@ -2,7 +2,10 @@
 
 mod blocks;
 mod deploy;
+#[cfg(test)]
+mod mock_node;
 pub mod query;
+mod status;
 
 use crate::endpoint::Endpoint;
 use crate::error::{Error, Result};
