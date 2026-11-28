@@ -15,7 +15,7 @@ node_cli load-test --to-address <ADDR> --readonly-http <URL> --num-tests <N> --a
 | `--num-tests` | `20` | Number of transfers to send |
 | `--amount` | `1` | Amount per transfer in base units (dust). Use `--whole-tokens`/`-d` for whole tokens. |
 | `--phlo-limit` | `500000`, capped by the shard | Most phlo each transfer deploy may spend |
-| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units |
+| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units; one below the node's minimum is refused before signing |
 | `--max-phlo-price` | none | Refuse the node's automatic price when it is above this ceiling, in base units. Cannot be combined with `--phlo-price`. |
 | `--whole-tokens`, `-d` | `false` | Treat `--amount` as whole tokens, scaled by the native token's decimals from the deploy node's gRPC status |
 | `--interval` | `10` | Seconds between deploys |
@@ -178,7 +178,7 @@ node_cli bond-validator --stake <AMOUNT> --private-key-file <PATH> [OPTIONS]
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | lesser of `10000000` and the shard's cap | Most phlo the bond deploy may spend; refused before signing when above the cap |
-| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros; one below the node's minimum is refused before signing |
 | `--max-phlo-price` | none | Refuse the node's automatic price when it is above this ceiling, in base units. Cannot be combined with `--phlo-price`. |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
@@ -192,8 +192,9 @@ timeout.
 whose phlo limit is above the shard's `maxPhloLimit` (see `status`), so both
 commands read the cap from the deploy node's gRPC `Status` before signing:
 without `--phlo-limit` they use the lesser of 10,000,000 and the cap, and a
-`--phlo-limit` above the cap is refused with both values. A node that has not
-adopted the cap yet is an error.
+`--phlo-limit` above the cap is refused with both values. A node that
+advertises no cap, because it has not adopted the shard's parameters yet or is
+older than the cap, is an error: its status does not say which.
 
 **Fund the validator's vault first.** The bond is paid for by the key being
 bonded, and the vault must hold `phlo limit × phlo price` **plus** the stake at
@@ -208,6 +209,7 @@ $ node_cli bond-validator --stake 1000 --private-key-file validator.hex
 
 Bonding validator with stake: 1000
 Phlo limit: 10000000 (shard cap: 20000000)
+Phlo price: 1
 Deploy ID:    3045022100...
 Block hash:   a1b2c3d4...
 Total time:   25.30s
@@ -221,6 +223,7 @@ $ node_cli bond-validator --stake 1000 --private-key-file already-bonded.hex
 
 Bonding validator with stake: 1000
 Phlo limit: 10000000 (shard cap: 20000000)
+Phlo price: 1
 Deploy ID: 3045022100e415...
 Block hash: 63fb62fd...
 Total time: 21.14s
@@ -252,7 +255,7 @@ node_cli unbond-validator --private-key-file <PATH> [OPTIONS]
 | `--max-wait` | `300` | Max seconds to wait for finalization |
 | `--observer` | none | HTTP endpoint, optionally with a base path, of a second node polled alongside the deploy node for the verdict; without it, only the deploy node is polled |
 | `--phlo-limit` | lesser of `10000000` and the shard's cap | Most phlo the withdrawal deploy may spend; refused before signing when above the cap |
-| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-price` | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros; one below the node's minimum is refused before signing |
 | `--max-phlo-price` | none | Refuse the node's automatic price when it is above this ceiling, in base units. Cannot be combined with `--phlo-price`. |
 | `--shard-id` | `root` | Shard the deploy is signed for (env `FIREFLY_SHARD_ID`) |
 
@@ -272,6 +275,7 @@ $ node_cli unbond-validator --private-key-file validator.hex
 
 Requesting withdrawal for validator: 0429af984ed4da1a...455f1727
 Phlo limit: 10000000 (shard cap: 20000000)
+Phlo price: 1
 Deploy ID: 3044022065871c6d...
 Block hash: b0737488...
 Total time: 23.32s

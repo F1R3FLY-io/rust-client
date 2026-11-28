@@ -424,19 +424,6 @@ pub struct DeployOptionsArgs {
 }
 
 impl DeployOptionsArgs {
-    /// Resolve a regular deploy's limit against the shard's cap, when the node
-    /// advertises one.
-    pub fn capped_limit(
-        parameters: &DeployParameters,
-        requested: Option<u64>,
-        default: u64,
-    ) -> crate::Result<u64> {
-        match parameters.max_phlo_limit {
-            Some(cap) => crate::deploy::capped_phlo_limit(requested, default, cap),
-            None => Ok(requested.unwrap_or(default)),
-        }
-    }
-
     /// The deploy options these flags describe, resolving the price from the
     /// node's status only when the caller supplied none.
     pub fn options(
@@ -445,7 +432,16 @@ impl DeployOptionsArgs {
         parameters: &DeployParameters,
     ) -> CliResult<crate::deploy::DeployOptions> {
         let phlo_price = match &self.phlo_price {
-            Some(price) => price.clone(),
+            Some(price) => {
+                if let Some(minimum) = parameters.min_phlo_price.as_ref().filter(|m| price < *m) {
+                    return Err(crate::Error::invalid(
+                        "phlo price",
+                        format!("{price} is below the node's minimum of {minimum}"),
+                    )
+                    .into());
+                }
+                price.clone()
+            }
             None => {
                 let advertised =
                     parameters

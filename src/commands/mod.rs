@@ -11,15 +11,9 @@ pub(crate) fn show(par: &f1r3fly_models::rhoapi::Par) -> String {
     }
 }
 
-/// The native token's decimals, for an amount given in whole tokens. A node
-/// that reports none cannot convert the amount.
-pub(crate) fn whole_token_decimals(
-    parameters: &crate::f1r3fly_api::DeployParameters,
-) -> CliResult<u32> {
-    match parameters.native_token_decimals {
-        0 => Err("node did not report valid token decimals; cannot convert whole tokens".into()),
-        decimals => Ok(decimals),
-    }
+/// Show the phlo price a deploy will sign, since it may come from the node.
+pub(crate) fn print_phlo_price(options: &crate::deploy::DeployOptions) {
+    println!("Phlo price: {}", options.phlo_price);
 }
 
 pub mod config;

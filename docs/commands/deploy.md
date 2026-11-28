@@ -21,7 +21,7 @@ node_cli deploy -f <FILE> [OPTIONS]
 | `--connect-timeout` | | `10` | Seconds a connection to a node may take to establish (at least 1) |
 | `--timeout` | | `30` | Seconds a single request to a node may take (at least 1) |
 | `--phlo-limit` | | `50000`, capped by the shard | Most phlo the deploy may spend. An explicit limit above the advertised cap is rejected before signing. |
-| `--phlo-price` | | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros |
+| `--phlo-price` | | Deploy node's minimum, at least `1` | Price per phlo in the native token's base units: a decimal integer from 1 to 2^256 − 1, without leading zeros; one below the node's minimum is refused before signing |
 | `--max-phlo-price` | | none | Refuse the node's automatic price when it is above this ceiling, in base units. Cannot be combined with `--phlo-price`. |
 | `--shard-id` | | `root` | Shard the deploy is signed for: the node's `casper.shard-name` (env `FIREFLY_SHARD_ID`) |
 | `--expiration` | | none | Expiration timestamp (ms, Unix epoch) |
@@ -36,6 +36,7 @@ Reading Rholang from: ./rho_examples/stdout.rho
 Code size: 62 bytes
 Connecting to F1r3fly node at http://localhost:40401
 Using phlo limit: 50000
+Phlo price: 1
 Deploying Rholang code...
 Deployment successful!
 Time taken: 87.58ms
@@ -50,7 +51,10 @@ Deploy ID: 3045022100a7378028e7bdfb8ea7c908f5effc1d2018a0448090e14be5f35ba722251
   command-default limit.
 - The node's advertised price becomes part of the signed fee, so an
   automatically priced deploy can be bounded with `--max-phlo-price` and fails
-  before signing when the advertised minimum is above it.
+  before signing when the advertised minimum is above it. An explicit
+  `--phlo-price` below the advertised minimum also fails before signing, as the
+  node would refuse it.
+- The resolved price is printed before signing (`Phlo price:`).
 - The deploy is submitted to the node but NOT yet in a block
 - **Submit to a bonded validator.** The deploy queue is node-local and deploys
   do not gossip, so a node that cannot propose — a bootstrap or ceremony-master

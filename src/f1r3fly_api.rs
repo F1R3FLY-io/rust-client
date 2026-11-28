@@ -224,8 +224,18 @@ pub struct DeployParameters {
 }
 
 impl DeployParameters {
+    /// The phlo limit for a deploy: `requested`, or else `default`, held to
+    /// the shard's cap when the node advertises one. Without a cap the limit is
+    /// used as given, and a node that enforces one refuses the deploy itself.
+    pub fn phlo_limit(&self, requested: Option<u64>, default: u64) -> Result<u64> {
+        match self.max_phlo_limit {
+            Some(cap) => crate::deploy::capped_phlo_limit(requested, default, cap),
+            None => Ok(requested.unwrap_or(default)),
+        }
+    }
+
     /// The shard's phlo limit cap. A node that has not adopted the shard's
-    /// parameters, such as one still starting up, advertises none.
+    /// parameters yet, or is older than the cap, advertises none.
     pub fn phlo_limit_cap(&self) -> Result<u64> {
         self.max_phlo_limit.ok_or_else(|| Error::NodeNotReady {
             endpoint: self.endpoint.clone(),

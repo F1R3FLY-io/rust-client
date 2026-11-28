@@ -1,7 +1,7 @@
 use crate::args::{DeployOptionsArgs, LoadTestArgs};
 use crate::commands::CliResult;
 use crate::deploy::DeployOptions;
-use crate::f1r3fly_api::F1r3flyApi;
+use crate::f1r3fly_api::{DeployParameters, F1r3flyApi};
 use crate::node_http::NodeHttp;
 use chrono::Local;
 use std::time::{Duration, Instant};
@@ -28,15 +28,15 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
         .with_signing_key(&key)
         .with_shard_id(&args.deploy.shard_id);
     let parameters = api.deploy_parameters().await?;
-    let limit = DeployOptionsArgs::capped_limit(
-        &parameters,
-        args.phlo_limit,
-        crate::vault::TRANSFER_PHLO_LIMIT,
-    )?;
-    let options = args.deploy.options(limit, &parameters)?;
+    let transfer_options = TransferOptions {
+        flags: &args.deploy,
+        phlo_limit: parameters.phlo_limit(args.phlo_limit, crate::vault::TRANSFER_PHLO_LIMIT)?,
+        parameters: &parameters,
+    };
+    // Built here to refuse a bad price before any transfer, and to show it.
+    let options = transfer_options.build()?;
     let amount_dust = if args.whole_tokens {
-        let decimals = crate::commands::whole_token_decimals(&parameters)?;
-        crate::vault::tokens_to_dust(&args.amount, decimals)?
+        crate::vault::tokens_to_dust(&args.amount, parameters.native_token_decimals)?
     } else {
         crate::vault::parse_amount(&args.amount)?
     };
@@ -46,6 +46,8 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     println!();
     println!("Tests: {}", args.num_tests);
     println!("Amount: {amount_dust} dust");
+    println!("Phlo limit: {}", options.phlo_limit);
+    crate::commands::print_phlo_price(&options);
     println!("Interval: {}s", args.interval);
     println!("Check interval: {}s (fast mode)", args.check_interval);
     println!("Target: {}", args.node.grpc);
@@ -99,7 +101,7 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
             &sender_address,
             test_num,
             &amount_dust,
-            &options,
+            &transfer_options,
         )
         .await?;
 
@@ -121,6 +123,20 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     Ok(())
 }
 
+/// What each transfer signs besides its term. Built per transfer, so
+/// `--expires-in` counts from when the transfer is sent.
+struct TransferOptions<'a> {
+    flags: &'a DeployOptionsArgs,
+    phlo_limit: u64,
+    parameters: &'a DeployParameters,
+}
+
+impl TransferOptions<'_> {
+    fn build(&self) -> CliResult<DeployOptions> {
+        self.flags.options(self.phlo_limit, self.parameters)
+    }
+}
+
 async fn run_single_test(
     api: &F1r3flyApi,
     node: &NodeHttp,
@@ -128,7 +144,7 @@ async fn run_single_test(
     sender_address: &str,
     test_num: u32,
     amount_dust: &num_bigint::BigUint,
-    options: &DeployOptions,
+    transfer_options: &TransferOptions<'_>,
 ) -> CliResult<TestResult> {
     let test_start = Instant::now();
 
@@ -137,7 +153,7 @@ async fn run_single_test(
     let deploy_start = Instant::now();
 
     let rholang = generate_transfer_contract(sender_address, args, amount_dust)?;
-    let deploy_id = api.deploy(&rholang, options).await?;
+    let deploy_id = api.deploy(&rholang, &transfer_options.build()?).await?;
 
     println!(
         " [{}] Deploy submitted ({}ms)",

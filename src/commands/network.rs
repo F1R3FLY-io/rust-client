@@ -1,5 +1,5 @@
 use crate::args::*;
-use crate::commands::{whole_token_decimals, CliResult};
+use crate::commands::{print_phlo_price, CliResult};
 use crate::connection_manager::{ConnectionConfig, F1r3flyConnectionManager};
 use crate::f1r3fly_api::{DeployResult, ProposeResult};
 use crate::pos::{
@@ -164,13 +164,10 @@ pub async fn deploy_command(args: &DeployArgs) -> CliResult {
         .with_shard_id(&args.deploy.shard_id);
     println!("Connecting to F1r3fly node at {}", f1r3fly_api.endpoint());
     let parameters = f1r3fly_api.deploy_parameters().await?;
-    let limit = DeployOptionsArgs::capped_limit(
-        &parameters,
-        args.phlo_limit,
-        crate::deploy::DEFAULT_PHLO_LIMIT,
-    )?;
+    let limit = parameters.phlo_limit(args.phlo_limit, crate::deploy::DEFAULT_PHLO_LIMIT)?;
     let options = args.deploy.options(limit, &parameters)?;
     println!("Using phlo limit: {}", options.phlo_limit);
+    print_phlo_price(&options);
     if let Some(expiration) = options.expiration {
         println!("Deploy expiration: {expiration} ms");
     }
@@ -276,6 +273,7 @@ pub async fn bond_validator_command(args: &BondValidatorArgs) -> CliResult {
     let start = Instant::now();
 
     let options = args.wait.deploy.options(phlo_limit, &parameters)?;
+    print_phlo_price(&options);
     let result = manager.deploy_and_wait(&term, &options).await?;
 
     println!("Deploy ID: {}", result.deploy_id);
@@ -303,6 +301,7 @@ pub async fn unbond_validator_command(args: &UnbondValidatorArgs) -> CliResult {
     let start = Instant::now();
 
     let options = args.wait.deploy.options(phlo_limit, &parameters)?;
+    print_phlo_price(&options);
     let result = manager.deploy_and_wait(WITHDRAW_RHOLANG, &options).await?;
 
     println!("Deploy ID: {}", result.deploy_id);
@@ -344,8 +343,7 @@ pub async fn transfer_command(args: &TransferArgs) -> CliResult {
 
     let parameters = manager.api().deploy_parameters().await?;
     let amount_dust = if args.whole_tokens {
-        let decimals = whole_token_decimals(&parameters)?;
-        crate::vault::tokens_to_dust(&args.amount, decimals)?
+        crate::vault::tokens_to_dust(&args.amount, parameters.native_token_decimals)?
     } else {
         crate::vault::parse_amount(&args.amount)?
     };
@@ -360,12 +358,9 @@ pub async fn transfer_command(args: &TransferArgs) -> CliResult {
 
     let start = Instant::now();
 
-    let limit = DeployOptionsArgs::capped_limit(
-        &parameters,
-        args.phlo_limit,
-        crate::vault::TRANSFER_PHLO_LIMIT,
-    )?;
+    let limit = parameters.phlo_limit(args.phlo_limit, crate::vault::TRANSFER_PHLO_LIMIT)?;
     let options = args.wait.deploy.options(limit, &parameters)?;
+    print_phlo_price(&options);
     let result = manager.deploy_and_wait(&rholang_code, &options).await?;
 
     println!("Deploy ID: {}", result.deploy_id);
@@ -395,12 +390,9 @@ pub async fn deploy_and_wait_command(args: &DeployAndWaitArgs) -> CliResult {
     let start = Instant::now();
 
     let parameters = manager.api().deploy_parameters().await?;
-    let limit = DeployOptionsArgs::capped_limit(
-        &parameters,
-        args.phlo_limit,
-        crate::deploy::DEFAULT_PHLO_LIMIT,
-    )?;
+    let limit = parameters.phlo_limit(args.phlo_limit, crate::deploy::DEFAULT_PHLO_LIMIT)?;
     let options = args.wait.deploy.options(limit, &parameters)?;
+    print_phlo_price(&options);
     let result = manager.deploy_and_wait(&rholang_code, &options).await?;
 
     println!("Deploy ID: {}", result.deploy_id);

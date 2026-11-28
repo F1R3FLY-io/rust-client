@@ -81,7 +81,9 @@ fn suggestion(error: &Error) -> Option<&'static str> {
             Some("check the command's arguments and environment")
         }
         Error::NodeTooOld { .. } => Some("upgrade the node, or point the command at a newer one"),
-        Error::NodeNotReady { .. } => Some("retry once the node has finished starting"),
+        Error::NodeNotReady { .. } => {
+            Some("retry once the node has finished starting; if it persists, upgrade the node")
+        }
         _ => None,
     }
 }

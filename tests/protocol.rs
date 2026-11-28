@@ -315,7 +315,7 @@ fn cli_prices_and_limits_resolve_from_one_node_status() {
 
     let args = DeployArgs::try_parse_from(["deploy", "-f", "contract.rho"]).unwrap();
     let resolve = |parameters: &node_cli::f1r3fly_api::DeployParameters, requested| {
-        node_cli::args::DeployOptionsArgs::capped_limit(parameters, requested, 50_000)
+        parameters.phlo_limit(requested, 50_000)
     };
     let reported = parameters(Some("18446744073709551617"), Some(30_000));
     let limit = resolve(&reported, args.phlo_limit).unwrap();
@@ -370,6 +370,66 @@ fn deploy_reaches_the_node_over_grpc_alone() {
         .is_err(),
         "deploy has no HTTP endpoint to require"
     );
+}
+
+/// An explicit price below the node's minimum would be refused on admission, so
+/// it is refused before signing, as an explicit limit above the cap is.
+#[cfg(feature = "cli")]
+#[test]
+fn an_explicit_price_below_the_node_minimum_is_refused_before_signing() {
+    use clap::Parser;
+    use node_cli::args::DeployArgs;
+
+    let price = |price: &str, minimum: Option<&str>| {
+        DeployArgs::try_parse_from(["deploy", "-f", "contract.rho", "--phlo-price", price])
+            .unwrap()
+            .deploy
+            .options(50_000, &parameters(minimum, None))
+    };
+    let error = price("5", Some("10")).unwrap_err().to_string();
+    assert!(
+        error.contains("5 is below the node's minimum of 10"),
+        "{error}"
+    );
+    assert_eq!(
+        price("10", Some("10")).unwrap().phlo_price,
+        BigUint::from(10u8)
+    );
+    assert_eq!(price("5", None).unwrap().phlo_price, BigUint::from(5u8));
+}
+
+/// `load-test` builds each transfer's options when it sends it, relying on
+/// `--expires-in` counting from then rather than from when the flags parsed.
+#[cfg(feature = "cli")]
+#[test]
+fn expires_in_counts_from_when_the_options_are_built() {
+    use clap::Parser;
+    use node_cli::args::DeployArgs;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    let now = || {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+    };
+    let args =
+        DeployArgs::try_parse_from(["deploy", "-f", "contract.rho", "--expires-in", "1"]).unwrap();
+    let options = || {
+        args.deploy
+            .options(50_000, &parameters(Some("1"), None))
+            .unwrap()
+            .expiration
+            .unwrap()
+    };
+    let first = options();
+    std::thread::sleep(Duration::from_millis(1_100));
+    let later = options();
+    assert!(
+        later > now(),
+        "options built now must not already be expired"
+    );
+    assert!(later > first, "each build counts from its own time");
 }
 
 #[cfg(feature = "cli")]
