@@ -2,6 +2,8 @@
 
 mod blocks;
 mod deploy;
+#[cfg(test)]
+mod mock_node;
 pub mod query;
 mod status;
 

@@ -55,89 +55,21 @@ impl F1r3flyApi {
 mod tests {
     use super::*;
     use crate::endpoint::Endpoint;
+    use crate::grpc::mock_node::{ends, MockNode};
     use f1r3fly_models::casper::v1::StatusResponse;
     use f1r3fly_models::casper::Status;
     use f1r3fly_models::servicemodelapi::ServiceError;
-    use std::convert::Infallible;
-    use std::future::Future;
-    use std::task::{Context, Poll};
-    use tonic::body::Body;
-    use tonic::codegen::{http, BoxFuture, Service};
-
-    /// A node serving only `status`.
-    #[derive(Clone)]
-    struct StatusOnly {
-        response: StatusResponse,
-    }
-
-    impl tonic::server::NamedService for StatusOnly {
-        const NAME: &'static str = "casper.v1.DeployService";
-    }
-
-    impl Service<http::Request<Body>> for StatusOnly {
-        type Response = http::Response<Body>;
-        type Error = Infallible;
-        type Future = BoxFuture<Self::Response, Infallible>;
-
-        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Infallible>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn call(&mut self, request: http::Request<Body>) -> Self::Future {
-            let response = self.response.clone();
-            Box::pin(async move {
-                Ok(match request.uri().path() {
-                    "/casper.v1.DeployService/status" => {
-                        tonic::server::Grpc::new(
-                            tonic_prost::ProstCodec::<StatusResponse, ()>::default(),
-                        )
-                        .unary(StatusCall { response }, request)
-                        .await
-                    }
-                    _ => tonic::Status::unimplemented("").into_http(),
-                })
-            })
-        }
-    }
-
-    struct StatusCall {
-        response: StatusResponse,
-    }
-
-    impl tonic::server::UnaryService<()> for StatusCall {
-        type Response = StatusResponse;
-        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-
-        fn call(&mut self, _: tonic::Request<()>) -> Self::Future {
-            let response = self.response.clone();
-            Box::pin(async move { Ok(tonic::Response::new(response)) })
-        }
-    }
 
     async fn node(response: StatusResponse) -> F1r3flyApi {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        tokio::spawn(
-            tonic::transport::Server::builder()
-                .add_service(StatusOnly { response })
-                .serve_with_incoming(tonic::transport::server::TcpIncoming::from(listener)),
-        );
-        let endpoint = Endpoint::parse(&format!("http://127.0.0.1:{port}")).unwrap();
-        F1r3flyApi::new(endpoint).unwrap()
+        MockNode::status(response)
+            .serve(std::time::Duration::from_secs(2))
+            .await
     }
 
     fn answering(status: Status) -> StatusResponse {
         StatusResponse {
             message: Some(status_response::Message::Status(status)),
         }
-    }
-
-    /// `call`'s output, failing the test instead of hanging it if the call
-    /// outlives every timeout it should have.
-    async fn ends<T>(call: impl Future<Output = T>) -> T {
-        tokio::time::timeout(std::time::Duration::from_secs(5), call)
-            .await
-            .expect("the call ends")
     }
 
     #[tokio::test]

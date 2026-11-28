@@ -234,226 +234,16 @@ impl F1r3flyApi {
 mod tests {
     use super::*;
     use crate::deploy::DeployOptions;
-    use crate::endpoint::Endpoint;
-    use f1r3fly_models::casper::v1::{block_info_response, BlockInfoResponse};
-    use f1r3fly_models::casper::BlocksQueryByHeight;
-    use std::collections::VecDeque;
-    use std::convert::Infallible;
-    use std::sync::{Arc, Mutex};
-    use std::task::{Context, Poll};
+    use crate::grpc::mock_node::{ends, BlockAnswer, MockNode, PROMPT_TIP, TIP};
     use std::time::{Duration, Instant};
-    use tonic::body::Body;
-    use tonic::codegen::{http, BoxFuture, BoxStream, Service};
 
-    const TIP: i64 = 100;
     const SHORT_TIMEOUT: Duration = Duration::from_millis(300);
 
-    /// How the mock node answers one block-stream call.
-    #[derive(Clone, Copy)]
-    enum Answer {
-        /// Response headers after `headers`, the block at [`TIP`] after a
-        /// further `block`, then the end of the stream.
-        Tip { headers: Duration, block: Duration },
-        /// Response headers at once, then nothing more.
-        StalledStream,
-        /// An `UNAVAILABLE` status.
-        Refused,
-        /// The block at [`TIP`], then [`PRUNED`] at height 3 reported with
-        /// `pruned_floor`, then [`UNAVAILABLE`] at height 9 reported with
-        /// `unavailable_floor`.
-        Missing {
-            pruned_floor: i64,
-            unavailable_floor: i64,
-        },
-    }
-
-    const PROMPT_TIP: Answer = Answer::Tip {
-        headers: Duration::ZERO,
-        block: Duration::ZERO,
-    };
-    const PRUNED: [u8; 2] = [0xab, 0xcd];
-    const UNAVAILABLE: [u8; 2] = [0xef, 0x01];
-
-    /// A node serving only `showMainChain` and `getBlocksByHeights`, giving
-    /// each call the next scripted answer and recording each by-heights
-    /// request's `include_missing`.
-    #[derive(Clone)]
-    struct BlockStreams {
-        answers: Arc<Mutex<VecDeque<Answer>>>,
-        include_missing: Arc<Mutex<Vec<bool>>>,
-    }
-
-    impl tonic::server::NamedService for BlockStreams {
-        const NAME: &'static str = "casper.v1.DeployService";
-    }
-
-    impl Service<http::Request<Body>> for BlockStreams {
-        type Response = http::Response<Body>;
-        type Error = Infallible;
-        type Future = BoxFuture<Self::Response, Infallible>;
-
-        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Infallible>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn call(&mut self, request: http::Request<Body>) -> Self::Future {
-            let answer = self
-                .answers
-                .lock()
-                .unwrap()
-                .pop_front()
-                .expect("every call has a scripted answer");
-            let blocks = Blocks {
-                answer,
-                include_missing: self.include_missing.clone(),
-            };
-            Box::pin(async move {
-                Ok(match request.uri().path() {
-                    "/casper.v1.DeployService/showMainChain" => {
-                        tonic::server::Grpc::new(tonic_prost::ProstCodec::<
-                            BlockInfoResponse,
-                            BlocksQuery,
-                        >::default())
-                        .server_streaming(blocks, request)
-                        .await
-                    }
-                    "/casper.v1.DeployService/getBlocksByHeights" => {
-                        tonic::server::Grpc::new(tonic_prost::ProstCodec::<
-                            BlockInfoResponse,
-                            BlocksQueryByHeight,
-                        >::default())
-                        .server_streaming(blocks, request)
-                        .await
-                    }
-                    _ => tonic::Status::unimplemented("").into_http(),
-                })
-            })
-        }
-    }
-
-    struct Blocks {
-        answer: Answer,
-        include_missing: Arc<Mutex<Vec<bool>>>,
-    }
-
-    /// The `include_missing` of a block query, where it has one.
-    trait IncludeMissing {
-        fn include_missing(&self) -> Option<bool>;
-    }
-
-    impl IncludeMissing for BlocksQuery {
-        fn include_missing(&self) -> Option<bool> {
-            None
-        }
-    }
-
-    impl IncludeMissing for BlocksQueryByHeight {
-        fn include_missing(&self) -> Option<bool> {
-            Some(self.include_missing)
-        }
-    }
-
-    fn block(message: block_info_response::Message) -> Result<BlockInfoResponse, tonic::Status> {
-        Ok(BlockInfoResponse {
-            message: Some(message),
-        })
-    }
-
-    fn tip_block() -> block_info_response::Message {
-        block_info_response::Message::BlockInfo(LightBlockInfo {
-            block_number: TIP,
-            ..Default::default()
-        })
-    }
-
-    impl<Q: IncludeMissing + Send + 'static> tonic::server::ServerStreamingService<Q> for Blocks {
-        type Response = BlockInfoResponse;
-        type ResponseStream = BoxStream<BlockInfoResponse>;
-        type Future = BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
-
-        fn call(&mut self, request: tonic::Request<Q>) -> Self::Future {
-            if let Some(include_missing) = request.get_ref().include_missing() {
-                self.include_missing.lock().unwrap().push(include_missing);
-            }
-            let answer = self.answer;
-            Box::pin(async move {
-                let stream: Self::ResponseStream = match answer {
-                    Answer::Refused => return Err(tonic::Status::unavailable("refused")),
-                    Answer::StalledStream => Box::pin(futures_util::stream::pending()),
-                    Answer::Tip {
-                        headers,
-                        block: delay,
-                    } => {
-                        tokio::time::sleep(headers).await;
-                        Box::pin(futures_util::stream::once(async move {
-                            tokio::time::sleep(delay).await;
-                            block(tip_block())
-                        }))
-                    }
-                    Answer::Missing {
-                        pruned_floor,
-                        unavailable_floor,
-                    } => {
-                        use f1r3fly_models::casper::v1::{BlockPrunedInfo, BlockUnavailableInfo};
-                        Box::pin(futures_util::stream::iter([
-                            block(tip_block()),
-                            block(block_info_response::Message::Pruned(BlockPrunedInfo {
-                                hash: PRUNED.to_vec().into(),
-                                block_height: 3,
-                                prune_floor: pruned_floor,
-                            })),
-                            block(block_info_response::Message::Unavailable(
-                                BlockUnavailableInfo {
-                                    hash: UNAVAILABLE.to_vec().into(),
-                                    block_height: 9,
-                                    prune_floor: unavailable_floor,
-                                },
-                            )),
-                        ]))
-                    }
-                };
-                Ok(tonic::Response::new(stream))
-            })
-        }
-    }
-
     async fn node(
-        answers: impl IntoIterator<Item = Answer>,
+        answers: impl IntoIterator<Item = BlockAnswer>,
         request_timeout: Duration,
     ) -> F1r3flyApi {
-        recording_node(answers, request_timeout).await.0
-    }
-
-    /// [`node`], with the `include_missing` of each by-heights request it
-    /// receives.
-    async fn recording_node(
-        answers: impl IntoIterator<Item = Answer>,
-        request_timeout: Duration,
-    ) -> (F1r3flyApi, Arc<Mutex<Vec<bool>>>) {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let include_missing = Arc::new(Mutex::new(Vec::new()));
-        let service = BlockStreams {
-            answers: Arc::new(Mutex::new(answers.into_iter().collect())),
-            include_missing: include_missing.clone(),
-        };
-        tokio::spawn(
-            tonic::transport::Server::builder()
-                .add_service(service)
-                .serve_with_incoming(tonic::transport::server::TcpIncoming::from(listener)),
-        );
-        let endpoint = Endpoint::parse(&format!("http://127.0.0.1:{port}"))
-            .unwrap()
-            .with_request_timeout(request_timeout);
-        (F1r3flyApi::new(endpoint).unwrap(), include_missing)
-    }
-
-    /// `call`'s output, failing the test instead of hanging it if the call
-    /// outlives every timeout it should have.
-    async fn ends<T>(call: impl std::future::Future<Output = T>) -> T {
-        tokio::time::timeout(Duration::from_secs(5), call)
-            .await
-            .expect("the call ends within its request timeout")
+        MockNode::blocks(answers).serve(request_timeout).await
     }
 
     fn timed_out_after(result: Result<impl std::fmt::Debug>, timeout: Duration) {
@@ -468,7 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_tip_slower_than_two_seconds_prepares_within_a_longer_request_timeout() {
-        let slow = Answer::Tip {
+        let slow = BlockAnswer::Tip {
             headers: Duration::from_millis(2500),
             block: Duration::ZERO,
         };
@@ -479,7 +269,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_tip_stream_slower_than_the_request_timeout_fails_preparation() {
-        let slow_body = Answer::Tip {
+        let slow_body = BlockAnswer::Tip {
             headers: Duration::ZERO,
             block: Duration::from_millis(1500),
         };
@@ -495,7 +285,7 @@ mod tests {
     #[tokio::test]
     async fn a_tip_stream_that_never_ends_fails_preparation() {
         let api = node(
-            [Answer::StalledStream, Answer::StalledStream],
+            [BlockAnswer::StalledStream, BlockAnswer::StalledStream],
             SHORT_TIMEOUT,
         )
         .await;
@@ -508,9 +298,9 @@ mod tests {
     #[tokio::test]
     async fn one_good_tip_sample_is_enough_to_prepare() {
         for answers in [
-            [Answer::Refused, PROMPT_TIP],
-            [Answer::StalledStream, PROMPT_TIP],
-            [PROMPT_TIP, Answer::StalledStream],
+            [BlockAnswer::Refused, PROMPT_TIP],
+            [BlockAnswer::StalledStream, PROMPT_TIP],
+            [PROMPT_TIP, BlockAnswer::StalledStream],
         ] {
             let api = node(answers, SHORT_TIMEOUT).await;
             api.prepare("Nil", &DeployOptions::default()).await.unwrap();
@@ -520,22 +310,19 @@ mod tests {
 
     #[tokio::test]
     async fn a_block_range_stream_that_never_ends_fails_within_the_request_timeout() {
-        let api = node([Answer::StalledStream], SHORT_TIMEOUT).await;
+        let api = node([BlockAnswer::StalledStream], SHORT_TIMEOUT).await;
         timed_out_after(ends(api.get_blocks_by_height(0, 10)).await, SHORT_TIMEOUT);
     }
 
     #[tokio::test]
     async fn a_block_range_reports_the_blocks_the_node_does_not_hold() {
-        let (api, include_missing) = recording_node(
-            [Answer::Missing {
-                pruned_floor: 5,
-                unavailable_floor: 5,
-            }],
-            SHORT_TIMEOUT,
-        )
-        .await;
+        let node = MockNode::blocks([BlockAnswer::Missing {
+            pruned_floor: 5,
+            unavailable_floor: 5,
+        }]);
+        let api = node.serve(SHORT_TIMEOUT).await;
         let answer = api.get_blocks_by_height(0, 10).await.unwrap();
-        assert_eq!(*include_missing.lock().unwrap(), [true]);
+        assert_eq!(node.include_missing(), [true]);
         assert_eq!(answer.blocks.len(), 1);
         assert_eq!(
             answer.pruned,
@@ -566,7 +353,7 @@ mod tests {
     #[tokio::test]
     async fn two_prune_floors_in_one_answer_are_malformed() {
         let api = node(
-            [Answer::Missing {
+            [BlockAnswer::Missing {
                 pruned_floor: 5,
                 unavailable_floor: 6,
             }],
@@ -582,7 +369,7 @@ mod tests {
     #[tokio::test]
     async fn a_main_chain_carrying_a_missing_block_is_malformed() {
         let api = node(
-            [Answer::Missing {
+            [BlockAnswer::Missing {
                 pruned_floor: 5,
                 unavailable_floor: 5,
             }],
