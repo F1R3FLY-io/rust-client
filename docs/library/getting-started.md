@@ -125,6 +125,24 @@ price, or parse a decimal string into `BigUint` for larger values. The CLI's
 `--phlo-price` accepts the same positive range. Prices are encoded as exactly
 32 unsigned big-endian bytes before signing.
 
+`DeployOptions` does not ask the node for anything, so a library caller that
+wants the node's own terms reads them first. `F1r3flyApi::deploy_parameters`
+returns `DeployParameters` from the node's gRPC `Status`, on the connection
+deploys use: `min_phlo_price` (when advertised), `max_phlo_limit` (the shard's
+cap, when advertised) and `native_token_decimals`. `phlo_limit(requested,
+default)` holds a limit to the cap:
+
+```rust
+let parameters = manager.api().deploy_parameters().await?;
+let mut options = DeployOptions::default()
+    .with_phlo_limit(parameters.phlo_limit(None, 500_000)?);
+if let Some(minimum) = parameters.min_phlo_price {
+    options.phlo_price = minimum.max(1u8.into());
+}
+```
+
+The node refuses a deploy priced below its minimum or limited above its cap.
+
 Prices a node reports are uint256 too: `NodeStatus.min_phlo_price` is a
 `BigUint` and `DeployDetail.phlo_price` an `Option<BigUint>`. Stored deploys
 with the old price encoding are rejected; the client never rewrites or
