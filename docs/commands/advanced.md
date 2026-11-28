@@ -198,8 +198,8 @@ adopted the cap yet is an error.
 **Fund the validator's vault first.** The bond is paid for by the key being
 bonded, and the vault must hold `phlo limit × phlo price` **plus** the stake at
 submission. `bond-validator` defaults to a phlo limit of 10,000,000 and the
-deploy node's advertised minimum phlo price (at least 1). An under-funded vault does not reject the deploy: it
-is included in a block and fails there with
+deploy node's advertised minimum phlo price (at least 1). An under-funded vault
+does not reject the deploy: it is included in a block and fails there with
 `systemDeployError: "Deploy payment failed: Insufficient funds"`. See
 [Bonding a validator](../guides/bonding-a-validator.md) for the full sequence.
 
