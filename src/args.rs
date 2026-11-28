@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::commands::CliResult;
 use crate::connection_manager::{DEFAULT_GRPC_URL, DEFAULT_HTTP_URL};
 use crate::endpoint::Endpoint;
-use crate::f1r3fly_api::F1r3flyApi;
+use crate::f1r3fly_api::{DeployParameters, F1r3flyApi};
 use crate::node_http::NodeHttp;
 use crate::signing_key::SigningKey;
 
@@ -403,6 +403,11 @@ pub struct DeployOptionsArgs {
     #[arg(long = "phlo-price", value_parser = crate::amount::parse_price)]
     pub phlo_price: Option<num_bigint::BigUint>,
 
+    /// Refuse the deploy node's automatic price when it is above this ceiling,
+    /// in base units
+    #[arg(long = "max-phlo-price", conflicts_with = "phlo_price", value_parser = crate::amount::parse_price)]
+    pub max_phlo_price: Option<num_bigint::BigUint>,
+
     /// Shard the deploy is signed for: the target node's casper.shard-name
     #[arg(long = "shard-id", env = "FIREFLY_SHARD_ID", default_value = crate::deploy::DEFAULT_SHARD_ID)]
     pub shard_id: String,
@@ -419,30 +424,53 @@ pub struct DeployOptionsArgs {
 }
 
 impl DeployOptionsArgs {
-    /// Resolve regular deploy limits using the cap when the node advertises one.
+    /// Resolve a regular deploy's limit against the shard's cap, when the node
+    /// advertises one.
     pub fn capped_limit(
-        node: &NodeHttp,
-        status: &serde_json::Value,
+        parameters: &DeployParameters,
         requested: Option<u64>,
         default: u64,
     ) -> crate::Result<u64> {
-        match node.max_phlo_limit_from_status(status) {
-            Ok(cap) => crate::deploy::capped_phlo_limit(requested, default, cap),
-            Err(crate::Error::NodeTooOld { .. }) => Ok(requested.unwrap_or(default)),
-            Err(error) => Err(error),
+        match parameters.max_phlo_limit {
+            Some(cap) => crate::deploy::capped_phlo_limit(requested, default, cap),
+            None => Ok(requested.unwrap_or(default)),
         }
     }
 
-    /// Resolve the price from the deploy node's status only if no price was supplied.
+    /// The deploy options these flags describe, resolving the price from the
+    /// node's status only when the caller supplied none.
     pub fn options(
         &self,
         phlo_limit: u64,
-        status: &serde_json::Value,
+        parameters: &DeployParameters,
     ) -> CliResult<crate::deploy::DeployOptions> {
         let phlo_price = match &self.phlo_price {
             Some(price) => price.clone(),
-            None => NodeHttp::min_phlo_price_from_status(status)?
-                .max(crate::deploy::DEFAULT_PHLO_PRICE.into()),
+            None => {
+                let advertised =
+                    parameters
+                        .min_phlo_price
+                        .clone()
+                        .ok_or(crate::Error::NodeTooOld {
+                            endpoint: parameters.endpoint.clone(),
+                            feature: "minPhloPrice in the deploy service status",
+                            requirement: "a node that advertises its minimum phlo price",
+                        })?;
+                let price = advertised.max(crate::deploy::DEFAULT_PHLO_PRICE.into());
+                if let Some(ceiling) = &self.max_phlo_price {
+                    if price > *ceiling {
+                        return Err(crate::Error::invalid(
+                            "phlo price",
+                            format!(
+                                "the node's minimum of {price} is above the ceiling of {ceiling} \
+                                 (--max-phlo-price)"
+                            ),
+                        )
+                        .into());
+                    }
+                }
+                price
+            }
         };
         let expiration = match (self.expiration, self.expires_in) {
             (Some(at), _) => Some(at).filter(|at| *at != 0),
@@ -547,7 +575,7 @@ pub struct DeployArgs {
     pub key: KeyArgs,
 
     #[command(flatten)]
-    pub node: NodeArgs,
+    pub node: GrpcNodeArgs,
 
     /// Most phlo the deploy may spend (default: 50000, capped by the shard)
     #[arg(long = "phlo-limit")]

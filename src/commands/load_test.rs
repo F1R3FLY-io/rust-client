@@ -21,19 +21,21 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     use crate::utils::CryptoUtils;
 
     let node = args.node.node()?;
-    let status = node.get_json("/api/status").await?;
+    let key = args.key.load()?;
+    let api = args
+        .node
+        .api()?
+        .with_signing_key(&key)
+        .with_shard_id(&args.deploy.shard_id);
+    let parameters = api.deploy_parameters().await?;
     let limit = DeployOptionsArgs::capped_limit(
-        &node,
-        &status,
+        &parameters,
         args.phlo_limit,
         crate::vault::TRANSFER_PHLO_LIMIT,
     )?;
+    let options = args.deploy.options(limit, &parameters)?;
     let amount_dust = if args.whole_tokens {
-        let decimals = status
-            .get("nativeTokenDecimals")
-            .and_then(|v| v.as_u64())
-            .and_then(|v| u32::try_from(v).ok())
-            .ok_or("node did not report valid token decimals; cannot convert whole tokens")?;
+        let decimals = crate::commands::whole_token_decimals(&parameters)?;
         crate::vault::tokens_to_dust(&args.amount, decimals)?
     } else {
         crate::vault::parse_amount(&args.amount)?
@@ -49,7 +51,6 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     println!("Target: {}", args.node.grpc);
     println!();
 
-    let key = args.key.load()?;
     let sender_address = CryptoUtils::generate_vault_address(&hex::encode(
         key.public_key().serialize_uncompressed(),
     ))?;
@@ -82,14 +83,6 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
     }
     println!();
     println!();
-    println!();
-
-    // Initialize API once (reuse connection)
-    let api = args
-        .node
-        .api()?
-        .with_signing_key(&key)
-        .with_shard_id(&args.deploy.shard_id);
 
     let mut results = Vec::new();
 
@@ -99,7 +92,6 @@ pub async fn load_test_command(args: &LoadTestArgs) -> CliResult {
         println!();
 
         // Run single test with detailed logging
-        let options = args.deploy.options(limit, &status)?;
         let result = run_single_test(
             &api,
             &node,

@@ -4,6 +4,7 @@
 //! - `grpc::deploy` prepare, submit, deploy, propose
 //! - `grpc::query` exploratory_deploy, get_data_at_deploy_id
 //! - `grpc::blocks` show_main_chain, get_blocks_by_height, is_finalized, tip sampling
+//! - `grpc::status` the deploy parameters the node advertises
 //!
 //! The HTTP client is [`crate::node_http::NodeHttp`]. Values in results decode
 //! to [`RhoValue`].
@@ -206,6 +207,31 @@ pub struct NodeStatus {
     pub epoch_length: Option<i32>,
     #[serde(rename = "maxPhloLimit", default)]
     pub max_phlo_limit: Option<i64>,
+}
+
+/// The deploy parameters a node advertises over `DeployServiceV1.Status`:
+/// the values its admission and validity enforce for a new deploy.
+#[derive(Debug, Clone)]
+pub struct DeployParameters {
+    /// The endpoint that answered.
+    pub endpoint: String,
+    /// The lowest price per phlo the node admits, when it advertises one.
+    pub min_phlo_price: Option<num_bigint::BigUint>,
+    /// The largest phlo limit the shard admits, when the node advertises one.
+    pub max_phlo_limit: Option<u64>,
+    /// Decimals of the native token, for whole-token amounts.
+    pub native_token_decimals: u32,
+}
+
+impl DeployParameters {
+    /// The shard's phlo limit cap. A node that has not adopted the shard's
+    /// parameters, such as one still starting up, advertises none.
+    pub fn phlo_limit_cap(&self) -> Result<u64> {
+        self.max_phlo_limit.ok_or_else(|| Error::NodeNotReady {
+            endpoint: self.endpoint.clone(),
+            parameter: "maxPhloLimit",
+        })
+    }
 }
 
 /// Deploy execution detail from the node's `/api/deploy/{id}` endpoint.

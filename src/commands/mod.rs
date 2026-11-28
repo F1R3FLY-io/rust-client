@@ -11,6 +11,17 @@ pub(crate) fn show(par: &f1r3fly_models::rhoapi::Par) -> String {
     }
 }
 
+/// The native token's decimals, for an amount given in whole tokens. A node
+/// that reports none cannot convert the amount.
+pub(crate) fn whole_token_decimals(
+    parameters: &crate::f1r3fly_api::DeployParameters,
+) -> CliResult<u32> {
+    match parameters.native_token_decimals {
+        0 => Err("node did not report valid token decimals; cannot convert whole tokens".into()),
+        decimals => Ok(decimals),
+    }
+}
+
 pub mod config;
 pub mod crypto;
 pub mod dag;

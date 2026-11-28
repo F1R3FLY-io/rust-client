@@ -255,6 +255,7 @@ fn invalid_prices_and_maximum_charges_fail_before_signing_or_import() {
 fn cli_prices_reject_noncanonical_or_out_of_range_inputs() {
     use clap::Parser;
     use node_cli::args::DeployOptionsArgs;
+    use node_cli::f1r3fly_api::DeployParameters;
     #[derive(Parser)]
     struct Flags {
         #[command(flatten)]
@@ -264,11 +265,17 @@ fn cli_prices_reject_noncanonical_or_out_of_range_inputs() {
         Flags::try_parse_from(["price"]).unwrap().options.phlo_price,
         None
     );
+    let parameters = DeployParameters {
+        endpoint: "http://localhost:40401".to_string(),
+        min_phlo_price: None,
+        max_phlo_limit: None,
+        native_token_decimals: 18,
+    };
     let wide = (BigUint::from(1u8) << 128usize).to_string();
     let options = Flags::try_parse_from(["price", "--phlo-price", &wide])
         .unwrap()
         .options
-        .options(50_000, &serde_json::json!({}))
+        .options(50_000, &parameters)
         .unwrap();
     assert_eq!(options.phlo_price.to_string(), wide);
     for value in [
@@ -288,39 +295,116 @@ fn cli_prices_reject_noncanonical_or_out_of_range_inputs() {
 }
 
 #[cfg(feature = "cli")]
+fn parameters(
+    min_phlo_price: Option<&str>,
+    max_phlo_limit: Option<u64>,
+) -> node_cli::f1r3fly_api::DeployParameters {
+    node_cli::f1r3fly_api::DeployParameters {
+        endpoint: "http://localhost:40401".to_string(),
+        min_phlo_price: min_phlo_price.map(|price| price.parse().unwrap()),
+        max_phlo_limit,
+        native_token_decimals: 18,
+    }
+}
+
+#[cfg(feature = "cli")]
 #[test]
-fn cli_prices_and_limits_resolve_from_one_validator_status() {
+fn cli_prices_and_limits_resolve_from_one_node_status() {
     use clap::Parser;
     use node_cli::args::DeployArgs;
-    use serde_json::json;
 
     let args = DeployArgs::try_parse_from(["deploy", "-f", "contract.rho"]).unwrap();
-    let node = args.node.node().unwrap();
-    let resolve = |status: &serde_json::Value, requested| {
-        node_cli::args::DeployOptionsArgs::capped_limit(&node, status, requested, 50_000)
+    let resolve = |parameters: &node_cli::f1r3fly_api::DeployParameters, requested| {
+        node_cli::args::DeployOptionsArgs::capped_limit(parameters, requested, 50_000)
     };
-    let status = json!({"minPhloPrice": "18446744073709551617", "maxPhloLimit": 30_000});
-    let limit = resolve(&status, args.phlo_limit).unwrap();
-    let options = args.deploy.options(limit, &status).unwrap();
+    let reported = parameters(Some("18446744073709551617"), Some(30_000));
+    let limit = resolve(&reported, args.phlo_limit).unwrap();
+    let options = args.deploy.options(limit, &reported).unwrap();
     assert_eq!(options.phlo_price.to_string(), "18446744073709551617");
     assert_eq!(options.phlo_limit, 30_000);
-    assert_eq!(resolve(&status, Some(12_000)).unwrap(), 12_000);
-    assert!(resolve(&status, Some(30_001))
+    assert_eq!(resolve(&reported, Some(12_000)).unwrap(), 12_000);
+    assert!(resolve(&reported, Some(30_001))
         .unwrap_err()
         .to_string()
         .contains("30001 is above the shard's cap of 30000"));
     assert_eq!(
-        resolve(&json!({"maxPhloLimit": 20_000_000}), None).unwrap(),
+        resolve(&parameters(None, Some(20_000_000)), None).unwrap(),
         50_000
     );
-    assert_eq!(resolve(&json!({}), None).unwrap(), 50_000);
-    assert!(resolve(&json!({"maxPhloLimit": null}), None).is_err());
-    assert!(resolve(&json!({"maxPhloLimit": -1}), None).is_err());
+    assert_eq!(resolve(&parameters(None, None), None).unwrap(), 50_000);
     assert_eq!(
         args.deploy
-            .options(50_000, &json!({"minPhloPrice": "0"}))
+            .options(50_000, &parameters(Some("0"), Some(30_000)))
             .unwrap()
             .phlo_price,
         BigUint::from(1u8)
     );
+    assert!(args
+        .deploy
+        .options(50_000, &parameters(None, Some(30_000)))
+        .is_err());
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn deploy_reaches_the_node_over_grpc_alone() {
+    use clap::Parser;
+    use node_cli::args::DeployArgs;
+
+    DeployArgs::try_parse_from([
+        "deploy",
+        "-f",
+        "contract.rho",
+        "--grpc",
+        "https://validator.example:40401",
+    ])
+    .expect("deploy takes its node over gRPC alone");
+    assert!(
+        DeployArgs::try_parse_from([
+            "deploy",
+            "-f",
+            "contract.rho",
+            "--http",
+            "http://localhost:40403",
+        ])
+        .is_err(),
+        "deploy has no HTTP endpoint to require"
+    );
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn the_automatic_price_never_exceeds_the_caller_ceiling() {
+    use clap::Parser;
+    use node_cli::args::DeployArgs;
+
+    let args =
+        DeployArgs::try_parse_from(["deploy", "-f", "contract.rho", "--max-phlo-price", "10"])
+            .unwrap();
+    let price = |price: &str| {
+        args.deploy
+            .options(50_000, &parameters(Some(price), None))
+            .unwrap()
+            .phlo_price
+    };
+    assert_eq!(price("9"), BigUint::from(9u8));
+    assert_eq!(price("10"), BigUint::from(10u8));
+    let error = args
+        .deploy
+        .options(50_000, &parameters(Some("11"), None))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("minimum of 11"), "{error}");
+    assert!(error.contains("ceiling of 10"), "{error}");
+
+    assert!(DeployArgs::try_parse_from([
+        "deploy",
+        "-f",
+        "contract.rho",
+        "--phlo-price",
+        "5",
+        "--max-phlo-price",
+        "10",
+    ])
+    .is_err());
 }

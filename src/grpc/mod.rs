@@ -3,6 +3,7 @@
 mod blocks;
 mod deploy;
 pub mod query;
+mod status;
 
 use crate::endpoint::Endpoint;
 use crate::error::{Error, Result};

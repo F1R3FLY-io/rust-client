@@ -67,6 +67,7 @@ Data is read AFTER finalization, not before. Reading before finalization can ret
 | `isFinalized` | is_finalized | Checks block finalization |
 | `showMainChain` | show_main_chain, tip sampling | Block queries |
 | `getBlocksByHeights` | get_blocks_by_height | Range queries, with blocks the node names but does not hold (`include_missing`) |
+| `status` | `F1r3flyApi::deploy_parameters` (deploy, deploy-and-wait, transfer, bond-validator, unbond-validator, load-test) | Minimum phlo price, shard phlo cap and native token decimals, read over the deploy connection |
 
 ### HTTP (port 40403 on a node)
 
@@ -77,7 +78,7 @@ Data is read AFTER finalization, not before. Reading before finalization can ret
 | `POST /api/explore-deploy` | NodeHttp::explore_deploy (fetch_pos_snapshot, epoch-rewards) | Read-only node only |
 | `GET /api/balance/{address}` | NodeHttp::balance (wallet-balance, load-test) | Read-only node only |
 | `GET /api/bond-status/{pk}` | bond-status | Bond state for a public key |
-| `GET /api/status` | status, token metadata, tip sampling | Node identity and chain position |
+| `GET /api/status` | status command, `unserved` diagnosis | Node identity and chain position |
 | `GET /metrics` | network-health | Prometheus metrics |
 
 ### WebSocket (the HTTP endpoint; `wss` for `https`)
